@@ -129,6 +129,8 @@ export class AIService {
 
     // DB 컨텍스트 + 이번 generation에서 발생한 tool 결과 (ephemeral, DB 저장 안 함)
     let ephemeralContext = [];
+    const apiRequests = [];
+    const apiResponses = [];
 
     for (let step = 0; step <= maxSteps; step++) {
       const fullContext = [...context, ...ephemeralContext];
@@ -149,12 +151,20 @@ export class AIService {
             args: event.args,
             _rawPart: event._rawPart,
           });
+        } else if (event.type === "api_request") {
+          apiRequests.push(event.data);
+        } else if (event.type === "api_response") {
+          apiResponses.push(event.data);
         }
       }
 
       // tool_call이 없으면 최종 텍스트 응답 → JSON 파싱
       if (toolCalls.length === 0) {
-        return this._parseAIResponse(textBuffer);
+        return {
+          ...this._parseAIResponse(textBuffer),
+          apiRequests,
+          apiResponses,
+        };
       }
 
       // maxSteps 초과 시 루프 탈출
@@ -162,7 +172,11 @@ export class AIService {
         console.warn(
           `[AIService] Tool call loop reached maxSteps (${maxSteps}), forcing stop`,
         );
-        return this._parseAIResponse(textBuffer);
+        return {
+          ...this._parseAIResponse(textBuffer),
+          apiRequests,
+          apiResponses,
+        };
       }
 
       // 툴 실행
@@ -183,7 +197,13 @@ export class AIService {
       );
     }
 
-    return { messages: [], emotionDelta: {}, emotionReason: "" };
+    return {
+      messages: [],
+      emotionDelta: {},
+      emotionReason: "",
+      apiRequests,
+      apiResponses,
+    };
   }
 
   /**

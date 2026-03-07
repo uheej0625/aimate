@@ -97,6 +97,8 @@ export class GeminiProvider {
     { stream = false } = {},
   ) {
     const request = this._buildRequest(context, systemPrompt, toolDeclarations);
+    yield { type: "api_request", data: request };
+
     const maxRetries = this.settings.retryAttempts || 3;
     const retryDelay = this.settings.retryDelay || 2000;
 
@@ -114,6 +116,8 @@ export class GeminiProvider {
           }
         } else {
           const response = await this.ai.models.generateContent(request);
+          yield { type: "api_response", data: response };
+
           const parts = response.candidates?.[0]?.content?.parts ?? [];
 
           for (const part of parts) {

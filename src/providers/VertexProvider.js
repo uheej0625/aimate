@@ -133,6 +133,8 @@ export class VertexProvider {
     { stream = false } = {},
   ) {
     const request = this._buildRequest(context, systemPrompt, toolDeclarations);
+    yield { type: "api_request", data: request };
+
     const model = this._getModel();
     const maxRetries = this.settings.retryAttempts || 3;
     const retryDelay = this.settings.retryDelay || 2000;
@@ -151,6 +153,8 @@ export class VertexProvider {
           }
         } else {
           const result = await model.generateContent(request);
+          yield { type: "api_response", data: result.response };
+
           const parts = result.response?.candidates?.[0]?.content?.parts ?? [];
 
           for (const part of parts) {

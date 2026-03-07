@@ -102,12 +102,27 @@ export class ChatFlow {
         channelRecord,
       );
 
-      // 6. Save emotion data from AI response
+      // 6. Save AI response details (including raw API req/res)
+      const apiRequest =
+        aiResult.apiRequests?.length === 1
+          ? aiResult.apiRequests[0]
+          : aiResult.apiRequests?.length > 1
+            ? aiResult.apiRequests
+            : undefined;
+      const apiResponse =
+        aiResult.apiResponses?.length === 1
+          ? aiResult.apiResponses[0]
+          : aiResult.apiResponses?.length > 1
+            ? aiResult.apiResponses
+            : undefined;
+
       await this.generationRepository.updateDetails(generation.id, {
         responseMessages: aiResult.messages,
         emotionDelta: aiResult.emotionDelta,
         emotionReason: aiResult.emotionReason,
         relationshipDelta: aiResult.relationshipDelta,
+        apiRequest,
+        apiResponse,
       });
 
       // 7. Send each message chunk
