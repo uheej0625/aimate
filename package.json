@@ -30,6 +30,7 @@
     "discord.js": "^14.24.2",
     "dotenv": "^17.2.3",
     "jsdom": "^25.0.1",
+    "nodejs-insta-private-api": "github:uheej0625/nodejs-insta-private-api#5b2c6e0",
     "uuid": "^13.0.0"
   }
 }
