@@ -1,0 +1,8 @@
+node_modules/
+prisma/dev.db
+.env
+test/
+prisma/migrations/
+legacy/
+content/
+docs/

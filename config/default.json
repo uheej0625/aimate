@@ -1,0 +1,77 @@
+{
+  "app": {
+    "name": "DiscordMate",
+    "version": "1.0.0",
+    "environment": "development"
+  },
+  "ai": {
+    "chat": {
+      "provider": "vertex",
+      "model": "gemini-2.5-flash",
+      "stream": true,
+      "systemInstruction": null,
+      "temperature": null,
+      "maxTokens": null,
+      "topP": null,
+      "topK": null,
+      "retryAttempts": 3,
+      "retryDelay": 2000
+    },
+    "embedding": {
+      "provider": "gemini",
+      "model": null,
+      "systemInstruction": null
+    },
+    "summary": {
+      "provider": "gemini",
+      "model": "gemini-3-flash-preview",
+      "systemInstruction": null
+    },
+    "image": {
+      "provider": "novelai",
+      "model": "nai-diffusion-1.5",
+      "systemInstruction": null
+    }
+  },
+  "discord": {
+    "commandPrefix": "!",
+    "botStatus": "online",
+    "activityType": "PLAYING",
+    "activityName": "채팅 중...",
+    "fallbackStatus": "dnd"
+  },
+  "conversation": {
+    "maxContextMessages": 20,
+    "maxHistoryDays": 30,
+    "enableMemory": true,
+    "messageBreakTag": "[BREAK]",
+    "bufferTimeout": 3000,
+    "typingDelayMin": 1000,
+    "typingDelayMax": 2000,
+    "typingDelayPerChar": 60
+  },
+  "logging": {
+    "level": "info",
+    "enableConsole": true,
+    "enableFile": false,
+    "logDirectory": "logs"
+  },
+  "features": {
+    "enableSlashCommands": true,
+    "enableTextCommands": true,
+    "enableDM": true,
+    "enableChannelMention": true
+  },
+  "secrets": {
+    "discordToken": "",
+    "discordClientId": "",
+    "geminiApiKey": "",
+    "vertexProjectId": "",
+    "vertexLocation": "us-central1",
+    "vertexClientEmail": "",
+    "vertexPrivateKey": ""
+  },
+  "tools": {
+    "maxSteps": 5
+  }
+}
