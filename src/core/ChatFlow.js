@@ -14,6 +14,7 @@ export class ChatFlow {
    * @param {import('../repositories/EmotionStateRepository.js').EmotionStateRepository} emotionStateRepository
    * @param {Object} [callbacks]
    * @param {function} [callbacks.onServiceUnavailable] - 503 등 서비스 불가 시 호출되는 콜백
+   * @param {import('../repositories/UserRepository.js').UserRepository} [callbacks.userRepository]
    */
   constructor(
     generationRepository,
@@ -22,7 +23,7 @@ export class ChatFlow {
     messageSender,
     configManager,
     emotionStateRepository,
-    { onServiceUnavailable } = {},
+    { onServiceUnavailable, userRepository } = {},
   ) {
     this.generationRepository = generationRepository;
     this.channelRepository = channelRepository;
@@ -30,6 +31,7 @@ export class ChatFlow {
     this.messageSender = messageSender;
     this.configManager = configManager;
     this.emotionStateRepository = emotionStateRepository;
+    this.userRepository = userRepository ?? null;
     this.onServiceUnavailable = onServiceUnavailable ?? (() => {});
   }
 
@@ -68,7 +70,7 @@ export class ChatFlow {
       });
 
       // 2. Prepare Context
-      const { context, systemInstruction, messageIds } =
+      const { context, systemInstruction, messageIds, currentUserId } =
         await this.aiService.prepareContext(
           channelRecord.id,
           botId,
@@ -105,6 +107,7 @@ export class ChatFlow {
         responseMessages: aiResult.messages,
         emotionDelta: aiResult.emotionDelta,
         emotionReason: aiResult.emotionReason,
+        relationshipDelta: aiResult.relationshipDelta,
       });
 
       // 7. Send each message chunk
@@ -158,6 +161,20 @@ export class ChatFlow {
         console.log(
           `[Emotion] Delta applied to scope "${scope}" — reason: ${aiResult.emotionReason}`,
         );
+      }
+
+      // 10. Apply relationship delta — currentUserId 유저에만 적용
+      if (
+        currentUserId &&
+        this.userRepository &&
+        aiResult.relationshipDelta &&
+        Object.keys(aiResult.relationshipDelta).length > 0
+      ) {
+        await this.userRepository.applyRelationshipDelta(
+          currentUserId,
+          aiResult.relationshipDelta,
+        );
+        console.log(`[Relationship] Delta applied to user "${currentUserId}"`);
       }
     } catch (error) {
       console.error("Error processing response:", error);

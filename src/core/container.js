@@ -11,6 +11,7 @@ import { ContextService } from "../services/ContextService.js";
 import { MessageService } from "../services/MessageService.js";
 import { BotAccountService } from "../services/BotAccountService.js";
 import { CronService } from "../services/CronService.js";
+import { PromptBuilder } from "../services/PromptBuilder.js";
 import { configManager } from "../config/index.js";
 import { MessageHandler } from "./MessageHandler.js";
 import { ConversationBuffer } from "./ConversationBuffer.js";
@@ -62,13 +63,17 @@ export function createContainer(client = null) {
   // Services (business logic layer)
   const contextService = new ContextService(messageRepository);
   const characterLoader = new CharacterLoader();
+  const promptBuilder = new PromptBuilder(
+    characterLoader,
+    emotionStateRepository,
+  );
   const aiService = new AIService(
     contextService,
     configManager,
     toolRegistry,
     toolExecutor,
-    emotionStateRepository,
-    characterLoader,
+    promptBuilder,
+    userRepository,
   );
   const messageService = new MessageService(
     userRepository,
@@ -94,6 +99,7 @@ export function createContainer(client = null) {
     configManager,
     emotionStateRepository,
     {
+      userRepository,
       onServiceUnavailable: async (error, context) => {
         // Discord status update
         if (client) {

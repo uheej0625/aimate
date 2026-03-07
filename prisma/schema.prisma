@@ -11,10 +11,10 @@ model User {
   id          String  @id @default(uuid())
   accounts    PlatformAccount[]
   memories    Memory[]
-  
-  affinity    Int @default(0)
-  tool_result Int @default(0)
-  familiarity Int @default(0)
+
+  affinity    Int @default(30)  // 호감도 (0-100)
+  trust       Int @default(30)  // 신뢰도 (0-100)
+  affection   Int @default(20)  // 애정도 (0-100)
 
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -121,6 +121,7 @@ model Generation {
   responseMessagesJson  String?   // ["msg1", "msg2", ...] - AI가 생성한 메시지 배열
   emotionDeltaJson      String?   // {"attachment":0,"jealousy":0,...} - 감정 변화량
   emotionReason         String?   // emotion shift reason (english)
+  relationshipDeltaJson String?   // {"affinity":0,"trust":0,"affection":0} - 관계 변화량
   
   messages          Message[]
   

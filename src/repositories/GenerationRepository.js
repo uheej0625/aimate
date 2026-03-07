@@ -103,6 +103,7 @@ export class GenerationRepository {
    * @param {string[]} [details.responseMessages] - AI가 생성한 메시지 배열
    * @param {Object} [details.emotionDelta] - 감정 변화량 object
    * @param {string} [details.emotionReason] - emotion shift reason
+   * @param {Object} [details.relationshipDelta] - 관계 변화량 object
    * @returns {Promise<Object>}
    */
   async updateDetails(generationId, details) {
@@ -113,6 +114,7 @@ export class GenerationRepository {
       responseMessages,
       emotionDelta,
       emotionReason,
+      relationshipDelta,
     } = details;
 
     return await prisma.generation.update({
@@ -128,6 +130,9 @@ export class GenerationRepository {
           ? JSON.stringify(emotionDelta)
           : undefined,
         emotionReason: emotionReason ?? undefined,
+        relationshipDeltaJson: relationshipDelta
+          ? JSON.stringify(relationshipDelta)
+          : undefined,
       },
     });
   }

@@ -3,8 +3,8 @@ import path from "path";
 import { GeminiProvider } from "../providers/GeminiProvider.js";
 import { VertexProvider } from "../providers/VertexProvider.js";
 import { ScopeKey } from "../repositories/EmotionStateRepository.js";
-import { EMOTION_KEYS } from "../engines/emotion/EmotionEngine.js";
 import { CharacterLoader } from "../loaders/CharacterLoader.js";
+import { PromptBuilder } from "./PromptBuilder.js";
 
 export class AIService {
   /**
@@ -12,23 +12,24 @@ export class AIService {
    * @param {import('../config/ConfigManager.js').default} configManager
    * @param {import('../tools/ToolRegistry.js').ToolRegistry} [toolRegistry]
    * @param {import('../tools/ToolExecutor.js').ToolExecutor} [toolExecutor]
-   * @param {import('../repositories/EmotionStateRepository.js').EmotionStateRepository} [emotionStateRepository]
-   * @param {CharacterLoader} [characterLoader]
+   * @param {import('./PromptBuilder.js').PromptBuilder} [promptBuilder]
+   * @param {import('../repositories/UserRepository.js').UserRepository} [userRepository]
    */
   constructor(
     contextService,
     configManager,
     toolRegistry = null,
     toolExecutor = null,
-    emotionStateRepository = null,
-    characterLoader = null,
+    promptBuilder = null,
+    userRepository = null,
   ) {
     this.configManager = configManager;
     this.contextService = contextService;
     this.toolRegistry = toolRegistry;
     this.toolExecutor = toolExecutor;
-    this.emotionStateRepository = emotionStateRepository;
-    this.characterLoader = characterLoader || new CharacterLoader();
+    this.promptBuilder =
+      promptBuilder ?? new PromptBuilder(new CharacterLoader());
+    this.userRepository = userRepository;
 
     this.chatModel = this.createModel("chat");
     //this.summaryModel = this.createModel("summary");
@@ -43,7 +44,7 @@ export class AIService {
    * @param {string} botId
    * @param {Object} [channelRecord] - 내부 Channel 레코드 (emotion state 조회용)
    * @param {string} [cronMessage] - Cron job에서 전달되는 시스템 메시지 (선택)
-   * @returns {Promise<{context: Array, systemInstruction: string, messageIds: Array}>}
+   * @returns {Promise<{context: Array, systemInstruction: string, messageIds: Array, currentUserId: string|null}>}
    */
   async prepareContext(
     channelId,
@@ -51,19 +52,37 @@ export class AIService {
     channelRecord = null,
     cronMessage = null,
   ) {
-    const { context, messageIds } = await this.contextService.buildContext(
-      channelId,
-      botId,
-      cronMessage,
-    );
+    const { context, messageIds, lastUserPlatformAccountId } =
+      await this.contextService.buildContext(channelId, botId, cronMessage);
+
+    // 마지막 유저의 관계 상태 조회
+    let currentUserId = null;
+    let relationshipState = null;
+    if (this.userRepository && lastUserPlatformAccountId) {
+      try {
+        const user = await this.userRepository.findByPlatformAccountId(
+          lastUserPlatformAccountId,
+        );
+        if (user) {
+          currentUserId = user.id;
+          relationshipState = user;
+        }
+      } catch (e) {
+        console.warn(
+          "[AIService] Failed to load relationship state:",
+          e.message,
+        );
+      }
+    }
 
     const template = await this.loadSystemInstruction();
-    const systemInstruction = await this._buildSystemInstruction(
+    const systemInstruction = await this.promptBuilder.build(
       template,
       channelRecord,
+      relationshipState,
     );
 
-    return { context, systemInstruction, messageIds };
+    return { context, systemInstruction, messageIds, currentUserId };
   }
 
   /**
@@ -185,6 +204,7 @@ export class AIService {
         messages: Array.isArray(parsed.messages) ? parsed.messages : [text],
         emotionDelta: parsed.emotion_delta ?? {},
         emotionReason: parsed.emotion_reason ?? "",
+        relationshipDelta: parsed.relationship_delta ?? {},
       };
     } catch (e) {
       console.warn(
@@ -195,6 +215,7 @@ export class AIService {
         messages: [text.trim()],
         emotionDelta: {},
         emotionReason: "",
+        relationshipDelta: {},
       };
     }
   }
@@ -221,15 +242,21 @@ export class AIService {
    * 시스템 프롬프트 템플릿의 변수를 실제 값으로 치환한다.
    *
    * 치환 대상:
-   *   {character}      - 캐릭터 마크다운 파일 내용
-   *   {emotionalState} - 채널 스코프 감정 수치 (없으면 기본값)
-   *   {currentTime}    - 현재 시각 (로컬)
+   *   {character}         - 캐릭터 마크다운 파일 내용
+   *   {emotionalState}    - 채널 스코프 감정 수치 (없으면 기본값)
+   *   {relationshipState} - 유저별 관계 수치 (없으면 기본값)
+   *   {currentTime}       - 현재 시각 (로컬)
    *
    * @param {string} template - 시스템 프롬프트 템플릿
    * @param {Object|null} channelRecord - 내부 Channel 레코드
+   * @param {Object|null} userRecord - 현재 유저의 User 레코드
    * @returns {Promise<string>}
    */
-  async _buildSystemInstruction(template, channelRecord = null) {
+  async _buildSystemInstruction(
+    template,
+    channelRecord = null,
+    userRecord = null,
+  ) {
     // {character} - CharacterLoader를 사용하여 동적 템플릿 렌더링
     const character = await this.characterLoader.load();
 
@@ -269,9 +296,17 @@ export class AIService {
       minute: "2-digit",
     });
 
+    // {relationshipState} — userRecord에서 관계 수치 로드
+    const relationshipState = RELATIONSHIP_KEYS.map((k) => {
+      const defaults = { affinity: 30, trust: 30, affection: 20 };
+      const v = userRecord?.[k];
+      return `${k}: ${typeof v === "number" ? v : defaults[k]}`;
+    }).join("\n");
+
     return template
       .replace("{character}", character)
       .replace("{emotionalState}", emotionalState)
+      .replace("{relationshipState}", relationshipState)
       .replace("{currentTime}", currentTime);
   }
 

@@ -11,7 +11,7 @@ export class ContextService {
    * @param {string} channelId - Internal channel ID
    * @param {string} botId - Bot's platform user ID (platformId)
    * @param {string} [cronMessage] - Cron job에서 전달되는 시스템 메시지 (선택)
-   * @returns {Promise<{context: Array, messageIds: Array<string>}>}
+   * @returns {Promise<{context: Array, messageIds: Array<string>, lastUserPlatformAccountId: string|null}>}
    */
   async buildContext(channelId, botId, cronMessage = null) {
     const context = [];
@@ -45,7 +45,16 @@ export class ContextService {
 
     const messageIds = this.extractPendingMessageIds(history, botId);
 
-    return { context, messageIds };
+    // 마지막으로 메시지를 보낸 유저의 PlatformAccount ID 추출
+    let lastUserPlatformAccountId = null;
+    for (let i = history.length - 1; i >= 0; i--) {
+      if (history[i].authorPlatformId !== botId) {
+        lastUserPlatformAccountId = history[i].authorId;
+        break;
+      }
+    }
+
+    return { context, messageIds, lastUserPlatformAccountId };
   }
 
   /**

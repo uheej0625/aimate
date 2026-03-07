@@ -41,6 +41,9 @@ export default {
     const emotionDelta = gen.emotionDeltaJson
       ? JSON.parse(gen.emotionDeltaJson)
       : null;
+    const relationshipDelta = gen.relationshipDeltaJson
+      ? JSON.parse(gen.relationshipDeltaJson)
+      : null;
     const contextMessageIds = gen.messageIdsJson
       ? JSON.parse(gen.messageIdsJson)
       : [];
@@ -104,6 +107,21 @@ export default {
         embed.addFields({
           name: "감정 변화",
           value: deltaText,
+          inline: true,
+        });
+      }
+    }
+
+    // 관계 변화
+    if (relationshipDelta) {
+      const relText = Object.entries(relationshipDelta)
+        .filter(([, v]) => v !== 0)
+        .map(([k, v]) => `${k}: ${v > 0 ? "+" : ""}${v}`)
+        .join(", ");
+      if (relText) {
+        embed.addFields({
+          name: "관계 변화",
+          value: relText,
           inline: true,
         });
       }
