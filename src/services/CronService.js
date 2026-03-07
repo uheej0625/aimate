@@ -6,18 +6,20 @@
  * - 실행 시각이 된 job을 찾아서 실행
  * - AI에게 전달할 메시지를 채널에 주입
  */
+import { adaptChannel } from "../platforms/discord/adapter.js";
+
 export class CronService {
   /**
    * @param {import('../repositories/CronJobRepository.js').CronJobRepository} cronJobRepository
    * @param {import('../core/ConversationBuffer.js').ConversationBuffer} conversationBuffer
-   * @param {Object} platformClients - 플랫폼별 클라이언트 맵 { discord: client, ... }
+   * @param {Map<string, any>} platformClients - 플랫폼별 클라이언트 맵
    * @param {Object} [options]
    * @param {number} [options.pollInterval] - 폴링 간격 (ms, 기본값 60000 = 1분)
    */
   constructor(
     cronJobRepository,
     conversationBuffer,
-    platformClients = {},
+    platformClients = new Map(),
     { pollInterval = 60000 } = {},
   ) {
     this.cronJobRepository = cronJobRepository;
@@ -107,7 +109,7 @@ export class CronService {
     try {
       // 1. 플랫폼별 채널 객체 가져오기
       const platform = job.platform;
-      const client = this.platformClients[platform];
+      const client = this.platformClients.get(platform);
 
       if (!client) {
         console.error(
@@ -120,7 +122,8 @@ export class CronService {
       // 2. 채널 객체 가져오기
       let channel;
       if (platform === "discord") {
-        channel = await client.channels.fetch(job.channel.platformId);
+        const rawChannel = await client.channels.fetch(job.channel.platformId);
+        channel = adaptChannel(rawChannel);
       } else if (platform === "cli") {
         // CLI는 특별 처리 (임시로 job.channel을 그대로 사용)
         channel = job.channel;

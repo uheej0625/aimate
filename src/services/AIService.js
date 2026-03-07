@@ -52,12 +52,13 @@ export class AIService {
     channelRecord = null,
     cronMessage = null,
   ) {
-    const { context, messageIds, lastUserPlatformAccountId } =
-      await this.contextService.buildContext(channelId, botId, cronMessage);
+    // 1. DB에서 히스토리 로드 (단일 쿼리)
+    const { history, messageIds, lastUserPlatformAccountId } =
+      await this.contextService.fetchHistoryData(channelId, botId);
 
-    // 마지막 유저의 관계 상태 조회
+    // 2. 마지막 유저의 관계 상태 조회
     let currentUserId = null;
-    let relationshipState = null;
+    let userRecord = null;
     if (this.userRepository && lastUserPlatformAccountId) {
       try {
         const user = await this.userRepository.findByPlatformAccountId(
@@ -65,7 +66,7 @@ export class AIService {
         );
         if (user) {
           currentUserId = user.id;
-          relationshipState = user;
+          userRecord = user;
         }
       } catch (e) {
         console.warn(
@@ -75,11 +76,29 @@ export class AIService {
       }
     }
 
-    const template = await this.loadSystemInstruction();
+    // 3. 시스템 인스트럭션 빌드
+    const sysTemplate = await this.loadSystemInstruction();
     const systemInstruction = await this.promptBuilder.build(
-      template,
+      sysTemplate,
       channelRecord,
-      relationshipState,
+      userRecord,
+    );
+
+    // 4. 실험 프롬프트 part1(변수 치환), part2(정적) 로드
+    const { part1Template, part2Template } = await this.loadContextParts();
+    const part1 = await this.promptBuilder.build(
+      part1Template,
+      channelRecord,
+      userRecord,
+    );
+
+    // 5. 컨텍스트 조립: [part1] → [히스토리] → [cronMessage?] → [part2]
+    const context = this.contextService.assembleContext(
+      history,
+      botId,
+      cronMessage,
+      part1,
+      part2Template,
     );
 
     return { context, systemInstruction, messageIds, currentUserId };
@@ -248,7 +267,7 @@ export class AIService {
     if (!this.systemInstruction) {
       const systemInstructionPath = path.join(
         process.cwd(),
-        "content/prompts/system/default.md",
+        "content/prompts/experiment/system.md",
       );
       this.systemInstruction = await fs.readFile(
         systemInstructionPath,
@@ -256,6 +275,19 @@ export class AIService {
       );
     }
     return this.systemInstruction;
+  }
+
+  /**
+   * 실험 프롬프트 part1, part2 템플릿을 로드한다.
+   * @returns {Promise<{part1Template: string, part2Template: string}>}
+   */
+  async loadContextParts() {
+    const base = path.join(process.cwd(), "content/prompts/experiment");
+    const [part1Template, part2Template] = await Promise.all([
+      fs.readFile(path.join(base, "part1.md"), "utf-8"),
+      fs.readFile(path.join(base, "part2.md"), "utf-8"),
+    ]);
+    return { part1Template, part2Template };
   }
 
   /**
