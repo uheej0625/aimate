@@ -6,7 +6,8 @@
  * - 실행 시각이 된 job을 찾아서 실행
  * - AI에게 전달할 메시지를 채널에 주입
  */
-import { adaptChannel } from "../platforms/discord/adapter.js";
+import { adaptChannel as adaptDiscordChannel } from "../platforms/discord/adapter.js";
+import { adaptChannel as adaptInstagramChannel } from "../platforms/instagram/adapter.js";
 
 export class CronService {
   /**
@@ -123,7 +124,13 @@ export class CronService {
       let channel;
       if (platform === "discord") {
         const rawChannel = await client.channels.fetch(job.channel.platformId);
-        channel = adaptChannel(rawChannel);
+        channel = adaptDiscordChannel(rawChannel);
+      } else if (platform === "instagram") {
+        channel = adaptInstagramChannel(
+          job.channel.platformId,
+          client.realtime,
+          client.user.id,
+        );
       } else if (platform === "cli") {
         // CLI는 특별 처리 (임시로 job.channel을 그대로 사용)
         channel = job.channel;
