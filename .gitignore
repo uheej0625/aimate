@@ -1,8 +1,9 @@
 node_modules/
 prisma/dev.db
 .env
-test/
+tests/
 prisma/migrations/
 legacy/
 content/
 docs/
+auth_info_instagram/

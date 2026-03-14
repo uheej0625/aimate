@@ -29,8 +29,10 @@ export class MessageHandler {
    */
   async handle(message) {
     try {
+      const botId = message.client.user.id;
+
       // 1. Filter (봇 자신 / 빈 메시지 / 미활성화 채널 제외)
-      if (!(await this.shouldHandle(message, message.client.user.id))) return;
+      if (!(await this.shouldHandle(message, botId))) return;
 
       // 3. Save user message immediately and get channel record
       const channelRecord = await this.saveMessage(message);
@@ -40,11 +42,7 @@ export class MessageHandler {
       await this.generationRepository.cancelProcessing(channelRecord.id);
 
       // 5. Add to Buffer
-      this.conversationBuffer.add(
-        message.channelId,
-        message.channel,
-        message.client.user.id,
-      );
+      this.conversationBuffer.add(message.channelId, message.channel, botId);
     } catch (error) {
       console.error("MessageHandler Error:", error);
     }
@@ -54,7 +52,7 @@ export class MessageHandler {
    * Determine if the message should be handled.
    * 봇 자신·빈 메시지 필터링 + 채널 활성화 여부 확인을 함께 처리한다.
    * @param {Object} message
-   * @param {string} botId - Bot's user ID
+   * @param {string} botId - Bot's platform ID
    * @returns {Promise<boolean>}
    */
   async shouldHandle(message, botId) {
