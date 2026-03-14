@@ -226,28 +226,61 @@ export class AIService {
   }
 
   /**
-   * AI 텍스트 응답을 JSON으로 파싱한다.
+   * AI 텍스트 응답을 마크다운 포맷으로 파싱한다.
    * @param {string} text - AI 응답 텍스트
-   * @returns {{messages: string[], emotionDelta: Object, emotionReason: string}}
+   * @returns {{messages: string[], emotionDelta: Object, emotionReason: string, relationshipDelta: Object}}
    */
   _parseAIResponse(text) {
     try {
-      // 코드 블록 마커 제거 (```json ... ```)
-      const cleaned = text
-        .replace(/^```(?:json)?\s*/i, "")
-        .replace(/\s*```$/, "")
-        .trim();
-      const parsed = JSON.parse(cleaned);
-
-      return {
-        messages: Array.isArray(parsed.messages) ? parsed.messages : [text],
-        emotionDelta: parsed.emotion_delta ?? {},
-        emotionReason: parsed.emotion_reason ?? "",
-        relationshipDelta: parsed.relationship_delta ?? {},
+      const parsed = {
+        messages: [],
+        emotionDelta: {},
+        emotionReason: "",
+        relationshipDelta: {},
       };
+
+      const messagesMatch = text.match(/## messages\s*\n([\s\S]*?)(?=\n##|$)/i);
+      const emotionDeltaMatch = text.match(
+        /## emotion_delta\s*\n([\s\S]*?)(?=\n##|$)/i,
+      );
+      const emotionReasonMatch = text.match(
+        /## emotion_reason\s*\n([\s\S]*?)(?=\n##|$)/i,
+      );
+      const relationshipDeltaMatch = text.match(
+        /## relationship_delta\s*\n([\s\S]*?)(?=\n##|$)/i,
+      );
+
+      if (messagesMatch) {
+        parsed.messages = messagesMatch[1]
+          .split("[BREAK]")
+          .map((m) => m.trim())
+          .filter((m) => m.length > 0);
+      } else {
+        parsed.messages = [text.trim()];
+      }
+
+      const parseKeyValueLines = (matchResult, targetObj) => {
+        if (!matchResult) return;
+        const lines = matchResult[1].trim().split("\n");
+        for (const line of lines) {
+          const [key, value] = line.split(":");
+          if (key && value) {
+            targetObj[key.trim()] = parseInt(value.trim(), 10) || 0;
+          }
+        }
+      };
+
+      parseKeyValueLines(emotionDeltaMatch, parsed.emotionDelta);
+      parseKeyValueLines(relationshipDeltaMatch, parsed.relationshipDelta);
+
+      if (emotionReasonMatch) {
+        parsed.emotionReason = emotionReasonMatch[1].trim();
+      }
+
+      return parsed;
     } catch (e) {
       console.warn(
-        "[AIService] Failed to parse AI response as JSON, using raw text:",
+        "[AIService] Failed to parse AI response as Markdown, using raw text:",
         e.message,
       );
       return {
