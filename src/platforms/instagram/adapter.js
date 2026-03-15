@@ -12,9 +12,17 @@
  * @param {Object} data.message - 메시지 객체
  * @param {Object} realtimeClient - RealtimeClient 인스턴스
  * @param {string} botPlatformId - 봇의 Instagram platform ID
+ * @param {Object} [userInfo] - { username, globalName } (옵션)
+ * @param {string} [botUsername] - 봇의 Instagram username (옵션)
  * @returns {import('../../../docs/message-format').AdaptedMessage}
  */
-export function adaptMessage(data, realtimeClient, botPlatformId) {
+export function adaptMessage(
+  data,
+  realtimeClient,
+  botPlatformId,
+  userInfo = null,
+  botUsername = null,
+) {
   const msg = data.message;
   const threadId = msg.thread_id;
   const senderId = String(
@@ -29,12 +37,14 @@ export function adaptMessage(data, realtimeClient, botPlatformId) {
     guildId: null, // Instagram DM에는 서버/길드 개념 없음
     author: {
       id: senderId,
-      username: senderId, // 실시간 이벤트에는 username 없음
-      globalName: null,
+      username: userInfo?.username ?? senderId, // 실시간 이벤트에는 username 없음
+      globalName: userInfo?.globalName ?? null,
       bot: false,
     },
-    channel: adaptChannel(threadId, realtimeClient, botPlatformId),
-    client: { user: { id: botPlatformId } },
+    channel: adaptChannel(threadId, realtimeClient, botPlatformId, botUsername),
+    client: {
+      user: { id: botPlatformId, username: botUsername ?? botPlatformId },
+    },
   };
 }
 
@@ -44,9 +54,15 @@ export function adaptMessage(data, realtimeClient, botPlatformId) {
  * @param {string} threadId - Instagram DM thread ID
  * @param {Object} realtimeClient - RealtimeClient 인스턴스
  * @param {string} botPlatformId - 봇의 Instagram platform ID
+ * @param {string} [botUsername] - 봇의 Instagram username (옵션)
  * @returns {import('../../../docs/message-format').AdaptedChannel}
  */
-export function adaptChannel(threadId, realtimeClient, botPlatformId) {
+export function adaptChannel(
+  threadId,
+  realtimeClient,
+  botPlatformId,
+  botUsername = null,
+) {
   return {
     id: threadId,
     type: 1, // DM
@@ -66,12 +82,19 @@ export function adaptChannel(threadId, realtimeClient, botPlatformId) {
         guildId: null,
         author: {
           id: botPlatformId,
-          username: botPlatformId,
+          username: botUsername ?? botPlatformId,
           globalName: null,
           bot: true,
         },
-        channel: adaptChannel(threadId, realtimeClient, botPlatformId),
-        client: { user: { id: botPlatformId } },
+        channel: adaptChannel(
+          threadId,
+          realtimeClient,
+          botPlatformId,
+          botUsername,
+        ),
+        client: {
+          user: { id: botPlatformId, username: botUsername ?? botPlatformId },
+        },
       };
     },
     sendTyping: async () => {

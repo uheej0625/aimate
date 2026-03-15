@@ -203,14 +203,17 @@ export class ChatFlow {
         }
       }
 
-      // Check if it's a 503 error
-      const is503 =
+      // Check if it's a 503 (Gemini) or 429 (Vertex) error
+      const isOverloaded =
         error.status === 503 ||
-        (error.message && error.message.includes('"code": 503'));
+        error.status === 429 ||
+        (error.message &&
+          (error.message.includes('"code": 503') ||
+            error.message.includes('"code": 429')));
 
-      if (is503) {
-        // 503 error: 플랫폼별 콜백으로 처리 위임
-        console.log("503 Service Unavailable error detected.");
+      if (isOverloaded) {
+        // 503/429 error: 플랫폼별 콜백으로 처리 위임
+        console.log("503/429 Service Unavailable/Overloaded error detected.");
         try {
           await this.onServiceUnavailable(error, {
             channelRecord,
@@ -219,7 +222,7 @@ export class ChatFlow {
         } catch (callbackError) {
           console.error("Failed to handle service unavailable:", callbackError);
         }
-        // Don't send error message to user for 503 errors
+        // Don't send error message to user for 503/429 errors
       } else {
         // For other errors, notify user
         try {

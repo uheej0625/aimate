@@ -11,7 +11,7 @@ export default {
    * @param {Object} context - { realtime, userId, services }
    */
   async execute(data, context) {
-    const { realtime, userId, services } = context;
+    const { realtime, userId, services, ig } = context;
     const msg = data.message;
 
     // 텍스트가 없는 메시지(사진, 비디오, 리액션 등)는 무시
@@ -24,7 +24,48 @@ export default {
       serverId: null,
     });
 
-    const adapted = adaptMessage(data, realtime, userId);
+    const senderId = String(
+      msg.from_user_id ?? msg.user_id ?? msg.sender_id ?? "unknown",
+    );
+    let userInfo = null;
+
+    if (senderId !== "unknown" && ig) {
+      try {
+        // 기존 DB에 handle이 제대로 저장되어 있는지 확인
+        const account =
+          await services.platformAccountRepository.findByPlatformId(
+            "instagram",
+            senderId,
+          );
+
+        if (account && account.handle && account.handle !== senderId) {
+          userInfo = {
+            username: account.handle,
+            globalName: account.displayName,
+          };
+        } else {
+          // DB에 없거나 handle이 senderId(초기값)와 같으면 IG API로 조회
+          const igUser = await ig.user.info(senderId);
+          userInfo = {
+            username: igUser.username || senderId,
+            globalName: igUser.full_name || null,
+          };
+        }
+      } catch (err) {
+        console.warn(
+          `[Instagram] Failed to fetch user info for ${senderId}:`,
+          err.message,
+        );
+      }
+    }
+
+    const adapted = adaptMessage(
+      data,
+      realtime,
+      userId,
+      userInfo,
+      context.username,
+    );
     await services.messageHandler.handle(adapted);
   },
 };

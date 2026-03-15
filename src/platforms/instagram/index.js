@@ -60,6 +60,7 @@ const main = async () => {
       userId,
       username,
       services: container,
+      ig,
     };
 
     await loadEvents(realtime, eventContext);
