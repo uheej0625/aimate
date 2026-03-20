@@ -1,13 +1,26 @@
+import os from "os";
+import { execSync } from "child_process";
+
+// Windows 환경에서 터미널의 코드 페이지를 UTF-8로 변경 (로그 한글 깨짐 방지용)
+if (os.platform() === "win32") {
+  try {
+    execSync("chcp 65001", { stdio: "ignore" });
+  } catch (e) {}
+}
+
 import { configManager } from "./config/index.js";
 import client from "./platforms/discord/client.js";
 import { loadEvents } from "./platforms/discord/handlers/eventHandler.js";
 import { loadCommands } from "./platforms/discord/handlers/commandHandler.js";
 import { createContainer } from "./core/container.js";
 import { registerShutdown } from "./core/shutdown.js";
+import { createLogger } from "./core/logger.js";
+
+const logger = createLogger("App");
 
 const main = async () => {
   try {
-    console.log("🚀 Starting DiscordMate...");
+    logger.info("Starting DiscordMate");
 
     // Initialize DI Container
     const container = createContainer(client);
@@ -31,15 +44,12 @@ const main = async () => {
     // Start CronService
     if (container.cronService) {
       container.cronService.start();
-      console.log("⏰ CronService started");
     }
 
     // Login
     await client.login(configManager.get("secrets.discordToken"));
-
-    console.log("✅ Bot successfully started!");
   } catch (error) {
-    console.error("❌ Failed to start bot:", error);
+    logger.fatal({ err: error }, "Failed to start bot");
     process.exit(1);
   }
 };

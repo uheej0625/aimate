@@ -21,6 +21,9 @@ import { ToolRegistry } from "../tools/ToolRegistry.js";
 import { ToolExecutor } from "../tools/ToolExecutor.js";
 import { allTools } from "../tools/index.js";
 import { CharacterLoader } from "../loaders/CharacterLoader.js";
+import { createLogger } from "./logger.js";
+
+const logger = createLogger("Container");
 
 /**
  * Dependency Injection Container
@@ -106,7 +109,7 @@ export function createContainer(client = null) {
           const fallbackStatus =
             configManager.get("discord.fallbackStatus") || "dnd";
           await client.user.setStatus(fallbackStatus);
-          console.log(`Bot status changed to: ${fallbackStatus}`);
+          logger.info({ status: fallbackStatus }, "Bot status changed");
         }
 
         // Schedule retry cron job if cronService is available
@@ -117,12 +120,12 @@ export function createContainer(client = null) {
               context.platform,
               0, // retryCount starts at 0
             );
-            console.log(
-              "[503 Handler] Retry cron job scheduled for channel:",
-              context.channelRecord.id,
+            logger.info(
+              { channelId: context.channelRecord.id },
+              "Retry cron job scheduled",
             );
           } catch (cronError) {
-            console.error("[503 Handler] Failed to schedule retry:", cronError);
+            logger.error({ err: cronError }, "Failed to schedule retry");
           }
         }
       },

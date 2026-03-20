@@ -1,5 +1,8 @@
 import fs from "fs/promises";
 import path from "path";
+import { createLogger } from "../core/logger.js";
+
+const logger = createLogger("CharacterLoader");
 
 /**
  * CharacterLoader - 캐릭터 프로필과 동적 변수를 로드하고 템플릿을 렌더링
@@ -31,8 +34,9 @@ export class CharacterLoader {
       const variablesContent = await fs.readFile(this.variablesPath, "utf-8");
       variables = JSON.parse(variablesContent);
     } catch (error) {
-      console.warn(
-        `[CharacterLoader] variables.json을 찾을 수 없거나 파싱 실패: ${error.message}`,
+      logger.warn(
+        { err: error },
+        "variables.json을 찾을 수 없거나 파싱 실패",
       );
     }
 
@@ -85,9 +89,9 @@ export class CharacterLoader {
         const result = this._evaluateExpression(expression.trim(), context);
         return result !== undefined ? String(result) : match;
       } catch (error) {
-        console.warn(
-          `[CharacterLoader] 표현식 평가 실패: ${expression}`,
-          error.message,
+        logger.warn(
+          { expression, err: error },
+          "표현식 평가 실패",
         );
         return match; // 실패하면 원본 유지
       }

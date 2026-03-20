@@ -1,4 +1,7 @@
 import { Client, GatewayIntentBits, Collection, Partials } from "discord.js";
+import { createLogger } from "../../core/logger.js";
+
+const logger = createLogger("DiscordClient");
 
 // Discord 클라이언트 생성
 const client = new Client({
@@ -17,11 +20,11 @@ client.commands = new Collection();
 
 // 에러 처리
 client.on("error", (error) => {
-  console.error("Discord client error:", error);
+  logger.error({ err: error }, "Discord client error");
 });
 
 process.on("unhandledRejection", (error) => {
-  console.error("Unhandled promise rejection:", error);
+  logger.error({ err: error }, "Unhandled promise rejection");
 });
 
 export default client;

@@ -15,10 +15,13 @@ import { createContainer } from "../../core/container.js";
 import { registerShutdown } from "../../core/shutdown.js";
 import { createInstagramClient } from "./client.js";
 import { loadEvents } from "./handlers/eventHandler.js";
+import { createLogger } from "../../core/logger.js";
+
+const logger = createLogger("Instagram");
 
 const main = async () => {
   try {
-    console.log("🚀 Starting AiMate (Instagram)...");
+    logger.info("🚀 Starting AiMate (Instagram)...");
 
     const username = configManager.get("secrets.instagramUsername");
     const password = configManager.get("secrets.instagramPassword");
@@ -74,7 +77,7 @@ const main = async () => {
     // 5. CronService 시작
     if (container.cronService) {
       container.cronService.start();
-      console.log("⏰ CronService started");
+      logger.info("⏰ CronService started");
     }
 
     // 6. 봇 계정 초기화 (connected 이벤트에서도 하지만 여기서도 보장)
@@ -86,16 +89,16 @@ const main = async () => {
         displayName: username,
       });
     } catch (error) {
-      console.error(
-        "[Instagram] Failed to initialize bot platform account:",
-        error,
+      logger.error(
+        { err: error },
+        "Failed to initialize bot platform account",
       );
     }
 
-    console.log("✅ Instagram bot successfully started!");
-    console.log("📨 Listening for DMs...");
+    logger.info("✅ Instagram bot successfully started!");
+    logger.info("📨 Listening for DMs...");
   } catch (error) {
-    console.error("❌ Failed to start Instagram bot:", error);
+    logger.fatal({ err: error }, "❌ Failed to start Instagram bot");
     process.exit(1);
   }
 };

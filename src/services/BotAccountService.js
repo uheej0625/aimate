@@ -1,3 +1,7 @@
+import { createLogger } from "../core/logger.js";
+
+const logger = createLogger("BotAccountService");
+
 /**
  * 봇 플랫폼 계정 초기화 서비스.
  * Discord, CLI 등 모든 플랫폼에서 공통으로 사용한다.
@@ -47,8 +51,9 @@ export class BotAccountService {
       displayName,
     });
 
-    console.log(
-      `🤖 Bot platform account ${created ? "created" : "updated"}: ${account.id}`,
+    logger.info(
+      { accountId: account.id, created },
+      "Bot platform account initialized",
     );
 
     return { account, created };

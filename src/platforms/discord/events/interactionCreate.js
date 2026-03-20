@@ -1,4 +1,7 @@
 import { Events } from "discord.js";
+import { createLogger } from "../../../core/logger.js";
+
+const logger = createLogger("Discord:Interaction");
 
 /**
  * InteractionCreate 이벤트
@@ -17,17 +20,24 @@ export default {
     const command = client.commands.get(interaction.commandName);
 
     if (!command) {
-      console.error(`❌ Command not found: ${interaction.commandName}`);
+      logger.error(
+        { commandName: interaction.commandName },
+        "Command not found",
+      );
       return;
     }
 
     try {
       await command.execute(interaction);
-      console.log(
-        `✅ ${interaction.user.tag} used /${interaction.commandName}`,
+      logger.info(
+        { user: interaction.user.tag, command: interaction.commandName },
+        "Command executed",
       );
     } catch (error) {
-      console.error(`❌ Error executing ${interaction.commandName}:`, error);
+      logger.error(
+        { err: error, command: interaction.commandName },
+        "Error executing command",
+      );
 
       const errorMessage = {
         content: "명령어 실행 중 오류가 발생했습니다.",

@@ -1,4 +1,7 @@
 import { ApplicationCommandType, MessageFlags } from "discord.js";
+import { createLogger } from "../../../core/logger.js";
+
+const logger = createLogger("Discord:Delete");
 
 export default {
   data: {
@@ -19,7 +22,7 @@ export default {
     try {
       await targetMessage.delete();
     } catch (error) {
-      console.error("❌ Discord 메시지 삭제 실패:", error);
+      logger.error({ err: error }, "Discord 메시지 삭제 실패");
       await interaction.editReply({
         content: "메시지를 삭제할 권한이 없거나 이미 삭제된 메시지입니다.",
       });

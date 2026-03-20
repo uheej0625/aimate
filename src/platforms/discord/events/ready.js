@@ -1,4 +1,7 @@
 import { Events } from "discord.js";
+import { createLogger } from "../../../core/logger.js";
+
+const logger = createLogger("Discord:Ready");
 
 /**
  * Ready 이벤트
@@ -8,11 +11,14 @@ export default {
   name: Events.ClientReady,
   once: true,
   async execute(client) {
-    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    console.log(`✅ Logged in as ${client.user.tag}`);
-    console.log(`📊 Serving ${client.guilds.cache.size} guilds`);
-    console.log(`👥 Watching ${client.users.cache.size} users`);
-    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    logger.info(
+      {
+        tag: client.user.tag,
+        guilds: client.guilds.cache.size,
+        users: client.users.cache.size,
+      },
+      "Bot is online and ready",
+    );
 
     // Initialize bot's platform account
     try {
@@ -24,7 +30,7 @@ export default {
         displayName: client.user.globalName,
       });
     } catch (error) {
-      console.error("Failed to initialize bot platform account:", error);
+      logger.error({ err: error }, "Failed to initialize bot platform account");
     }
 
     // 봇 상태 설정

@@ -1,4 +1,7 @@
 import { ApplicationCommandType, MessageFlags } from "discord.js";
+import { createLogger } from "../../../core/logger.js";
+
+const logger = createLogger("Discord:DeleteAfter");
 
 /** 대상 메세지 포함, 이후의 모든 메세지를 수집합니다 */
 async function fetchMessagesFromTarget(channel, targetMessage) {
@@ -31,7 +34,7 @@ async function deleteSingle(msg) {
   } catch (e) {
     // DM 채널에서 상대방 메세지는 삭제 불가 (Discord API 제한)
     if (e.code === 50003) return "skipped";
-    console.error(`❌ 개별 삭제 실패 (${msg.id}):`, e);
+    logger.error({ err: e, messageId: msg.id }, "개별 삭제 실패");
     return "failed";
   }
 }
@@ -60,7 +63,7 @@ async function deleteDiscordMessages(channel, messages) {
           if (!result.has(msg.id)) countResult(await deleteSingle(msg));
         }
       } catch (error) {
-        console.error("❌ bulkDelete 실패, 개별 삭제로 전환:", error);
+        logger.error({ err: error }, "bulkDelete 실패, 개별 삭제로 전환");
         for (const msg of batch) countResult(await deleteSingle(msg));
       }
     }

@@ -1,4 +1,7 @@
 import { ScopeKey } from "../repositories/EmotionStateRepository.js";
+import { createLogger } from "./logger.js";
+
+const logger = createLogger("ChatFlow");
 
 /**
  * Core business logic for generating a response in a conversation.
@@ -90,7 +93,7 @@ export class ChatFlow {
       );
 
       if (!result.shouldProceed) {
-        console.log(`[Cancel] Generation ${generation.id} cancelled`);
+        logger.info({ generationId: generation.id }, "Generation cancelled");
         return;
       }
 
@@ -133,8 +136,9 @@ export class ChatFlow {
           generation.id,
         );
         if (!sent) {
-          console.log(
-            `[Cancel] Generation ${generation.id} cancelled during send`,
+          logger.info(
+            { generationId: generation.id },
+            "Generation cancelled during send",
           );
           return;
         }
@@ -173,8 +177,9 @@ export class ChatFlow {
           );
         }
 
-        console.log(
-          `[Emotion] Delta applied to scope "${scope}" — reason: ${aiResult.emotionReason}`,
+        logger.info(
+          { scope, reason: aiResult.emotionReason },
+          "Emotion delta applied",
         );
       }
 
@@ -189,17 +194,17 @@ export class ChatFlow {
           currentUserId,
           aiResult.relationshipDelta,
         );
-        console.log(`[Relationship] Delta applied to user "${currentUserId}"`);
+        logger.info({ userId: currentUserId }, "Relationship delta applied");
       }
     } catch (error) {
-      console.error("Error processing response:", error);
+      logger.error({ err: error }, "Error processing response");
 
       // Mark generation as FAILED
       if (generation?.id) {
         try {
           await this.generationRepository.updateStatus(generation.id, "FAILED");
         } catch (dbError) {
-          console.error("Failed to update generation status:", dbError);
+          logger.error({ err: dbError }, "Failed to update generation status");
         }
       }
 
@@ -213,14 +218,17 @@ export class ChatFlow {
 
       if (isOverloaded) {
         // 503/429 error: 플랫폼별 콜백으로 처리 위임
-        console.log("503/429 Service Unavailable/Overloaded error detected.");
+        logger.warn("503/429 Service Unavailable/Overloaded error detected");
         try {
           await this.onServiceUnavailable(error, {
             channelRecord,
             platform: channel.platform,
           });
         } catch (callbackError) {
-          console.error("Failed to handle service unavailable:", callbackError);
+          logger.error(
+            { err: callbackError },
+            "Failed to handle service unavailable",
+          );
         }
         // Don't send error message to user for 503/429 errors
       } else {
@@ -232,7 +240,7 @@ export class ChatFlow {
             generation?.id,
           );
         } catch (sendError) {
-          console.error("Failed to send error message:", sendError);
+          logger.error({ err: sendError }, "Failed to send error message");
         }
       }
     }

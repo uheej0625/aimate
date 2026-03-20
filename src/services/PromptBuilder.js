@@ -1,5 +1,8 @@
 import { EMOTION_KEYS } from "../engines/emotion/EmotionEngine.js";
 import { RELATIONSHIP_KEYS } from "../engines/relationship/RelationshipEngine.js";
+import { createLogger } from "../core/logger.js";
+
+const logger = createLogger("PromptBuilder");
 
 /**
  * 시스템 프롬프트 템플릿의 변수를 실제 값으로 치환한다.
@@ -75,7 +78,7 @@ export class PromptBuilder {
       }
       return EMOTION_KEYS.map((k) => `${k}: ${state[k]}`).join("\n");
     } catch (e) {
-      console.warn("[PromptBuilder] Failed to load emotion state:", e.message);
+      logger.warn({ err: e }, "Failed to load emotion state");
       return fallback;
     }
   }

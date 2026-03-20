@@ -1,6 +1,9 @@
 import { readdirSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
+import { createLogger } from "../../../core/logger.js";
+
+const logger = createLogger("Discord:CommandHandler");
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -11,8 +14,6 @@ export async function loadCommands(client) {
     file.endsWith(".js"),
   );
 
-  console.log(`📂 Loading ${commandFiles.length} commands...`);
-
   for (const file of commandFiles) {
     const filePath = join(commandsPath, file);
     const command = await import(`file://${filePath}`);
@@ -20,13 +21,13 @@ export async function loadCommands(client) {
 
     if ("data" in commandModule && "execute" in commandModule) {
       client.commands.set(commandModule.data.name, commandModule);
-      console.log(`  ✅ Loaded command: ${commandModule.data.name}`);
     } else {
-      console.log(
-        `  ⚠️  Skipped ${file}: missing required "data" or "execute" property`,
+      logger.warn(
+        { file },
+        'Skipped: missing required "data" or "execute" property',
       );
     }
   }
 
-  console.log("✨ All commands loaded successfully!");
+  logger.info({ count: client.commands.size }, "Commands loaded");
 }
