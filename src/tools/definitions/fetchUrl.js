@@ -33,6 +33,21 @@ export default {
    * @param {{ url: string, maxLength?: number }} args
    */
   execute: async ({ url, maxLength = 4000 }) => {
+    // SSRF 검증: 로컬호스트 및 내부망 접근 차단
+    try {
+      const parsedUrl = new URL(url);
+      const host = parsedUrl.hostname;
+      
+      const isLocalhost = host === "localhost" || host === "127.0.0.1" || host === "[::1]";
+      const isPrivateIP = /^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|169\.254\.)/.test(host);
+      
+      if (isLocalhost || isPrivateIP) {
+        return { error: `Security Error: Access to local or internal network is blocked.` };
+      }
+    } catch (e) {
+      return { error: `Invalid URL: ${e.message}` };
+    }
+
     let response;
     try {
       response = await fetch(url, {
