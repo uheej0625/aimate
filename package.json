@@ -11,7 +11,7 @@
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
     "db:init": "prisma generate && prisma db push",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --test test/",
     "test:prompt": "node test/promptTest.js"
   },
   "author": "",
