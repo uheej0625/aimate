@@ -3,16 +3,17 @@ import { configManager } from "../config/index.js";
 
 const level = configManager.get("logging.level") || "info";
 const isDev = configManager.get("app.environment") === "development";
+const isTest = process.env.NODE_ENV === "test" || process.argv.some(arg => arg.includes("--test")) || process.execArgv.some(arg => arg.includes("--test")) || !!process.env.NODE_TEST_CONTEXT;
 
 const logger = pino({
   level,
   timestamp: pino.stdTimeFunctions.isoTime,
-  ...(isDev && {
-    transport: {
-      target: "pino-pretty",
-      options: { colorize: true, translateTime: "SYS:HH:MM:ss" },
-    },
-  }),
+  ...(isDev && !isTest && {
+      transport: {
+        target: "pino-pretty",
+        options: { colorize: true, translateTime: "SYS:HH:MM:ss" },
+      },
+    }),
 });
 
 /**

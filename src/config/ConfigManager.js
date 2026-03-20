@@ -153,6 +153,9 @@ class ConfigManager {
    * Setup file watcher for hot-reload
    */
   setupWatcher() {
+    const isTest = process.env.NODE_ENV === "test" || process.argv.some(arg => arg.includes("--test")) || process.execArgv.some(arg => arg.includes("--test")) || !!process.env.NODE_TEST_CONTEXT;
+    if (isTest) return;
+
     let debounceTimer = null;
 
     this.watcher = chokidar.watch(this.configPath, {
