@@ -1,3 +1,7 @@
+import { createLogger } from "./logger.js";
+
+const logger = createLogger("ConversationBuffer");
+
 /**
  * Manages message buffering and debouncing.
  * Triggers processing after a period of inactivity.
@@ -31,9 +35,9 @@ export class ConversationBuffer {
     const timer = setTimeout(() => {
       this.buffers.delete(channelId);
       this.chatFlow.execute(channel, botId, cronMessage).catch((error) => {
-        console.error(
-          `[ConversationBuffer] ChatFlow error for channel ${channelId}:`,
-          error,
+        logger.error(
+          { err: error, channelId },
+          "ChatFlow error",
         );
       });
     }, this.BUFFER_TIMEOUT);

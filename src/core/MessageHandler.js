@@ -1,3 +1,7 @@
+import { createLogger } from "./logger.js";
+
+const logger = createLogger("MessageHandler");
+
 /**
  * Entry point for handling incoming messages.
  * Orchestrates flow: Save -> Filter -> Buffer
@@ -44,7 +48,7 @@ export class MessageHandler {
       // 5. Add to Buffer
       this.conversationBuffer.add(message.channelId, message.channel, botId);
     } catch (error) {
-      console.error("MessageHandler Error:", error);
+      logger.error({ err: error }, "MessageHandler error");
     }
   }
 
@@ -81,7 +85,7 @@ export class MessageHandler {
       const { channel } = await this.messageService.saveMessage(message);
       return channel;
     } catch (error) {
-      console.error("Failed to save message:", error);
+      logger.error({ err: error }, "Failed to save message");
       throw error;
     }
   }

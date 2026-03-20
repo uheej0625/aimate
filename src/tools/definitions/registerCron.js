@@ -1,3 +1,7 @@
+import { createLogger } from "../../core/logger.js";
+
+const logger = createLogger("RegisterCron");
+
 /** @type {import('../ToolRegistry.js').ToolDef} */
 export default {
   name: "register_cron_job",
@@ -78,7 +82,7 @@ export default {
         message: `Cron job이 성공적으로 등록되었습니다. 실행 예정 시각: ${formattedTime}`,
       };
     } catch (error) {
-      console.error("[registerCron] Error:", error);
+      logger.error({ err: error }, "Error registering cron job");
       return {
         error: error.message,
       };

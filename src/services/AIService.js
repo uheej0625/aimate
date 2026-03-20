@@ -5,6 +5,9 @@ import { VertexProvider } from "../providers/VertexProvider.js";
 import { ScopeKey } from "../repositories/EmotionStateRepository.js";
 import { CharacterLoader } from "../loaders/CharacterLoader.js";
 import { PromptBuilder } from "./PromptBuilder.js";
+import { createLogger } from "../core/logger.js";
+
+const logger = createLogger("AIService");
 
 export class AIService {
   /**
@@ -69,10 +72,7 @@ export class AIService {
           userRecord = user;
         }
       } catch (e) {
-        console.warn(
-          "[AIService] Failed to load relationship state:",
-          e.message,
-        );
+        logger.warn({ err: e }, "Failed to load relationship state");
       }
     }
 
@@ -188,9 +188,7 @@ export class AIService {
 
       // maxSteps 초과 시 루프 탈출
       if (step === maxSteps) {
-        console.warn(
-          `[AIService] Tool call loop reached maxSteps (${maxSteps}), forcing stop`,
-        );
+        logger.warn({ maxSteps }, "Tool call loop reached maxSteps, forcing stop");
         return {
           ...this._parseAIResponse(textBuffer),
           apiRequests,
@@ -211,8 +209,9 @@ export class AIService {
         calls: toolCalls.map((tc, i) => ({ ...tc, result: results[i] })),
       });
 
-      console.log(
-        `[AIService] Step ${step + 1}: executed ${toolCalls.length} tool(s), continuing loop`,
+      logger.info(
+        { step: step + 1, toolCount: toolCalls.length },
+        "Executed tools, continuing loop",
       );
     }
 
@@ -279,10 +278,7 @@ export class AIService {
 
       return parsed;
     } catch (e) {
-      console.warn(
-        "[AIService] Failed to parse AI response as Markdown, using raw text:",
-        e.message,
-      );
+      logger.warn({ err: e }, "Failed to parse AI response as Markdown, using raw text");
       return {
         messages: [text.trim()],
         emotionDelta: {},
@@ -366,7 +362,7 @@ export class AIService {
           "\n",
         );
       } catch (e) {
-        console.warn("[AIService] Failed to load emotion state:", e.message);
+        logger.warn({ err: e }, "Failed to load emotion state");
       }
     }
 

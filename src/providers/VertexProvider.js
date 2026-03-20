@@ -1,4 +1,7 @@
 import { VertexAI } from "@google-cloud/vertexai";
+import { createLogger } from "../core/logger.js";
+
+const logger = createLogger("VertexProvider");
 
 export class VertexProvider {
   constructor(configManager, purpose) {
@@ -186,8 +189,9 @@ export class VertexProvider {
           (error.message && error.message.includes("503"));
 
         if (is503 && attempt < maxRetries) {
-          console.log(
-            `[Retry ${attempt + 1}/${maxRetries}] 503 error, retrying in ${retryDelay}ms...`,
+          logger.warn(
+            { attempt: attempt + 1, maxRetries, retryDelay },
+            "503 error, retrying...",
           );
           await new Promise((resolve) => setTimeout(resolve, retryDelay));
           continue;

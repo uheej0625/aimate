@@ -1,3 +1,7 @@
+import { createLogger } from "../core/logger.js";
+
+const logger = createLogger("ToolExecutor");
+
 /**
  * ToolExecutor
  *
@@ -41,7 +45,7 @@ export class ToolExecutor {
 
     if (!tool) {
       const msg = `Unknown tool: "${toolCall.name}"`;
-      console.error(`[ToolExecutor] ${msg}`);
+      logger.error({ toolName: toolCall.name }, "Unknown tool");
       return { error: msg };
     }
 
@@ -56,12 +60,13 @@ export class ToolExecutor {
 
     try {
       const result = await tool.execute(toolCall.args ?? {}, context);
-      console.log(
-        `[ToolExecutor] ${toolCall.name}(${JSON.stringify(toolCall.args)}) → ${JSON.stringify(result)}`,
+      logger.info(
+        { tool: toolCall.name, args: toolCall.args, result },
+        "Tool executed",
       );
       return result;
     } catch (err) {
-      console.error(`[ToolExecutor] Error in "${toolCall.name}":`, err);
+      logger.error({ err, toolName: toolCall.name }, "Tool execution error");
       return { error: err.message };
     }
   }

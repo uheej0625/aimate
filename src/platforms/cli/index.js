@@ -5,12 +5,15 @@ import { registerShutdown } from "../../core/shutdown.js";
 import { CLI_BOT_ID } from "./constants.js";
 import { createMockClient, createMockChannel } from "./mocks.js";
 import { startRepl } from "./repl.js";
+import { createLogger } from "../../core/logger.js";
+
+const logger = createLogger("CLI");
 
 (async () => {
   const CLI_CHANNEL_ID = uuidv4();
 
-  console.log("🔧 Initializing CLI Mode...");
-  console.log(`📱 Channel ID: ${CLI_CHANNEL_ID}`);
+  logger.info("🔧 Initializing CLI Mode...");
+  logger.info({ channelId: CLI_CHANNEL_ID }, "📱 Channel ID");
 
   const container = createContainer();
   const { messageHandler, botAccountService } = container;
@@ -20,14 +23,14 @@ import { startRepl } from "./repl.js";
     conversationBuffer: container.conversationBuffer,
   });
 
-  console.log("🤖 Initializing bot platform account...");
+  logger.info("🤖 Initializing bot platform account...");
   try {
     await botAccountService.initBotAccount({
       platform: "cli",
       platformId: CLI_BOT_ID,
     });
   } catch (error) {
-    console.error("❌ Failed to initialize bot platform account:", error);
+    logger.fatal({ err: error }, "❌ Failed to initialize bot platform account");
     process.exit(1);
   }
 

@@ -1,4 +1,7 @@
 import { SlashCommandBuilder, MessageFlags } from "discord.js";
+import { createLogger } from "../../../core/logger.js";
+
+const logger = createLogger("Discord:Enable");
 
 export default {
   data: new SlashCommandBuilder()
@@ -61,7 +64,7 @@ export default {
         content: `✅ 이 채널이 **${scopeLabel}** 스코프로 활성화되었습니다.`,
       });
     } catch (error) {
-      console.error("[activate] 활성화 오류:", error);
+      logger.error({ err: error }, "활성화 오류");
       await interaction.editReply({
         content: "❌ 활성화 중 오류가 발생했습니다.",
       });

@@ -5,6 +5,9 @@
 import { readdirSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
+import { createLogger } from "../../../core/logger.js";
+
+const logger = createLogger("Instagram:EventHandler");
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -19,7 +22,7 @@ export async function loadEvents(realtime, context) {
     file.endsWith(".js"),
   );
 
-  console.log(`📂 Loading ${eventFiles.length} Instagram events...`);
+  logger.info({ count: eventFiles.length }, "📂 Loading Instagram events...");
 
   for (const file of eventFiles) {
     const filePath = join(eventsPath, file);
@@ -30,7 +33,7 @@ export async function loadEvents(realtime, context) {
       eventModule
         .execute(data, context)
         .catch((err) =>
-          console.error(`[Instagram] Event '${eventModule.name}' error:`, err),
+          logger.error({ err, event: eventModule.name }, "Event error"),
         );
 
     if (eventModule.once) {
@@ -39,8 +42,8 @@ export async function loadEvents(realtime, context) {
       realtime.on(eventModule.name, handler);
     }
 
-    console.log(`  ✅ Loaded event: ${eventModule.name}`);
+    logger.info({ event: eventModule.name }, "  ✅ Loaded event");
   }
 
-  console.log("✨ All Instagram events loaded successfully!");
+  logger.info("✨ All Instagram events loaded successfully!");
 }

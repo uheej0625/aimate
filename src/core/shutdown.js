@@ -1,4 +1,7 @@
 import { prisma } from "../database/client.js";
+import { createLogger } from "./logger.js";
+
+const logger = createLogger("Shutdown");
 
 /**
  * Graceful shutdown 핸들러를 등록한다.
@@ -19,17 +22,17 @@ export function registerShutdown({
     if (shuttingDown) return;
     shuttingDown = true;
 
-    console.log(`\n⏳ Received ${signal}. Shutting down gracefully...`);
+    logger.info({ signal }, "Shutting down gracefully...");
 
     // 1. CronService 중지
     if (cronService) {
       cronService.stop();
-      console.log("  ✅ CronService stopped");
+      logger.info("CronService stopped");
     }
 
     // 2. 대기 중인 모든 타이머 정리
     conversationBuffer.clearAll();
-    console.log("  ✅ Conversation buffers cleared");
+    logger.info("Conversation buffers cleared");
 
     // 3. 진행 중인 Generation들을 CANCELLED로 변경
     try {
@@ -38,31 +41,34 @@ export function registerShutdown({
         data: { status: "CANCELLED" },
       });
       if (result.count > 0) {
-        console.log(`  ✅ Cancelled ${result.count} in-progress generations`);
+        logger.info(
+          { count: result.count },
+          "Cancelled in-progress generations",
+        );
       }
     } catch (error) {
-      console.error("  ⚠️ Failed to cancel generations:", error.message);
+      logger.error({ err: error }, "Failed to cancel generations");
     }
 
     // 4. Discord 클라이언트 종료
     if (client) {
       try {
         client.destroy();
-        console.log("  ✅ Discord client destroyed");
+        logger.info("Discord client destroyed");
       } catch (error) {
-        console.error("  ⚠️ Failed to destroy client:", error.message);
+        logger.error({ err: error }, "Failed to destroy client");
       }
     }
 
     // 5. Prisma 연결 종료
     try {
       await prisma.$disconnect();
-      console.log("  ✅ Database connection closed");
+      logger.info("Database connection closed");
     } catch (error) {
-      console.error("  ⚠️ Failed to disconnect database:", error.message);
+      logger.error({ err: error }, "Failed to disconnect database");
     }
 
-    console.log("👋 Shutdown complete.");
+    logger.info("Shutdown complete.");
     process.exit(0);
   };
 

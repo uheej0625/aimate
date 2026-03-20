@@ -3,6 +3,9 @@
  * MQTT를 통해 수신된 DM을 처리한다.
  */
 import { adaptMessage } from "../adapter.js";
+import { createLogger } from "../../../core/logger.js";
+
+const logger = createLogger("Instagram:Message");
 
 export default {
   name: "message",
@@ -52,9 +55,9 @@ export default {
           };
         }
       } catch (err) {
-        console.warn(
-          `[Instagram] Failed to fetch user info for ${senderId}:`,
-          err.message,
+        logger.warn(
+          { err, senderId },
+          "Failed to fetch user info",
         );
       }
     }

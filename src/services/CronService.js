@@ -8,6 +8,9 @@
  */
 import { adaptChannel as adaptDiscordChannel } from "../platforms/discord/adapter.js";
 import { adaptChannel as adaptInstagramChannel } from "../platforms/instagram/adapter.js";
+import { createLogger } from "../core/logger.js";
+
+const logger = createLogger("CronService");
 
 export class CronService {
   /**
@@ -36,12 +39,13 @@ export class CronService {
    */
   start() {
     if (this.isRunning) {
-      console.log("[CronService] Already running");
+      logger.info("Already running");
       return;
     }
 
-    console.log(
-      `[CronService] Starting with ${this.pollInterval}ms poll interval`,
+    logger.info(
+      { pollInterval: this.pollInterval },
+      "Starting CronService",
     );
     this.isRunning = true;
 
@@ -62,7 +66,7 @@ export class CronService {
       return;
     }
 
-    console.log("[CronService] Stopping");
+    logger.info("Stopping CronService");
     this.isRunning = false;
 
     if (this.intervalId) {
@@ -82,21 +86,21 @@ export class CronService {
         return;
       }
 
-      console.log(`[CronService] Found ${pendingJobs.length} pending job(s)`);
+      logger.info({ count: pendingJobs.length }, "Found pending jobs");
 
       for (const job of pendingJobs) {
         try {
           await this.executeJob(job);
         } catch (error) {
-          console.error(
-            `[CronService] Failed to execute job ${job.id}:`,
-            error,
+          logger.error(
+            { err: error, jobId: job.id },
+            "Failed to execute job",
           );
           // 실패해도 다른 job은 계속 실행
         }
       }
     } catch (error) {
-      console.error("[CronService] Error checking jobs:", error);
+      logger.error({ err: error }, "Error checking jobs");
     }
   }
 
@@ -105,7 +109,7 @@ export class CronService {
    * @param {Object} job
    */
   async executeJob(job) {
-    console.log(`[CronService] Executing job ${job.id} (type: ${job.type})`);
+    logger.info({ jobId: job.id, type: job.type }, "Executing job");
 
     try {
       // 1. 플랫폼별 채널 객체 가져오기
@@ -113,8 +117,9 @@ export class CronService {
       const client = this.platformClients.get(platform);
 
       if (!client) {
-        console.error(
-          `[CronService] No client found for platform: ${platform}`,
+        logger.error(
+          { platform },
+          "No client found for platform",
         );
         await this.cronJobRepository.updateStatus(job.id, "CANCELLED");
         return;
@@ -135,14 +140,15 @@ export class CronService {
         // CLI는 특별 처리 (임시로 job.channel을 그대로 사용)
         channel = job.channel;
       } else {
-        console.error(`[CronService] Unsupported platform: ${platform}`);
+        logger.error({ platform }, "Unsupported platform");
         await this.cronJobRepository.updateStatus(job.id, "CANCELLED");
         return;
       }
 
       if (!channel) {
-        console.error(
-          `[CronService] Channel not found: ${job.channel.platformId}`,
+        logger.error(
+          { platformId: job.channel.platformId },
+          "Channel not found",
         );
         await this.cronJobRepository.updateStatus(job.id, "CANCELLED");
         return;
@@ -163,9 +169,9 @@ export class CronService {
       // 4. Job을 EXECUTED로 표시
       await this.cronJobRepository.updateStatus(job.id, "EXECUTED");
 
-      console.log(`[CronService] Job ${job.id} executed successfully`);
+      logger.info({ jobId: job.id }, "Job executed successfully");
     } catch (error) {
-      console.error(`[CronService] Error executing job ${job.id}:`, error);
+      logger.error({ err: error, jobId: job.id }, "Error executing job");
       // 실패한 job도 EXECUTED로 표시 (재시도하지 않음)
       await this.cronJobRepository.updateStatus(job.id, "EXECUTED");
     }
@@ -185,8 +191,9 @@ export class CronService {
    */
   async registerJob(data) {
     const job = await this.cronJobRepository.create(data);
-    console.log(
-      `[CronService] Registered new job ${job.id} scheduled for ${job.scheduledAt.toLocaleString("ko-KR")}`,
+    logger.info(
+      { jobId: job.id, scheduledAt: job.scheduledAt.toLocaleString("ko-KR") },
+      "Registered new job",
     );
     return job;
   }

@@ -1,6 +1,9 @@
 import { readdirSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
+import { createLogger } from "../../../core/logger.js";
+
+const logger = createLogger("Discord:EventHandler");
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -14,8 +17,6 @@ export async function loadEvents(client) {
   const eventFiles = readdirSync(eventsPath).filter((file) =>
     file.endsWith(".js"),
   );
-
-  console.log(`📂 Loading ${eventFiles.length} events...`);
 
   for (const file of eventFiles) {
     const filePath = join(eventsPath, file);
@@ -31,9 +32,7 @@ export async function loadEvents(client) {
         eventModule.execute(...args, client),
       );
     }
-
-    console.log(`  ✅ Loaded event: ${eventModule.name}`);
   }
 
-  console.log("✨ All events loaded successfully!");
+  logger.info({ count: eventFiles.length }, "Events loaded");
 }

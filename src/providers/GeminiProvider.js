@@ -1,4 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
+import { createLogger } from "../core/logger.js";
+
+const logger = createLogger("GeminiProvider");
 
 export class GeminiProvider {
   constructor(configManager, purpose) {
@@ -147,8 +150,9 @@ export class GeminiProvider {
           (error.message && error.message.includes('"code": 503'));
 
         if (is503 && attempt < maxRetries) {
-          console.log(
-            `[Retry ${attempt + 1}/${maxRetries}] 503 error, retrying in ${retryDelay}ms...`,
+          logger.warn(
+            { attempt: attempt + 1, maxRetries, retryDelay },
+            "503 error, retrying...",
           );
           await new Promise((resolve) => setTimeout(resolve, retryDelay));
           continue;

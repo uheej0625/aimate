@@ -8,6 +8,9 @@ import pkg from "nodejs-insta-private-api";
 const { IgApiClient, RealtimeClient, useMultiFileAuthState } = pkg;
 import path from "path";
 import { fileURLToPath } from "url";
+import { createLogger } from "../../core/logger.js";
+
+const logger = createLogger("Instagram:Client");
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -29,21 +32,21 @@ export async function createInstagramClient({ username, password }) {
 
   // 저장된 세션 복원 시도
   if (authState.hasSession()) {
-    console.log("[Instagram] 저장된 세션 로드 중...");
+    logger.info("저장된 세션 로드 중...");
     const loaded = await authState.loadCreds(ig);
 
     if (loaded) {
       const valid = await authState.isSessionValid(ig);
 
       if (valid) {
-        console.log("[Instagram] 세션 유효! MQTT 연결 중...");
+        logger.info("세션 유효! MQTT 연결 중...");
         realtime = new RealtimeClient(ig);
 
         realtime.on("connected", () =>
-          console.log("[Instagram] MQTT Connected"),
+          logger.info("MQTT Connected"),
         );
         realtime.on("error", (err) =>
-          console.error("[Instagram] MQTT Error:", err.message),
+          logger.error({ err }, "MQTT Error"),
         );
 
         await realtime.connectFromSavedSession(authState);
@@ -56,14 +59,14 @@ export async function createInstagramClient({ username, password }) {
       }
     }
 
-    console.log("[Instagram] 세션 만료, 새로 로그인합니다...");
+    logger.info("세션 만료, 새로 로그인합니다...");
     await authState.clearSession();
   }
 
   // 새 로그인
-  console.log(`[Instagram] ${username} 로그인 중...`);
+  logger.info({ username }, "로그인 중...");
   await ig.login({ username, password });
-  console.log("[Instagram] 로그인 성공!");
+  logger.info("로그인 성공!");
 
   await authState.saveCreds(ig);
 
@@ -76,9 +79,9 @@ export async function createInstagramClient({ username, password }) {
   realtime = new RealtimeClient(ig);
   const inbox = await ig.direct.getInbox();
 
-  realtime.on("connected", () => console.log("[Instagram] MQTT Connected"));
+  realtime.on("connected", () => logger.info("MQTT Connected"));
   realtime.on("error", (err) =>
-    console.error("[Instagram] MQTT Error:", err.message),
+    logger.error({ err }, "MQTT Error"),
   );
 
   await realtime.connect({
@@ -88,7 +91,7 @@ export async function createInstagramClient({ username, password }) {
   });
 
   await authState.saveMqttSession(realtime);
-  console.log("[Instagram] MQTT 세션 저장 완료");
+  logger.info("MQTT 세션 저장 완료");
 
   return { ig, realtime, userId };
 }

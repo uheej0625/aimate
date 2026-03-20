@@ -1,3 +1,7 @@
+import { createLogger } from "./logger.js";
+
+const logger = createLogger("MessageSender");
+
 /**
  * Handles sending messages to Discord.
  * Responsible for splitting long messages and managing typing indicators.
@@ -33,8 +37,9 @@ export class MessageSender {
     if (generationId) {
       const generation = await this.generationRepository.findById(generationId);
       if (!generation || generation.status === "CANCELLED") {
-        console.log(
-          `[MessageSender] Generation ${generationId} cancelled, stopping message send`,
+        logger.debug(
+          { generationId },
+          "Generation cancelled, stopping message send",
         );
         return false;
       }

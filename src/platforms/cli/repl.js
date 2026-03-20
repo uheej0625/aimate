@@ -2,6 +2,9 @@ import readline from "readline";
 import { v4 as uuidv4 } from "uuid";
 import { CLI_USER_ID } from "./constants.js";
 import { adaptMessage } from "./adapter.js";
+import { createLogger } from "../../core/logger.js";
+
+const logger = createLogger("CLI:REPL");
 
 /**
  * readline REPL을 시작한다.
@@ -48,7 +51,7 @@ export function startRepl({
     try {
       await messageHandler.handle(adapted);
     } catch (error) {
-      console.error("Error processing message:", error);
+      logger.error({ err: error }, "Error processing message");
       rl.prompt();
     }
   });
