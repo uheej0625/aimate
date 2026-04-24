@@ -7,7 +7,6 @@
     "dev": "nodemon src/index.js",
     "deploy": "node src/platforms/discord/deploy.js",
     "cli": "node src/platforms/cli/index.js",
-    "instagram": "node src/platforms/instagram/index.js",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
     "db:init": "prisma generate && prisma db push",

@@ -7,7 +7,6 @@
  * - AI에게 전달할 메시지를 채널에 주입
  */
 import { adaptChannel as adaptDiscordChannel } from "../platforms/discord/adapter.js";
-import { adaptChannel as adaptInstagramChannel } from "../platforms/instagram/adapter.js";
 import { createLogger } from "../core/logger.js";
 
 const logger = createLogger("CronService");
@@ -43,10 +42,7 @@ export class CronService {
       return;
     }
 
-    logger.info(
-      { pollInterval: this.pollInterval },
-      "Starting CronService",
-    );
+    logger.info({ pollInterval: this.pollInterval }, "Starting CronService");
     this.isRunning = true;
 
     // 즉시 한번 실행
@@ -92,10 +88,7 @@ export class CronService {
         try {
           await this.executeJob(job);
         } catch (error) {
-          logger.error(
-            { err: error, jobId: job.id },
-            "Failed to execute job",
-          );
+          logger.error({ err: error, jobId: job.id }, "Failed to execute job");
           // 실패해도 다른 job은 계속 실행
         }
       }
@@ -117,10 +110,7 @@ export class CronService {
       const client = this.platformClients.get(platform);
 
       if (!client) {
-        logger.error(
-          { platform },
-          "No client found for platform",
-        );
+        logger.error({ platform }, "No client found for platform");
         await this.cronJobRepository.updateStatus(job.id, "CANCELLED");
         return;
       }
