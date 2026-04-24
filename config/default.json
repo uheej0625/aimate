@@ -28,8 +28,8 @@
       "systemInstruction": null
     },
     "image": {
-      "provider": "novelai",
-      "model": "nai-diffusion-1.5",
+      "provider": "openai",
+      "model": "gpt-image-2-2026-04-21",
       "systemInstruction": null
     }
   },

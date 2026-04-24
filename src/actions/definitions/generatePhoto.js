@@ -32,6 +32,21 @@ export default {
 
   /**
    * @param {{ subject: string, mood?: string }} args
+   * @param {Object} context
    */
-  execute: async ({ subject, mood }) => {},
+  execute: async ({ subject, mood }, context) => {
+    const { aiService } = context;
+    if (!aiService) {
+      throw new Error("AIService not available in tool context");
+    }
+
+    const prompt = mood ? `${subject}, ${mood} atmosphere` : subject;
+    const imageUrl = await aiService.generateImage(prompt);
+
+    return {
+      status: "success",
+      url: imageUrl,
+      description: `Generated photo of ${subject}`,
+    };
+  },
 };

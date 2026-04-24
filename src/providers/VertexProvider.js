@@ -129,7 +129,7 @@ export class VertexProvider {
    * @param {boolean}  [options.stream=false]
    * @yields {{ type: string, content?: string, name?: string, args?: Object }}
    */
-  async *generate(
+  async *generateChat(
     context,
     systemPrompt,
     toolDeclarations = [],
@@ -202,5 +202,9 @@ export class VertexProvider {
     }
 
     throw lastError;
+  }
+
+  async generateImage(prompt, options = {}) {
+    throw new Error("generateImage is not implemented yet for VertexProvider");
   }
 }

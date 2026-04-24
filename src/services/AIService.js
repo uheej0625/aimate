@@ -2,6 +2,7 @@ import fs from "fs/promises";
 import path from "path";
 import { GoogleCloudProvider } from "../providers/GoogleCloudProvider.js";
 import { VertexProvider } from "../providers/VertexProvider.js";
+import { OpenAIProvider } from "../providers/OpenaiProvider.js";
 import { ScopeKey } from "../repositories/EmotionStateRepository.js";
 import { CharacterLoader } from "../loaders/CharacterLoader.js";
 import { PromptBuilder } from "./PromptBuilder.js";
@@ -35,6 +36,7 @@ export class AIService {
     this.userRepository = userRepository;
 
     this.chatModel = this.createModel("chat");
+    this.imageModel = this.createModel("image");
     //this.summaryModel = this.createModel("summary");
     //this.embeddingModel = this.createModel("embedding");
 
@@ -126,7 +128,7 @@ export class AIService {
    * @param {Object} [channelRecord]   - 내부 Channel 레코드 (툴 실행 컨텍스트용)
    * @returns {Promise<{messages: string[], emotionDelta: Object, emotionReason: string}>}
    */
-  async generate(
+  async generateChat(
     context,
     systemInstruction,
     platform = "cli",
@@ -156,7 +158,7 @@ export class AIService {
       const toolCalls = [];
       let textBuffer = "";
 
-      for await (const event of this.chatModel.generate(
+      for await (const event of this.chatModel.generateChat(
         fullContext,
         systemInstruction,
         toolDeclarations,
@@ -188,7 +190,10 @@ export class AIService {
 
       // maxSteps 초과 시 루프 탈출
       if (step === maxSteps) {
-        logger.warn({ maxSteps }, "Tool call loop reached maxSteps, forcing stop");
+        logger.warn(
+          { maxSteps },
+          "Tool call loop reached maxSteps, forcing stop",
+        );
         return {
           ...this._parseAIResponse(textBuffer),
           apiRequests,
@@ -278,7 +283,10 @@ export class AIService {
 
       return parsed;
     } catch (e) {
-      logger.warn({ err: e }, "Failed to parse AI response as Markdown, using raw text");
+      logger.warn(
+        { err: e },
+        "Failed to parse AI response as Markdown, using raw text",
+      );
       return {
         messages: [text.trim()],
         emotionDelta: {},
@@ -399,10 +407,14 @@ export class AIService {
         return new GoogleCloudProvider(this.configManager, purpose);
       case "vertex":
         return new VertexProvider(this.configManager, purpose);
-      //case "openai":
-      //return new OpenAIProvider(this.configManager, purpose);
+      case "openai":
+        return new OpenAIProvider(this.configManager, purpose);
       default:
         throw new Error(`Unknown provider: ${config.provider}`);
     }
+  }
+
+  async generateImage(prompt, options = {}) {
+    return this.imageModel.generateImage(prompt, options);
   }
 }
