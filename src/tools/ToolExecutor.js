@@ -38,9 +38,10 @@ export class ToolExecutor {
    * @param {{ name: string, args: Object }} toolCall
    * @param {string} platform
    * @param {Object} [channelRecord] - 내부 Channel 레코드 (선택)
+   * @param {Object} [aiService] - AI 서비스 컨텍스트 (선택)
    * @returns {Promise<any>} 툴 실행 결과
    */
-  async execute(toolCall, platform, channelRecord = null) {
+  async execute(toolCall, platform, channelRecord = null, aiService = null) {
     const tool = this.toolRegistry.getTool(toolCall.name);
 
     if (!tool) {
@@ -56,6 +57,7 @@ export class ToolExecutor {
       configManager: this.configManager,
       cronService: this.cronService,
       channel: channelRecord,
+      aiService,
     };
 
     try {
@@ -76,11 +78,19 @@ export class ToolExecutor {
    * @param {{ name: string, args: Object }[]} toolCalls
    * @param {string} platform
    * @param {Object} [channelRecord] - 내부 Channel 레코드 (선택)
+   * @param {Object} [aiService] - AI 서비스 컨텍스트 (선택)
    * @returns {Promise<any[]>} 순서를 보존한 결과 배열
    */
-  async executeAll(toolCalls, platform, channelRecord = null) {
+  async executeAll(
+    toolCalls,
+    platform,
+    channelRecord = null,
+    aiService = null,
+  ) {
     return Promise.all(
-      toolCalls.map((tc) => this.execute(tc, platform, channelRecord)),
+      toolCalls.map((tc) =>
+        this.execute(tc, platform, channelRecord, aiService),
+      ),
     );
   }
 }

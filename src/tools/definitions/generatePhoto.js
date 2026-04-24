@@ -1,0 +1,66 @@
+import fs from "fs";
+import path from "path";
+import crypto from "crypto";
+
+/** @type {import('../ActionRegistry.js').ToolDef} */
+export default {
+  name: "generate_photo",
+  enabled: true,
+  platforms: ["*"],
+  requires: [],
+
+  declaration: {
+    name: "generate_photo",
+    description:
+      "Generate a realistic smartphone-style photo of an object, place, food, pet, or scene.",
+    parameters: {
+      type: "object",
+      properties: {
+        subject: {
+          type: "string",
+          description:
+            "Main thing being photographed. Example: ramen on desk, rainy street, coffee on cafe table",
+        },
+        mood: {
+          type: "string",
+          description:
+            "Atmosphere or vibe. Example: cozy, messy, late night, sunny, casual",
+        },
+      },
+      required: ["subject"],
+    },
+  },
+
+  /**
+   * @param {{ subject: string, mood?: string }} args
+   * @param {Object} context
+   */
+  execute: async ({ subject, mood }, context) => {
+    const { aiService } = context;
+    if (!aiService) {
+      throw new Error("AIService not available in tool context");
+    }
+
+    const prompt = mood ? `${subject}, ${mood} atmosphere` : subject;
+    const imageBuffer = await aiService.generateImage(prompt);
+
+    const imageId = crypto.randomBytes(4).toString("hex");
+    const filename = `${imageId}.png`;
+    const imageDir = path.join(process.cwd(), "content", "image");
+
+    // Ensure directory exists
+    if (!fs.existsSync(imageDir)) {
+      fs.mkdirSync(imageDir, { recursive: true });
+    }
+
+    const filePath = path.join(imageDir, filename);
+    fs.writeFileSync(filePath, imageBuffer);
+
+    return {
+      status: "success",
+      imageId: imageId,
+      instruction: `Image generated successfully! You MUST include this tag somewhere in your response message exactly like this so the user can see it: [IMAGE:${imageId}]`,
+      description: `Generated photo of ${subject}`,
+    };
+  },
+};

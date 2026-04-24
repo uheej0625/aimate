@@ -206,6 +206,7 @@ export class AIService {
         toolCalls,
         platform,
         channelRecord,
+        this, // aiService 주입
       );
 
       // 툴 결과를 ephemeral context에 추가 (다음 AI 호출에 포함됨)

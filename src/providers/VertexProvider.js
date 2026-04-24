@@ -62,10 +62,7 @@ export class VertexProvider {
         contents.push({
           role: "user",
           parts: message.calls.map((c) => ({
-            functionResponse: {
-              name: c.name,
-              response: c.result ?? {},
-            },
+            functionResponse: { name: c.name, response: c.result ?? {} },
           })),
         });
       } else {
@@ -184,14 +181,14 @@ export class VertexProvider {
       } catch (error) {
         lastError = error;
 
-        const is503 =
-          error.status === 503 ||
-          (error.message && error.message.includes("503"));
+        const is429 =
+          error.status === 429 ||
+          (error.message && error.message.includes("429"));
 
-        if (is503 && attempt < maxRetries) {
+        if (is429 && attempt < maxRetries) {
           logger.warn(
             { attempt: attempt + 1, maxRetries, retryDelay },
-            "503 error, retrying...",
+            "429 error, retrying...",
           );
           await new Promise((resolve) => setTimeout(resolve, retryDelay));
           continue;
