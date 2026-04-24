@@ -8,13 +8,13 @@ if (os.platform() === "win32") {
   } catch (e) {}
 }
 
-import { configManager } from "./config/index.js";
-import client from "./platforms/discord/client.js";
-import { loadEvents } from "./platforms/discord/handlers/eventHandler.js";
-import { loadCommands } from "./platforms/discord/handlers/commandHandler.js";
-import { createContainer } from "./core/container.js";
-import { registerShutdown } from "./core/shutdown.js";
-import { createLogger } from "./core/logger.js";
+import { configManager } from "../../config/index.js";
+import client from "./client.js";
+import { loadEvents } from "./handlers/eventHandler.js";
+import { loadCommands } from "./handlers/commandHandler.js";
+import { createContainer } from "../../core/container.js";
+import { registerShutdown } from "../../core/shutdown.js";
+import { createLogger } from "../../core/logger.js";
 
 const logger = createLogger("App");
 
