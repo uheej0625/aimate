@@ -1,20 +1,20 @@
 import { GoogleGenAI } from "@google/genai";
 import { createLogger } from "../core/logger.js";
 
-const logger = createLogger("GeminiProvider");
+const logger = createLogger("GoogleCloudProvider");
 
-export class GeminiProvider {
+export class GoogleCloudProvider {
   constructor(configManager, purpose) {
     this.purpose = purpose;
     this.settings = configManager.get(`ai.${purpose}`);
     this.configManager = configManager;
     this.ai = new GoogleGenAI({
-      apiKey: configManager.get("secrets.geminiApiKey"),
+      apiKey: configManager.get("secrets.googleCloudApiKey"),
     });
   }
 
   /**
-   * Build the Gemini API request object.
+   * Build the Google Cloud API request object.
    *
    * context 항목은 두 가지 형태를 지원한다:
    *   - 일반 메시지:  { role: 'user'|'assistant', content: string }
@@ -23,8 +23,8 @@ export class GeminiProvider {
    *
    * @param {Array}    context          - 대화 컨텍스트
    * @param {string}   systemPrompt     - 시스템 프롬프트
-   * @param {Object[]} [toolDeclarations] - Gemini 함수 선언 배열
-   * @returns {Object} Gemini API 요청 객체
+   * @param {Object[]} [toolDeclarations] - Google Cloud 함수 선언 배열
+   * @returns {Object} Google Cloud API 요청 객체
    */
   _buildRequest(context, systemPrompt, toolDeclarations = []) {
     const contents = [];
@@ -83,7 +83,7 @@ export class GeminiProvider {
    *   { type: 'tool_call', name: string, args: Object }
    *
    * - toolDeclarations가 있으면 function calling을 활성화하고 non-streaming으로 전환
-   *   (Gemini의 streaming + function call은 완전한 지원이 불안정)
+   *   (Google Cloud의 streaming + function call은 완전한 지원이 불안정)
    * - toolDeclarations가 없으면 stream 옵션을 그대로 사용
    *
    * @param {Array}    context

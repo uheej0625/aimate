@@ -1,6 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
-import { GeminiProvider } from "../providers/GeminiProvider.js";
+import { GoogleCloudProvider } from "../providers/GoogleCloudProvider.js";
 import { VertexProvider } from "../providers/VertexProvider.js";
 import { ScopeKey } from "../repositories/EmotionStateRepository.js";
 import { CharacterLoader } from "../loaders/CharacterLoader.js";
@@ -395,8 +395,8 @@ export class AIService {
     const config = this.configManager.get(`ai.${purpose}`);
 
     switch (config.provider) {
-      case "gemini":
-        return new GeminiProvider(this.configManager, purpose);
+      case "googleCloud":
+        return new GoogleCloudProvider(this.configManager, purpose);
       case "vertex":
         return new VertexProvider(this.configManager, purpose);
       //case "openai":

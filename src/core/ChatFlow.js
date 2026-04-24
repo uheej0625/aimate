@@ -208,7 +208,7 @@ export class ChatFlow {
         }
       }
 
-      // Check if it's a 503 (Gemini) or 429 (Vertex) error
+      // Check if it's a 503 (Google Cloud) or 429 (Vertex) error
       const isOverloaded =
         error.status === 503 ||
         error.status === 429 ||

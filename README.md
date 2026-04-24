@@ -34,7 +34,7 @@ cp .env.example .env
 | `DISCORD_CLIENT_ID`  | Discord 애플리케이션 ID |
 | `INSTAGRAM_USERNAME` | Instagram 계정 ID       |
 | `INSTAGRAM_PASSWORD` | Instagram 계정 비밀번호 |
-| `GEMINI_API_KEY`     | Google Gemini API 키    |
+| `GOOGLE_CLOUD_API_KEY`     | Google Google Cloud API 키    |
 
 ### 3. 데이터베이스 초기화
 
@@ -88,7 +88,7 @@ src/
 ├── core/          # 메시지 처리 흐름 (ChatFlow, MessageHandler 등)
 ├── engines/       # 감정(Emotion), 관계(Relationship) 엔진
 ├── platforms/     # Discord / Instagram / CLI 어댑터
-├── providers/     # Gemini, Vertex AI 연동
+├── providers/     # Google Cloud, Vertex AI 연동
 ├── repositories/  # DB 접근 레이어 (Prisma)
 ├── services/      # 비즈니스 로직 (AI, Context, Cron 등)
 └── tools/         # LLM이 호출하는 도구 정의 및 실행기
@@ -106,7 +106,7 @@ content/
 
 - **Runtime**: Node.js (ES Modules)
 - **Database**: Prisma + SQLite
-- **AI**: Google Gemini API, Vertex AI
+- **AI**: Google Google Cloud API, Vertex AI
 - **Platforms**: discord.js, Instagram Private API
 - **기타**: pino (로깅), node-cron (스케줄링), jsdom + @mozilla/readability (URL 파싱)
 

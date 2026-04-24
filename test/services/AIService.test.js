@@ -5,7 +5,7 @@ import { AIService } from "../../src/services/AIService.js";
 test("AIService tests", async (t) => {
   const mockConfigManager = {
     get: (key) => {
-      if (key === "ai.chat") return { provider: "gemini", stream: false };
+      if (key === "ai.chat") return { provider: "googleCloud", stream: false };
       if (key === "ai.chat.stream") return false;
       return null;
     },

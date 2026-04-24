@@ -26,7 +26,7 @@ export class ToolRegistry {
    * @param {boolean}  toolDef.enabled     - false 이면 항상 비활성화
    * @param {string[]} toolDef.platforms   - '*' 또는 플랫폼 ID 배열 ('discord', 'telegram', 'cli', …)
    * @param {string[]} toolDef.requires    - 필요한 서비스 키 배열 ('novelai', 'openai', …)
-   * @param {Object}   toolDef.declaration - Gemini/OpenAI 함수 스키마
+   * @param {Object}   toolDef.declaration - Google Cloud/OpenAI 함수 스키마
    * @param {Function} toolDef.execute     - async (args, context) => result
    */
   register(toolDef) {

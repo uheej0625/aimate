@@ -28,8 +28,8 @@ if (process.env.DISCORD_CLIENT_ID) {
     process.env.DISCORD_CLIENT_ID,
   );
 }
-if (process.env.GEMINI_API_KEY) {
-  configManager.setInMemory("secrets.geminiApiKey", process.env.GEMINI_API_KEY);
+if (process.env.GOOGLE_CLOUD_API_KEY) {
+  configManager.setInMemory("secrets.googleCloudApiKey", process.env.GOOGLE_CLOUD_API_KEY);
 }
 if (process.env.VERTEX_PROJECT_ID) {
   configManager.setInMemory(
@@ -69,7 +69,7 @@ if (process.env.INSTAGRAM_PASSWORD) {
 }
 
 // Validate required configuration
-const requiredFields = ["secrets.geminiApiKey"];
+const requiredFields = ["secrets.googleCloudApiKey"];
 const missingFields = requiredFields.filter((field) => {
   return !configManager.has(field) || !configManager.get(field);
 });

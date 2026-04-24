@@ -18,12 +18,12 @@
       "retryDelay": 2000
     },
     "embedding": {
-      "provider": "gemini",
+      "provider": "googleCloud",
       "model": null,
       "systemInstruction": null
     },
     "summary": {
-      "provider": "gemini",
+      "provider": "googleCloud",
       "model": "gemini-3-flash-preview",
       "systemInstruction": null
     },
@@ -65,7 +65,7 @@
   "secrets": {
     "discordToken": "",
     "discordClientId": "",
-    "geminiApiKey": "",
+    "googleCloudApiKey": "",
     "vertexProjectId": "",
     "vertexLocation": "us-central1",
     "vertexClientEmail": "",
