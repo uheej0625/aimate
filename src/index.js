@@ -20,7 +20,7 @@ const logger = createLogger("App");
 
 const main = async () => {
   try {
-    logger.info("Starting DiscordMate");
+    logger.info("Starting AiMate");
 
     // Initialize DI Container
     const container = createContainer(client);
