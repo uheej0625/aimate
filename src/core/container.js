@@ -19,7 +19,6 @@ import { MessageSender } from "./MessageSender.js";
 import { ChatFlow } from "./ChatFlow.js";
 import { ToolRegistry } from "../tools/ToolRegistry.js";
 import { ToolExecutor } from "../tools/ToolExecutor.js";
-import { allTools } from "../tools/index.js";
 import { CharacterLoader } from "../loaders/CharacterLoader.js";
 import { createLogger } from "./logger.js";
 
@@ -34,7 +33,7 @@ const logger = createLogger("Container");
  * - Single source of truth for instance creation
  * - Easy testing with mock dependencies
  */
-export function createContainer(client = null) {
+export async function createContainer(client = null) {
   // Repositories (data layer)
   const messageRepository = new MessageRepository(configManager);
   const userRepository = new UserRepository();
@@ -47,7 +46,7 @@ export function createContainer(client = null) {
 
   // Tools (function calling)
   const toolRegistry = new ToolRegistry(configManager);
-  toolRegistry.registerAll(allTools);
+  await toolRegistry.loadFromDirectory();
 
   // platformClients: platform ID → 클라이언트 인스턴스 (discord client 등)
   const platformClients = new Map();

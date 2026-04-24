@@ -6,30 +6,30 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /**
- * ToolRegistry
+ * ActionRegistry
  *
- * 모든 툴 정의를 관리하고, 실행 컨텍스트(platform, 자격증명)에 따라
- * 활성화된 툴 목록을 반환한다.
+ * 모든 Action 정의를 관리하고, 실행 컨텍스트(platform, 자격증명)에 따라
+ * 활성화된 액션 목록을 반환한다.
  *
- * 툴 필터링 조건 (AND):
+ * 액션 필터링 조건 (AND):
  *   1. tool.enabled === true
  *   2. tool.platforms 에 현재 platform 포함 (또는 '*')
  *   3. tool.requires 의 모든 서비스에 대한 API Key가 config에 존재
  */
-export class ToolRegistry {
+export class ActionRegistry {
   /**
    * @param {import('../config/ConfigManager.js').default} configManager
    */
   constructor(configManager) {
     this.configManager = configManager;
-    /** @type {Map<string, Object>} name → tool definition */
-    this.tools = new Map();
+    /** @type {Map<string, Object>} name → action definition */
+    this.actions = new Map();
   }
 
   /**
-   * 툴 정의를 등록한다.
+   * 액션 정의를 등록한다.
    * @param {Object} toolDef
-   * @param {string}   toolDef.name        - 툴 이름 (LLM에 노출되는 식별자)
+   * @param {string}   toolDef.name        - 액션 이름 (LLM에 노출되는 식별자)
    * @param {boolean}  toolDef.enabled     - false 이면 항상 비활성화
    * @param {string[]} toolDef.platforms   - '*' 또는 플랫폼 ID 배열 ('discord', 'telegram', 'cli', …)
    * @param {string[]} toolDef.requires    - 필요한 서비스 키 배열 ('novelai', 'openai', …)
@@ -91,12 +91,12 @@ export class ToolRegistry {
   }
 
   /**
-   * 현재 실행 컨텍스트에서 사용 가능한 툴 목록을 반환한다.
+   * 현재 실행 컨텍스트에서 사용 가능한 액션 목록을 반환한다.
    * @param {string} platform - 현재 대화 플랫폼 ('discord', 'telegram', 'cli', …)
-   * @returns {Object[]} 활성화된 툴 정의 배열
+   * @returns {Object[]} 활성화된 액션 정의 배열
    */
   getActiveTools(platform) {
-    return [...this.tools.values()].filter((tool) => {
+    return [...this.actions.values()].filter((tool) => {
       // 1. enabled 체크
       if (!tool.enabled) return false;
 

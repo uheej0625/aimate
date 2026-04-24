@@ -15,7 +15,7 @@ const logger = createLogger("CLI");
   logger.info("🔧 Initializing CLI Mode...");
   logger.info({ channelId: CLI_CHANNEL_ID }, "📱 Channel ID");
 
-  const container = createContainer();
+  const container = await createContainer();
   const { messageHandler, botAccountService } = container;
 
   // Register graceful shutdown
@@ -30,7 +30,10 @@ const logger = createLogger("CLI");
       platformId: CLI_BOT_ID,
     });
   } catch (error) {
-    logger.fatal({ err: error }, "❌ Failed to initialize bot platform account");
+    logger.fatal(
+      { err: error },
+      "❌ Failed to initialize bot platform account",
+    );
     process.exit(1);
   }
 
