@@ -98,7 +98,7 @@ export class ChatFlow {
       }
 
       // 5. Generate response (JSON parsed)
-      const aiResult = await this.aiService.generate(
+      const aiResult = await this.aiService.generateChat(
         context,
         systemInstruction,
         channel.platform,
