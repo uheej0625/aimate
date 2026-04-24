@@ -1,5 +1,6 @@
-import { Readability } from "@mozilla/readability";
-import { JSDOM } from "jsdom";
+import fs from "fs";
+import path from "path";
+import os from "os";
 
 /** @type {import('../ActionRegistry.js').ToolDef} */
 export default {
@@ -41,11 +42,16 @@ export default {
     }
 
     const prompt = mood ? `${subject}, ${mood} atmosphere` : subject;
-    const imageUrl = await aiService.generateImage(prompt);
+    const imageBuffer = await aiService.generateImage(prompt);
+
+    const filename = `photo_${Date.now()}.png`;
+    const tempFilePath = path.join(os.tmpdir(), filename);
+
+    fs.writeFileSync(tempFilePath, imageBuffer);
 
     return {
       status: "success",
-      url: imageUrl,
+      filePath: tempFilePath,
       description: `Generated photo of ${subject}`,
     };
   },
