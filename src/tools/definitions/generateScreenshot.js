@@ -5,55 +5,40 @@ import { renderTemplateFile } from "../../utils/templateUtils.js";
 
 /** @type {import('../ActionRegistry.js').ToolDef} */
 export default {
-  name: "generate_photo",
+  name: "generate_screenshot",
   enabled: true,
   platforms: ["*"],
   requires: [],
 
   declaration: {
-    name: "generate_photo",
+    name: "generate_screenshot",
     description:
-      "Generate a casual smartphone-style daily life photo that the bot shares naturally in chat. All parameters may be written in natural language. Prefer specific, vivid, detailed descriptions instead of short keywords.",
+      "Generate a realistic smartphone or PC screenshot to share in chat. Use sparingly to keep it special and avoid high API costs. Good for spontaneously showing a digital UI like a funny social media post, a map route, or game stats when it makes the chat more engaging. Do not overuse it; rely on text mostly.",
     parameters: {
       type: "object",
       properties: {
-        scene: {
+        screenType: {
           type: "string",
           description:
-            "Main environment or situation. Example: cafe table, bedroom desk, rainy street, ramen shop counter",
+            "Specific device model or screen type. Example: iPhone 15 Pro, Galaxy S24 Ultra, Windows PC, MacBook Pro",
+        },
+        appContext: {
+          type: "string",
+          description:
+            "Detailed natural language description of the app or website being displayed. Elaborate on what is visible on the screen, reflecting the character's specific traits, tastes, and current situation.",
         },
         purpose: {
           type: "string",
           description:
-            "Why this photo is being shared. Example: showing food, sharing mood, random update, asking opinion",
-        },
-        vibe: {
-          type: "string",
-          description:
-            "Overall emotional vibe. Example: cozy, tired, excited, lonely, chaotic",
-        },
-        humanPresence: {
-          type: "string",
-          enum: ["none", "partial", "background", "auto"],
-          description: "Whether people appear in the image.",
-        },
-        lighting: {
-          type: "string",
-          description:
-            "Lighting style. Example: auto, warm indoor, monitor glow, streetlight, daylight",
-        },
-        details: {
-          type: "array",
-          items: { type: "string" },
-          description: "Extra objects or scene hints.",
+            "Why this screenshot is being shared. Example: showing a route, sharing a funny post",
         },
       },
-      required: ["scene"],
+      required: ["screenType", "appContext"],
     },
   },
 
   /**
-   * @param {{ scene: string, purpose?: string, vibe?: string, humanPresence?: string, lighting?: string, details?: string[] }} args
+   * @param {{ screenType: string, appContext: string, purpose?: string }} args
    * @param {Object} context
    */
   execute: async (args, context) => {
@@ -62,14 +47,22 @@ export default {
       throw new Error("AIService not available in tool context");
     }
 
+    const now = new Date();
+    const currentDate = now.toISOString().split("T")[0]; // YYYY-MM-DD
+    const currentTime = now.toTimeString().split(" ")[0].substring(0, 5); // HH:MM
+
     const templatePath = path.join(
       process.cwd(),
       "content",
       "prompts",
       "image",
-      "photo.md",
+      "screenshot.md",
     );
-    const prompt = await renderTemplateFile(templatePath, args);
+    const prompt = await renderTemplateFile(templatePath, {
+      ...args,
+      currentDate,
+      currentTime,
+    });
     const imageBuffer = await aiService.generateImage(prompt);
 
     const imageId = crypto.randomBytes(4).toString("hex");
@@ -88,7 +81,7 @@ export default {
       status: "success",
       imageId: imageId,
       instruction: `Image generated successfully! You MUST include this tag somewhere in your response message exactly like this so the user can see it: [IMAGE:${imageId}]`,
-      description: `Generated photo for scene: ${args.scene}`,
+      description: `Generated screenshot for: ${args.appContext}`,
     };
   },
 };
