@@ -140,6 +140,18 @@ export class MessageRepository {
   }
 
   /**
+   * Find messages by generationId.
+   * @param {string} generationId
+   * @returns {Promise<Array>}
+   */
+  async findByGenerationId(generationId) {
+    return await prisma.message.findMany({
+      where: { generationId },
+      orderBy: { createdAt: "asc" },
+    });
+  }
+
+  /**
    * Delete a single message by platform and platformId.
    * Memory records linked to the message will have their messageId cleared first.
    * @param {string} platform - Platform name (e.g. "discord")
