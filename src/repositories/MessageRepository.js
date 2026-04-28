@@ -75,20 +75,22 @@ export class MessageRepository {
   }
 
   /**
-   * Get chat history for a channel by Discord channel ID.
-   * @param {string} discordChannelId - Discord channel ID
+   * Get chat history for a channel by platform and platform channel ID.
+   * @param {string} platform - Platform name (e.g. "discord", "cli")
+   * @param {string} platformChannelId - Platform-specific channel ID
    * @param {number} limit - Maximum number of messages to retrieve
    * @returns {Promise<Array>}
    */
-  async getHistoryByDiscordChannelId(
-    discordChannelId,
+  async getHistoryByPlatformChannelId(
+    platform,
+    platformChannelId,
     limit = this.configManager.get("conversation.maxContextMessages"),
   ) {
     const messages = await prisma.message.findMany({
       where: {
         channel: {
-          platform: "discord",
-          platformId: discordChannelId,
+          platform,
+          platformId: platformChannelId,
         },
       },
       orderBy: { createdAt: "desc" },
@@ -129,13 +131,29 @@ export class MessageRepository {
 
   /**
    * Delete messages for a specific channel.
+   * Memory records linked to the messages will have their messageId cleared first.
    * @param {string} channelId - Channel ID
    * @returns {Promise<number>} Number of deleted messages
    */
   async deleteByChannel(channelId) {
-    const result = await prisma.message.deleteMany({
+    const messages = await prisma.message.findMany({
       where: { channelId },
+      select: { id: true },
     });
+
+    if (!messages.length) return 0;
+    const ids = messages.map((m) => m.id);
+
+    const [_, result] = await prisma.$transaction([
+      prisma.memory.updateMany({
+        where: { messageId: { in: ids } },
+        data: { messageId: null },
+      }),
+      prisma.message.deleteMany({
+        where: { channelId },
+      }),
+    ]);
+
     return result.count;
   }
 
@@ -166,14 +184,15 @@ export class MessageRepository {
     if (!message) return false;
 
     // Memory 관계 해제 후 메시지 삭제
-    await prisma.memory.updateMany({
-      where: { messageId: message.id },
-      data: { messageId: null },
-    });
-
-    await prisma.message.delete({
-      where: { id: message.id },
-    });
+    await prisma.$transaction([
+      prisma.memory.updateMany({
+        where: { messageId: message.id },
+        data: { messageId: null },
+      }),
+      prisma.message.delete({
+        where: { id: message.id },
+      }),
+    ]);
 
     return true;
   }
@@ -196,14 +215,15 @@ export class MessageRepository {
 
     const ids = messages.map((m) => m.id);
 
-    await prisma.memory.updateMany({
-      where: { messageId: { in: ids } },
-      data: { messageId: null },
-    });
-
-    const result = await prisma.message.deleteMany({
-      where: { id: { in: ids } },
-    });
+    const [_, result] = await prisma.$transaction([
+      prisma.memory.updateMany({
+        where: { messageId: { in: ids } },
+        data: { messageId: null },
+      }),
+      prisma.message.deleteMany({
+        where: { id: { in: ids } },
+      }),
+    ]);
 
     return result.count;
   }

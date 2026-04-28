@@ -1,6 +1,7 @@
 import { EMOTION_KEYS } from "../engines/emotion/EmotionEngine.js";
 import { RELATIONSHIP_KEYS } from "../engines/relationship/RelationshipEngine.js";
 import { createLogger } from "../core/logger.js";
+import { fillTemplate } from "../utils/templateUtils.js";
 
 const logger = createLogger("PromptBuilder");
 
@@ -8,10 +9,10 @@ const logger = createLogger("PromptBuilder");
  * 시스템 프롬프트 템플릿의 변수를 실제 값으로 치환한다.
  *
  * 치환 대상:
- *   {character}         - 캐릭터 마크다운 파일 내용
- *   {emotionalState}    - 채널 스코프 감정 수치 (없으면 기본값)
- *   {relationshipState} - 유저별 관계 수치 (없으면 기본값)
- *   {currentTime}       - 현재 시각 (로컬)
+ *   {{character}}         - 캐릭터 마크다운 파일 내용
+ *   {{emotionalState}}    - 채널 스코프 감정 수치 (없으면 기본값)
+ *   {{relationshipState}} - 유저별 관계 수치 (없으면 기본값)
+ *   {{currentTime}}       - 현재 시각 (로컬)
  */
 export class PromptBuilder {
   /**
@@ -45,11 +46,14 @@ export class PromptBuilder {
       minute: "2-digit",
     });
 
-    return template
-      .replace("{character}", character)
-      .replace("{emotionalState}", emotionalState)
-      .replace("{relationshipState}", relationshipState)
-      .replace("{currentTime}", currentTime);
+    const data = {
+      character,
+      emotionalState,
+      relationshipState,
+      currentTime,
+    };
+
+    return fillTemplate(template, data);
   }
 
   /**

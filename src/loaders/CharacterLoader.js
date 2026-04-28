@@ -18,6 +18,7 @@ export class CharacterLoader {
   ) {
     this.identityPath = path.join(process.cwd(), identityPath);
     this.variablesPath = path.join(process.cwd(), variablesPath);
+    this._cachedResult = null;
   }
 
   /**
@@ -25,6 +26,10 @@ export class CharacterLoader {
    * @returns {Promise<string>} 최종 캐릭터 텍스트
    */
   async load() {
+    if (this._cachedResult) {
+      return this._cachedResult;
+    }
+
     // identity.md 템플릿 로드
     const template = await fs.readFile(this.identityPath, "utf-8");
 
@@ -34,17 +39,15 @@ export class CharacterLoader {
       const variablesContent = await fs.readFile(this.variablesPath, "utf-8");
       variables = JSON.parse(variablesContent);
     } catch (error) {
-      logger.warn(
-        { err: error },
-        "variables.json을 찾을 수 없거나 파싱 실패",
-      );
+      logger.warn({ err: error }, "variables.json을 찾을 수 없거나 파싱 실패");
     }
 
     // 동적 컨텍스트 준비
     const context = this._buildContext(variables);
 
     // 템플릿 렌더링
-    return this._renderTemplate(template, context);
+    this._cachedResult = this._renderTemplate(template, context);
+    return this._cachedResult;
   }
 
   /**
@@ -54,7 +57,7 @@ export class CharacterLoader {
    */
   _buildContext(variables) {
     const now = new Date();
-    const birthday = variables.birthday || { year: 2009, month: 1, day: 1 };
+    const birthday = variables.birthday;
     const schoolEnrollment = variables.schoolEnrollment || { year: 2025 };
 
     // 미리 계산된 값들
@@ -89,10 +92,7 @@ export class CharacterLoader {
         const result = this._evaluateExpression(expression.trim(), context);
         return result !== undefined ? String(result) : match;
       } catch (error) {
-        logger.warn(
-          { expression, err: error },
-          "표현식 평가 실패",
-        );
+        logger.warn({ expression, err: error }, "표현식 평가 실패");
         return match; // 실패하면 원본 유지
       }
     });

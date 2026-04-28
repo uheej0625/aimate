@@ -40,7 +40,7 @@ export class ChatFlow {
 
   /**
    * Execute the conversation logic.
-   * @param {import('discord.js').TextBasedChannel} channel
+   * @param {Object} channel - The platform-specific channel object (e.g., Discord TextBasedChannel)
    * @param {string} botId
    * @param {string} [cronMessage] - Cron job에서 전달되는 시스템 메시지 (선택)
    */
