@@ -42,7 +42,7 @@ export default {
    * @param {Object} context
    */
   execute: async (args, context) => {
-    const { aiService } = context;
+    const { aiService, configManager, generationRepository, channel } = context;
     if (!aiService) {
       throw new Error("AIService not available in tool context");
     }
@@ -51,10 +51,12 @@ export default {
     const currentDate = now.toISOString().split("T")[0]; // YYYY-MM-DD
     const currentTime = now.toTimeString().split(" ")[0].substring(0, 5); // HH:MM
 
+    const promptName = configManager?.get("ai.image.prompt") || "default";
     const templatePath = path.join(
       process.cwd(),
       "content",
       "prompts",
+      promptName,
       "image",
       "screenshot.md",
     );
@@ -63,10 +65,55 @@ export default {
       currentDate,
       currentTime,
     });
-    const imageBuffer = await aiService.generateImage(prompt);
 
-    const imageId = crypto.randomBytes(4).toString("hex");
-    const filename = `${imageId}.png`;
+    let generationId = null;
+    if (generationRepository && channel?.id) {
+      const gen = await generationRepository.create({
+        channelId: channel.id,
+        type: "IMAGE",
+        prompt: promptName,
+        input: prompt,
+        status: "PROCESSING",
+      });
+      generationId = gen.id;
+    }
+
+    let imageBuffer;
+    let apiRequest = { prompt };
+    let apiResponse = null;
+    let imageId = crypto.randomBytes(4).toString("hex");
+    let filename = `${imageId}.png`;
+
+    try {
+      const result = await aiService.generateImage(prompt);
+      imageBuffer = result.buffer || result;
+      apiRequest = result.request || apiRequest;
+      apiResponse = result.response || {
+        status: "success",
+        tool: "generate_screenshot",
+        currentDate,
+        currentTime,
+      };
+
+      if (generationId) {
+        await generationRepository.updateDetails(generationId, {
+          apiRequest,
+          apiResponse,
+          output: filename,
+        });
+        await generationRepository.updateStatus(generationId, "COMPLETED");
+      }
+    } catch (err) {
+      if (generationId) {
+        await generationRepository.updateDetails(generationId, {
+          apiRequest,
+          apiResponse: { error: err.message, stack: err.stack },
+        });
+        await generationRepository.updateStatus(generationId, "FAILED");
+      }
+      throw err;
+    }
+
     const imageDir = path.join(process.cwd(), "content", "image");
 
     // Ensure directory exists

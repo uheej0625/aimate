@@ -10,11 +10,13 @@ export class ContextService {
    * DB에서 히스토리를 로드하고 메타데이터를 추출한다.
    * @param {string} channelId - Internal channel ID
    * @param {string} botId - Bot's platform user ID (platformId)
-   * @returns {Promise<{history: Array, messageIds: Array<string>, lastUserPlatformAccountId: string|null}>}
+   * @returns {Promise<{history: Array, messageIds: Array<number>, inputMessages: Array<string>, lastUserPlatformAccountId: string|null}>}
    */
   async fetchHistoryData(channelId, botId) {
     const history = await this.messageRepository.getHistory(channelId);
-    const messageIds = this.extractPendingMessageIds(history, botId);
+    const pendingMessages = this.extractPendingMessages(history, botId);
+    const messageIds = pendingMessages.map((m) => m.id);
+    const inputMessages = pendingMessages.map((m) => m.content);
 
     let lastUserPlatformAccountId = null;
     for (let i = history.length - 1; i >= 0; i--) {
@@ -24,7 +26,7 @@ export class ContextService {
       }
     }
 
-    return { history, messageIds, lastUserPlatformAccountId };
+    return { history, messageIds, inputMessages, lastUserPlatformAccountId };
   }
 
   /**
@@ -79,30 +81,29 @@ export class ContextService {
    * @param {string} channelId - Internal channel ID
    * @param {string} botId - Bot's platform user ID (platformId)
    * @param {string} [cronMessage] - Cron job에서 전달되는 시스템 메시지 (선택)
-   * @returns {Promise<{context: Array, messageIds: Array<string>, lastUserPlatformAccountId: string|null}>}
+   * @returns {Promise<{context: Array, messageIds: Array<number>, inputMessages: Array<string>, lastUserPlatformAccountId: string|null}>}
    */
   async buildContext(channelId, botId, cronMessage = null) {
-    const { history, messageIds, lastUserPlatformAccountId } =
+    const { history, messageIds, inputMessages, lastUserPlatformAccountId } =
       await this.fetchHistoryData(channelId, botId);
     const context = this.assembleContext(history, botId, cronMessage);
-    return { context, messageIds, lastUserPlatformAccountId };
+    return { context, messageIds, inputMessages, lastUserPlatformAccountId };
   }
 
   /**
-   * Extract user message IDs that haven't been responded to yet.
-   * Collects all consecutive user messages from the end of history
-   * until hitting the bot's last response.
+   * 아직 답변되지 않은 user 메시지 목록을 추출한다.
+   * 히스토리 끝에서 연속된 user 메시지를 수집하고, bot 응답을 만나면 중단.
    *
    * Example:
-   * [bot, user, user, user] → returns [user, user, user]
-   * [user, bot, user] → returns [user]
+   * [bot, user, user, user] → returns [{id, content}, ...]
+   * [user, bot, user] → returns [{id, content}]
    *
    * @param {Array} history - Message history array
    * @param {string} botId - Bot's Discord user ID (platformId)
-   * @returns {Array<string>} Array of message IDs in chronological order
+   * @returns {Array<{id: number, content: string}>} Messages in chronological order
    */
-  extractPendingMessageIds(history, botId) {
-    const messageIds = [];
+  extractPendingMessages(history, botId) {
+    const messages = [];
 
     // Traverse history backwards to find unanswered user messages
     for (let i = history.length - 1; i >= 0; i--) {
@@ -113,10 +114,10 @@ export class ContextService {
         break;
       }
 
-      // Collect user message ID
-      messageIds.unshift(message.id);
+      // Collect user message
+      messages.unshift({ id: message.id, content: message.content });
     }
 
-    return messageIds;
+    return messages;
   }
 }

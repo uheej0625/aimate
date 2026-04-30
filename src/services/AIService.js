@@ -49,7 +49,7 @@ export class AIService {
    * @param {string} botId
    * @param {Object} [channelRecord] - 내부 Channel 레코드 (emotion state 조회용)
    * @param {string} [cronMessage] - Cron job에서 전달되는 시스템 메시지 (선택)
-   * @returns {Promise<{context: Array, systemInstruction: string, messageIds: Array, currentUserId: string|null}>}
+   * @returns {Promise<{context: Array, systemInstruction: string, messageIds: Array, inputMessages: Array<string>, currentUserId: string|null}>}
    */
   async prepareContext(
     channelId,
@@ -58,7 +58,7 @@ export class AIService {
     cronMessage = null,
   ) {
     // 1. DB에서 히스토리 로드 (단일 쿼리)
-    const { history, messageIds, lastUserPlatformAccountId } =
+    const { history, messageIds, inputMessages, lastUserPlatformAccountId } =
       await this.contextService.fetchHistoryData(channelId, botId);
 
     // 2. 마지막 유저의 관계 상태 조회
@@ -103,7 +103,7 @@ export class AIService {
       part2Template,
     );
 
-    return { context, systemInstruction, messageIds, currentUserId };
+    return { context, systemInstruction, messageIds, inputMessages, currentUserId };
   }
 
   /**
@@ -303,9 +303,14 @@ export class AIService {
    */
   async loadSystemInstruction() {
     if (!this.systemInstruction) {
+      const promptName = this.configManager.get("ai.chat.prompt") || "default";
       const systemInstructionPath = path.join(
         process.cwd(),
-        "content/prompts/experiment/system.md",
+        "content",
+        "prompts",
+        promptName,
+        "chat",
+        "system.md",
       );
       this.systemInstruction = await fs.readFile(
         systemInstructionPath,
@@ -320,12 +325,23 @@ export class AIService {
    * @returns {Promise<{part1Template: string, part2Template: string}>}
    */
   async loadContextParts() {
-    const base = path.join(process.cwd(), "content/prompts/experiment");
-    const [part1Template, part2Template] = await Promise.all([
-      fs.readFile(path.join(base, "part1.md"), "utf-8"),
-      fs.readFile(path.join(base, "part2.md"), "utf-8"),
-    ]);
-    return { part1Template, part2Template };
+    const promptName = this.configManager.get("ai.chat.prompt") || "default";
+    const base = path.join(
+      process.cwd(),
+      "content",
+      "prompts",
+      promptName,
+      "chat",
+    );
+    try {
+      const [part1Template, part2Template] = await Promise.all([
+        fs.readFile(path.join(base, "part1.md"), "utf-8").catch(() => ""),
+        fs.readFile(path.join(base, "part2.md"), "utf-8").catch(() => ""),
+      ]);
+      return { part1Template, part2Template };
+    } catch (e) {
+      return { part1Template: "", part2Template: "" };
+    }
   }
 
   createModel(purpose) {

@@ -52,6 +52,9 @@ export class MessageSender {
         );
         if (fs.existsSync(localPath)) {
           attachmentPath = localPath;
+        } else {
+          logger.warn({ imageId: parsedValue }, "Image file not found, skipping attachment");
+          continue; // 파일이 없으면 건너뜀
         }
       }
 
@@ -81,6 +84,12 @@ export class MessageSender {
         );
         return false;
       }
+    }
+
+    // CLI 등 send 메서드 없는 채널에 대한 fallback
+    if (typeof channel.send !== "function") {
+      logger.debug({ cleanText }, "Channel has no send method, skipping");
+      return true;
     }
 
     // 전송 옵션 구성

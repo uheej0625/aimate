@@ -95,14 +95,6 @@ export class MessageService {
       generationId: generationId,
     });
 
-    // 5. Link to generation if provided
-    if (generationId) {
-      await this.generationRepository.appendMessage(
-        generationId,
-        savedMessage.id,
-      );
-    }
-
     return {
       message: savedMessage,
       channel,

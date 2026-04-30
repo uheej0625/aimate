@@ -57,23 +57,68 @@ export default {
    * @param {Object} context
    */
   execute: async (args, context) => {
-    const { aiService } = context;
+    const { aiService, configManager, generationRepository, channel } = context;
     if (!aiService) {
       throw new Error("AIService not available in tool context");
     }
 
+    const promptName = configManager?.get("ai.image.prompt") || "default";
     const templatePath = path.join(
       process.cwd(),
       "content",
       "prompts",
+      promptName,
       "image",
       "photo.md",
     );
     const prompt = await renderTemplateFile(templatePath, args);
-    const imageBuffer = await aiService.generateImage(prompt);
 
-    const imageId = crypto.randomBytes(4).toString("hex");
-    const filename = `${imageId}.png`;
+    let generationId = null;
+    if (generationRepository && channel?.id) {
+      const gen = await generationRepository.create({
+        channelId: channel.id,
+        type: "IMAGE",
+        prompt: promptName,
+        input: prompt,
+        status: "PROCESSING",
+      });
+      generationId = gen.id;
+    }
+
+    let imageBuffer;
+    let apiRequest = { prompt };
+    let apiResponse = null;
+    let imageId = crypto.randomBytes(4).toString("hex");
+    let filename = `${imageId}.png`;
+
+    try {
+      const result = await aiService.generateImage(prompt);
+      imageBuffer = result.buffer || result;
+      apiRequest = result.request || apiRequest;
+      apiResponse = result.response || {
+        status: "success",
+        tool: "generate_photo",
+      };
+
+      if (generationId) {
+        await generationRepository.updateDetails(generationId, {
+          apiRequest,
+          apiResponse,
+          output: filename,
+        });
+        await generationRepository.updateStatus(generationId, "COMPLETED");
+      }
+    } catch (err) {
+      if (generationId) {
+        await generationRepository.updateDetails(generationId, {
+          apiRequest,
+          apiResponse: { error: err.message, stack: err.stack },
+        });
+        await generationRepository.updateStatus(generationId, "FAILED");
+      }
+      throw err;
+    }
+
     const imageDir = path.join(process.cwd(), "content", "image");
 
     // Ensure directory exists

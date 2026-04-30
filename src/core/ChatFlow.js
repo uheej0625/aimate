@@ -68,12 +68,13 @@ export class ChatFlow {
       // 1. Start Generation Tracking
       generation = await this.generationRepository.create({
         channelId: channelRecord.id,
-        messagesJson: "[]",
+        type: "CHAT",
+        prompt: this.configManager.get("ai.chat.prompt") || "default",
         status: "PROCESSING",
       });
 
       // 2. Prepare Context
-      const { context, systemInstruction, messageIds, currentUserId } =
+      const { context, systemInstruction, inputMessages, currentUserId } =
         await this.aiService.prepareContext(
           channelRecord.id,
           botId,
@@ -81,9 +82,9 @@ export class ChatFlow {
           cronMessage,
         );
 
-      // 3. Save context message IDs
+      // 3. Save input messages (actual content, not IDs)
       await this.generationRepository.updateDetails(generation.id, {
-        messageIds,
+        input: JSON.stringify(inputMessages),
       });
 
       // 4. Check Cancellation before generating
@@ -120,10 +121,12 @@ export class ChatFlow {
             : undefined;
 
       await this.generationRepository.updateDetails(generation.id, {
-        responseMessages: aiResult.messages,
-        emotionDelta: aiResult.emotionDelta,
-        emotionReason: aiResult.emotionReason,
-        relationshipDelta: aiResult.relationshipDelta,
+        output: JSON.stringify(aiResult.messages),
+        metadata: {
+          emotionDelta: aiResult.emotionDelta,
+          emotionReason: aiResult.emotionReason,
+          relationshipDelta: aiResult.relationshipDelta,
+        },
         apiRequest,
         apiResponse,
       });
