@@ -3,6 +3,7 @@ prisma/dev.db
 .env
 tests/
 prisma/migrations/
-legacy/
-content/
+content/character
+content/image
+content/prompts/legacy
 docs/
