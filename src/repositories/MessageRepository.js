@@ -113,6 +113,13 @@ export class MessageRepository {
     }));
   }
 
+  async addGenerationId(messageId, generationId) {
+    await prisma.message.update({
+      where: { id: messageId },
+      data: { generationId },
+    });
+  }
+
   /**
    * Find a single message by platform and platformId, including its generation.
    * @param {string} platform - Platform name (e.g. "discord")

@@ -22,6 +22,7 @@ export class ChatFlow {
   constructor(
     generationRepository,
     channelRepository,
+    messsageRepository,
     aiService,
     messageSender,
     configManager,
@@ -30,6 +31,7 @@ export class ChatFlow {
   ) {
     this.generationRepository = generationRepository;
     this.channelRepository = channelRepository;
+    this.messageRepository = messsageRepository;
     this.aiService = aiService;
     this.messageSender = messageSender;
     this.configManager = configManager;
@@ -74,18 +76,27 @@ export class ChatFlow {
       });
 
       // 2. Prepare Context
-      const { context, systemInstruction, inputMessages, currentUserId } =
-        await this.aiService.prepareContext(
-          channelRecord.id,
-          botId,
-          channelRecord,
-          cronMessage,
-        );
+      const {
+        context,
+        systemInstruction,
+        messageIds,
+        inputMessages,
+        currentUserId,
+      } = await this.aiService.prepareContext(
+        channelRecord.id,
+        botId,
+        channelRecord,
+        cronMessage,
+      );
 
-      // 3. Save input messages (actual content, not IDs)
+      // 3. Update Generation with input details
       await this.generationRepository.updateDetails(generation.id, {
         input: JSON.stringify(inputMessages),
       });
+
+      for (const id of messageIds) {
+        await this.messageRepository.addGenerationId(id, generation.id);
+      }
 
       // 4. Check Cancellation before generating
       const result = await this.generationRepository.checkAndUpdateStatus(

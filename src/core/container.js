@@ -96,6 +96,7 @@ export async function createContainer(client = null) {
   const chatFlow = new ChatFlow(
     generationRepository,
     channelRepository,
+    messageRepository,
     aiService,
     messageSender,
     configManager,
