@@ -1,4 +1,4 @@
-export class ContextService {
+export class HistoryService {
   /**
    * @param {import('../repositories/MessageRepository.js').MessageRepository} messageRepository
    */

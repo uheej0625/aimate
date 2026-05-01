@@ -6,41 +6,44 @@ import { OpenAIProvider } from "../providers/OpenaiProvider.js";
 import { ScopeKey } from "../repositories/EmotionStateRepository.js";
 import { CharacterLoader } from "../loaders/CharacterLoader.js";
 import { PromptBuilder } from "./PromptBuilder.js";
+import { SequenceBuilder } from "./SequenceBuilder.js";
 import { createLogger } from "../core/logger.js";
 
 const logger = createLogger("AIService");
 
 export class AIService {
   /**
-   * @param {import('../services/ContextService.js').ContextService} contextService
+   * @param {import('../services/HistoryService.js').HistoryService} historyService
    * @param {import('../config/ConfigManager.js').default} configManager
    * @param {import('../tools/ToolRegistry.js').ToolRegistry} [toolRegistry]
    * @param {import('../tools/ToolExecutor.js').ToolExecutor} [toolExecutor]
    * @param {import('./PromptBuilder.js').PromptBuilder} [promptBuilder]
    * @param {import('../repositories/UserRepository.js').UserRepository} [userRepository]
+   * @param {import('./SequenceBuilder.js').SequenceBuilder} [sequenceBuilder]
    */
   constructor(
-    contextService,
+    historyService,
     configManager,
     toolRegistry = null,
     toolExecutor = null,
     promptBuilder = null,
     userRepository = null,
+    sequenceBuilder = null,
   ) {
     this.configManager = configManager;
-    this.contextService = contextService;
+    this.historyService = historyService;
     this.toolRegistry = toolRegistry;
     this.toolExecutor = toolExecutor;
     this.promptBuilder =
       promptBuilder ?? new PromptBuilder(new CharacterLoader());
+    this.sequenceBuilder =
+      sequenceBuilder ?? new SequenceBuilder(this.promptBuilder);
     this.userRepository = userRepository;
 
     this.chatModel = this.createModel("chat");
     this.imageModel = this.createModel("image");
     //this.summaryModel = this.createModel("summary");
     //this.embeddingModel = this.createModel("embedding");
-
-    this.systemInstruction = null;
   }
 
   /**
@@ -57,9 +60,9 @@ export class AIService {
     channelRecord = null,
     cronMessage = null,
   ) {
-    // 1. DB에서 히스토리 로드 (단일 쿼리)
+    // 1. DB에서 히스토리 모두 로드 (단일 쿼리)
     const { history, messageIds, inputMessages, lastUserPlatformAccountId } =
-      await this.contextService.fetchHistoryData(channelId, botId);
+      await this.historyService.fetchHistoryData(channelId, botId);
 
     // 2. 마지막 유저의 관계 상태 조회
     let currentUserId = null;
@@ -78,32 +81,28 @@ export class AIService {
       }
     }
 
-    // 3. 시스템 인스트럭션 빌드
-    const sysTemplate = await this.loadSystemInstruction();
-    const systemInstruction = await this.promptBuilder.build(
-      sysTemplate,
-      channelRecord,
-      userRecord,
+    // 3. sequence.js 및 컨텍스트 빌드
+    const promptName = this.configManager.get("ai.chat.prompt") || "default";
+    const sequenceDef = await this.sequenceBuilder.loadSequence(promptName);
+    const { systemInstruction, context } = await this.sequenceBuilder.build(
+      sequenceDef,
+      {
+        allMessages: history,
+        botId,
+        cronMessage,
+        channelRecord,
+        userRecord,
+        promptName,
+      },
     );
 
-    // 4. 실험 프롬프트 part1(변수 치환), part2(정적) 로드
-    const { part1Template, part2Template } = await this.loadContextParts();
-    const part1 = await this.promptBuilder.build(
-      part1Template,
-      channelRecord,
-      userRecord,
-    );
-
-    // 5. 컨텍스트 조립: [part1] → [히스토리] → [cronMessage?] → [part2]
-    const context = this.contextService.assembleContext(
-      history,
-      botId,
-      cronMessage,
-      part1,
-      part2Template,
-    );
-
-    return { context, systemInstruction, messageIds, inputMessages, currentUserId };
+    return {
+      context,
+      systemInstruction,
+      messageIds,
+      inputMessages,
+      currentUserId,
+    };
   }
 
   /**
@@ -294,53 +293,6 @@ export class AIService {
         emotionReason: "",
         relationshipDelta: {},
       };
-    }
-  }
-
-  /**
-   * Load system instruction from file (lazy loading).
-   * @returns {Promise<string>}
-   */
-  async loadSystemInstruction() {
-    if (!this.systemInstruction) {
-      const promptName = this.configManager.get("ai.chat.prompt") || "default";
-      const systemInstructionPath = path.join(
-        process.cwd(),
-        "content",
-        "prompts",
-        promptName,
-        "chat",
-        "system.md",
-      );
-      this.systemInstruction = await fs.readFile(
-        systemInstructionPath,
-        "utf-8",
-      );
-    }
-    return this.systemInstruction;
-  }
-
-  /**
-   * 실험 프롬프트 part1, part2 템플릿을 로드한다.
-   * @returns {Promise<{part1Template: string, part2Template: string}>}
-   */
-  async loadContextParts() {
-    const promptName = this.configManager.get("ai.chat.prompt") || "default";
-    const base = path.join(
-      process.cwd(),
-      "content",
-      "prompts",
-      promptName,
-      "chat",
-    );
-    try {
-      const [part1Template, part2Template] = await Promise.all([
-        fs.readFile(path.join(base, "part1.md"), "utf-8").catch(() => ""),
-        fs.readFile(path.join(base, "part2.md"), "utf-8").catch(() => ""),
-      ]);
-      return { part1Template, part2Template };
-    } catch (e) {
-      return { part1Template: "", part2Template: "" };
     }
   }
 

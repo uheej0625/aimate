@@ -2,6 +2,7 @@ import { EMOTION_KEYS } from "../engines/emotion/EmotionEngine.js";
 import { RELATIONSHIP_KEYS } from "../engines/relationship/RelationshipEngine.js";
 import { createLogger } from "../core/logger.js";
 import { fillTemplate } from "../utils/templateUtils.js";
+import fs from "fs/promises";
 
 const logger = createLogger("PromptBuilder");
 
@@ -54,6 +55,24 @@ export class PromptBuilder {
     };
 
     return fillTemplate(template, data);
+  }
+
+  /**
+   * 파일에서 템플릿을 읽어 시스템 프롬프트를 빌드한다.
+   *
+   * @param {string} filePath - 읽을 마크다운 파일 경로
+   * @param {Object|null} channelRecord
+   * @param {Object|null} userRecord
+   * @returns {Promise<string>}
+   */
+  async buildFromFile(filePath, channelRecord = null, userRecord = null) {
+    try {
+      const template = await fs.readFile(filePath, "utf-8");
+      return this.build(template, channelRecord, userRecord);
+    } catch (e) {
+      logger.warn({ err: e, filePath }, "Failed to read prompt file");
+      return "";
+    }
   }
 
   /**

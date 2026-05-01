@@ -12,17 +12,17 @@ test("AIService tests", async (t) => {
     },
   };
 
-  const mockContextService = {
+  const mockHistoryService = {
     fetchHistoryData: async () => ({
       history: [],
       messageIds: [],
       lastUserPlatformAccountId: "user-1",
     }),
-    assembleContext: () => ["assembled-context"],
   };
 
   const mockPromptBuilder = {
     build: async (template) => `built-${template}`,
+    buildFromFile: async (file) => `built-file-${file}`,
   };
 
   const mockUserRepository = {
@@ -34,12 +34,19 @@ test("AIService tests", async (t) => {
   // Since we don't want to hit real APIs, we'll mock the provider after instantiation.
 
   const aiService = new AIService(
-    mockContextService,
+    mockHistoryService,
     mockConfigManager,
     null,
     null,
     mockPromptBuilder,
     mockUserRepository,
+    {
+      loadSequence: async () => [],
+      build: async () => ({
+        context: ["assembled-context"],
+        systemInstruction: "built-sys-template",
+      }),
+    },
   );
 
   await t.test(
@@ -64,14 +71,6 @@ friendship: 2
   );
 
   await t.test("prepareContext should coordinate services", async () => {
-    // We need to mock filesystem calls in AIService for this to work perfectly,
-    // or mock the methods that use them.
-    aiService.loadSystemInstruction = async () => "sys-template";
-    aiService.loadContextParts = async () => ({
-      part1Template: "p1",
-      part2Template: "p2",
-    });
-
     const result = await aiService.prepareContext("chan-1", "bot-1");
 
     assert.ok(result.context.includes("assembled-context"));

@@ -7,7 +7,7 @@ import { GenerationRepository } from "../repositories/GenerationRepository.js";
 import { EmotionStateRepository } from "../repositories/EmotionStateRepository.js";
 import { CronJobRepository } from "../repositories/CronJobRepository.js";
 import { AIService } from "../services/AIService.js";
-import { ContextService } from "../services/ContextService.js";
+import { HistoryService } from "../services/HistoryService.js";
 import { MessageService } from "../services/MessageService.js";
 import { BotAccountService } from "../services/BotAccountService.js";
 import { CronService } from "../services/CronService.js";
@@ -63,14 +63,14 @@ export async function createContainer(client = null) {
   );
 
   // Services (business logic layer)
-  const contextService = new ContextService(messageRepository);
+  const historyService = new HistoryService(messageRepository);
   const characterLoader = new CharacterLoader();
   const promptBuilder = new PromptBuilder(
     characterLoader,
     emotionStateRepository,
   );
   const aiService = new AIService(
-    contextService,
+    historyService,
     configManager,
     toolRegistry,
     toolExecutor,
