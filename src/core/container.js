@@ -168,7 +168,7 @@ export async function createContainer(client = null) {
 
     // Services & Components
     aiService,
-    contextService,
+    historyService,
     messageService,
     botAccountService,
     cronService,
