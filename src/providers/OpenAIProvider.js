@@ -1,7 +1,16 @@
-import OpenAI from "openai";
+import fs from "fs";
+import path from "path";
+import OpenAI, { toFile } from "openai";
 import { createLogger } from "../core/logger.js";
 
 const logger = createLogger("OpenAIProvider");
+
+const IMAGE_MIME_TYPES = {
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+  ".webp": "image/webp",
+};
 
 export class OpenAIProvider {
   constructor(configManager, purpose) {
@@ -147,15 +156,83 @@ export class OpenAIProvider {
       model: this.settings.model,
       prompt,
     };
+    const apiRequest = { ...request };
 
     if (options.size) {
       request.size = options.size;
+      apiRequest.size = options.size;
     }
 
-    logger.info({ prompt }, "Generating image via OpenAI");
-    const response = await this.ai.images.generate(request);
+    if (options.quality) {
+      request.quality = options.quality;
+      apiRequest.quality = options.quality;
+    }
 
-    const imageBase64 = response.data[0].b64_json;
-    return Buffer.from(imageBase64, "base64"); // Buffer 반환
+    if (options.output_format) {
+      request.output_format = options.output_format;
+      apiRequest.output_format = options.output_format;
+    }
+
+    const imagePaths = options.image
+      ? Array.isArray(options.image)
+        ? options.image
+        : [options.image]
+      : [];
+
+    let response;
+    if (imagePaths.length > 0) {
+      request.image = await Promise.all(
+        imagePaths.map(async (imagePath) => {
+          if (typeof imagePath !== "string") {
+            return imagePath;
+          }
+
+          const extension = path.extname(imagePath).toLowerCase();
+          const mimeType = IMAGE_MIME_TYPES[extension];
+          if (!mimeType) {
+            throw new Error(
+              `Unsupported image file extension for reference image: ${extension}`,
+            );
+          }
+
+          return toFile(
+            fs.createReadStream(imagePath),
+            path.basename(imagePath),
+            {
+              type: mimeType,
+            },
+          );
+        }),
+      );
+      apiRequest.image = imagePaths.map((imagePath) =>
+        typeof imagePath === "string" ? imagePath : "[uploadable]",
+      );
+      logger.info(
+        { prompt, imageCount: imagePaths.length },
+        "Generating image edit via OpenAI",
+      );
+      response = await this.ai.images.edit(request);
+    } else {
+      logger.info({ prompt }, "Generating image via OpenAI");
+      response = await this.ai.images.generate(request);
+    }
+
+    const imageBase64 = response.data?.[0]?.b64_json;
+    if (!imageBase64) {
+      throw new Error("OpenAI image response did not include b64_json data");
+    }
+
+    const buffer = Buffer.from(imageBase64, "base64");
+    return {
+      buffer,
+      request: apiRequest,
+      response: {
+        created: response.created,
+        output_format: response.output_format,
+        quality: response.quality,
+        size: response.size,
+        usage: response.usage,
+      },
+    };
   }
 }
