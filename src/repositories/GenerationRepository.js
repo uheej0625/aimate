@@ -13,14 +13,18 @@ export class GenerationRepository {
   async create(generationData) {
     const {
       channelId,
-      messageIdsJson = "[]",
+      type = "CHAT",
+      prompt,
+      input,
       status = "PENDING",
     } = generationData;
 
     return await prisma.generation.create({
       data: {
         channelId,
-        messageIdsJson,
+        type,
+        prompt,
+        input,
         status,
       },
     });
@@ -42,12 +46,14 @@ export class GenerationRepository {
   /**
    * Cancel all processing/generated generations for a channel.
    * @param {string} channelId - Channel ID
+   * @param {string} [type="CHAT"] - Generation type to cancel
    * @returns {Promise<number>} Number of cancelled generations
    */
-  async cancelProcessing(channelId) {
+  async cancelProcessing(channelId, type = "CHAT") {
     const result = await prisma.generation.updateMany({
       where: {
         channelId,
+        type,
         status: { in: ["PROCESSING", "GENERATED"] },
       },
       data: {
@@ -65,6 +71,22 @@ export class GenerationRepository {
   async findById(generationId) {
     return await prisma.generation.findUnique({
       where: { id: generationId },
+    });
+  }
+
+  /**
+   * Find the latest completed image generation by its output filename.
+   * @param {string} filename - Generated image filename, e.g. "21dc101b.png"
+   * @returns {Promise<Object|null>}
+   */
+  async findCompletedImageByOutput(filename) {
+    return await prisma.generation.findFirst({
+      where: {
+        type: "IMAGE",
+        status: "COMPLETED",
+        output: filename,
+      },
+      orderBy: { createdAt: "desc" },
     });
   }
 
@@ -94,75 +116,27 @@ export class GenerationRepository {
   }
 
   /**
-   * Update generation with API details and parsed AI response.
+   * Update generation with API details and parsed response.
    * @param {string} generationId - Generation ID
    * @param {Object} details - Generation details
    * @param {Object} [details.apiRequest] - API request data
    * @param {Object} [details.apiResponse] - API response data
-   * @param {Array<string>} [details.messageIds] - IDs of messages used in generation
-   * @param {string[]} [details.responseMessages] - AI가 생성한 메시지 배열
-   * @param {Object} [details.emotionDelta] - 감정 변화량 object
-   * @param {string} [details.emotionReason] - emotion shift reason
-   * @param {Object} [details.relationshipDelta] - 관계 변화량 object
+   * @param {string} [details.input] - Input (prompt or JSON msg IDs)
+   * @param {string} [details.output] - Output (file path or JSON msg array)
+   * @param {Object} [details.metadata] - Domain-specific metadata (emotion, relationship, etc.)
    * @returns {Promise<Object>}
    */
   async updateDetails(generationId, details) {
-    const {
-      apiRequest,
-      apiResponse,
-      messageIds,
-      responseMessages,
-      emotionDelta,
-      emotionReason,
-      relationshipDelta,
-    } = details;
+    const { apiRequest, apiResponse, input, output, metadata } = details;
 
     return await prisma.generation.update({
       where: { id: generationId },
       data: {
-        apiRequestJson: apiRequest ? JSON.stringify(apiRequest) : undefined,
-        apiResponseJson: apiResponse ? JSON.stringify(apiResponse) : undefined,
-        messageIdsJson: messageIds ? JSON.stringify(messageIds) : undefined,
-        responseMessagesJson: responseMessages
-          ? JSON.stringify(responseMessages)
-          : undefined,
-        emotionDeltaJson: emotionDelta
-          ? JSON.stringify(emotionDelta)
-          : undefined,
-        emotionReason: emotionReason ?? undefined,
-        relationshipDeltaJson: relationshipDelta
-          ? JSON.stringify(relationshipDelta)
-          : undefined,
-      },
-    });
-  }
-
-  /**
-   * Updates the messages array for a specific generation by appending new message IDs.
-   * Retrieves the existing generation, parses its messagesJson field, merges it with new message IDs,
-   * and updates the generation record with the combined array.
-   *
-   * @async
-   * @param {string|number} generationId - The unique identifier of the generation to update
-   * @param {string|number} messageId - Message ID to append to the existing messages
-   * @returns {Promise<Object>} The updated generation object from the database
-   * @throws {Error} If the database operation fails
-   */
-  async appendMessage(generationId, messageId) {
-    const generation = await prisma.generation.findUnique({
-      where: { id: generationId },
-    });
-
-    const existingMessages = generation?.messageIdsJson
-      ? JSON.parse(generation.messageIdsJson)
-      : [];
-
-    const updatedMessages = [...existingMessages, messageId];
-
-    return await prisma.generation.update({
-      where: { id: generationId },
-      data: {
-        messageIdsJson: JSON.stringify(updatedMessages),
+        apiRequest: apiRequest ? JSON.stringify(apiRequest) : undefined,
+        apiResponse: apiResponse ? JSON.stringify(apiResponse) : undefined,
+        input,
+        output,
+        metadata: metadata ? JSON.stringify(metadata) : undefined,
       },
     });
   }

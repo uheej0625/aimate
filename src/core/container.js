@@ -7,11 +7,11 @@ import { GenerationRepository } from "../repositories/GenerationRepository.js";
 import { EmotionStateRepository } from "../repositories/EmotionStateRepository.js";
 import { CronJobRepository } from "../repositories/CronJobRepository.js";
 import { AIService } from "../services/AIService.js";
-import { ContextService } from "../services/ContextService.js";
+import { HistoryService } from "../services/HistoryService.js";
 import { MessageService } from "../services/MessageService.js";
 import { BotAccountService } from "../services/BotAccountService.js";
 import { CronService } from "../services/CronService.js";
-import { PromptBuilder } from "../services/PromptBuilder.js";
+import { PromptComposer } from "../services/PromptComposer.js";
 import { configManager } from "../config/index.js";
 import { MessageHandler } from "./MessageHandler.js";
 import { ConversationBuffer } from "./ConversationBuffer.js";
@@ -19,7 +19,6 @@ import { MessageSender } from "./MessageSender.js";
 import { ChatFlow } from "./ChatFlow.js";
 import { ToolRegistry } from "../tools/ToolRegistry.js";
 import { ToolExecutor } from "../tools/ToolExecutor.js";
-import { allTools } from "../tools/index.js";
 import { CharacterLoader } from "../loaders/CharacterLoader.js";
 import { createLogger } from "./logger.js";
 
@@ -34,7 +33,7 @@ const logger = createLogger("Container");
  * - Single source of truth for instance creation
  * - Easy testing with mock dependencies
  */
-export function createContainer(client = null) {
+export async function createContainer(client = null) {
   // Repositories (data layer)
   const messageRepository = new MessageRepository(configManager);
   const userRepository = new UserRepository();
@@ -47,7 +46,7 @@ export function createContainer(client = null) {
 
   // Tools (function calling)
   const toolRegistry = new ToolRegistry(configManager);
-  toolRegistry.registerAll(allTools);
+  await toolRegistry.loadFromDirectory();
 
   // platformClients: platform ID → 클라이언트 인스턴스 (discord client 등)
   const platformClients = new Map();
@@ -61,21 +60,23 @@ export function createContainer(client = null) {
     configManager,
     platformClients,
     null, // cronService는 나중에 설정
+    generationRepository,
   );
 
   // Services (business logic layer)
-  const contextService = new ContextService(messageRepository);
+  const historyService = new HistoryService(messageRepository);
   const characterLoader = new CharacterLoader();
-  const promptBuilder = new PromptBuilder(
+  const promptComposer = new PromptComposer(
     characterLoader,
     emotionStateRepository,
+    configManager,
   );
   const aiService = new AIService(
-    contextService,
+    historyService,
     configManager,
     toolRegistry,
     toolExecutor,
-    promptBuilder,
+    promptComposer,
     userRepository,
   );
   const messageService = new MessageService(
@@ -97,6 +98,7 @@ export function createContainer(client = null) {
   const chatFlow = new ChatFlow(
     generationRepository,
     channelRepository,
+    messageRepository,
     aiService,
     messageSender,
     configManager,
@@ -169,7 +171,7 @@ export function createContainer(client = null) {
 
     // Services & Components
     aiService,
-    contextService,
+    historyService,
     messageService,
     botAccountService,
     cronService,

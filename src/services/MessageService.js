@@ -33,9 +33,10 @@ export class MessageService {
    *
    * @param {Object} message - Message object (from Discord.js or mock)
    * @param {number} [generationId] - Optional generation ID to link message to
+   * @param {Array} [attachments] - Optional structured attachment metadata
    * @returns {Promise<{message: Object, channel: Object, platformAccount: Object}>}
    */
-  async saveMessage(message, generationId = null) {
+  async saveMessage(message, generationId = null, attachments = []) {
     const platform = message.platform;
 
     // 1. Ensure server exists (if message is in a guild)
@@ -92,16 +93,10 @@ export class MessageService {
       channelId: channel.id,
       authorId: platformAccount.id,
       content: message.content,
+      attachmentsJson:
+        attachments.length > 0 ? JSON.stringify(attachments) : null,
       generationId: generationId,
     });
-
-    // 5. Link to generation if provided
-    if (generationId) {
-      await this.generationRepository.appendMessage(
-        generationId,
-        savedMessage.id,
-      );
-    }
 
     return {
       message: savedMessage,

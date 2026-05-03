@@ -34,51 +34,58 @@ test("MessageService tests", async (t) => {
     mockChannelRepository,
     mockServerRepository,
     mockMessageRepository,
-    mockGenerationRepository
+    mockGenerationRepository,
   );
 
-  await t.test("saveMessage should create entities and save message", async () => {
-    const mockMessage = {
-      platform: "discord",
-      guildId: "guild-1",
-      channelId: "channel-1",
-      author: { id: "author-1", username: "user", globalName: "User" },
-      id: "platform-msg-1",
-      content: "Hello",
-    };
+  await t.test(
+    "saveMessage should create entities and save message",
+    async () => {
+      const mockMessage = {
+        platform: "discord",
+        guildId: "guild-1",
+        channelId: "channel-1",
+        author: { id: "author-1", username: "user", globalName: "User" },
+        id: "platform-msg-1",
+        content: "Hello",
+      };
 
-    const result = await messageService.saveMessage(mockMessage);
+      const result = await messageService.saveMessage(mockMessage);
 
-    assert.strictEqual(result.message.content, "Hello");
-    assert.strictEqual(result.channel.id, "chan-123");
-    assert.strictEqual(result.platformAccount.id, "pa-123");
-  });
+      assert.strictEqual(result.message.content, "Hello");
+      assert.strictEqual(result.channel.id, "chan-123");
+      assert.strictEqual(result.platformAccount.id, "pa-123");
+    },
+  );
 
-  await t.test("saveMessage should link to generation if provided", async () => {
-    let linked = false;
-    const linkMockGenRepo = {
-      appendMessage: async (genId) => {
-        if (genId === "gen-1") linked = true;
-      },
-    };
+  await t.test(
+    "saveMessage should link to generation if provided",
+    async () => {
+      let savedGenerationId = null;
+      const linkMockMsgRepo = {
+        save: async (data) => {
+          savedGenerationId = data.generationId;
+          return { ...data, id: "msg-db-2" };
+        },
+      };
 
-    const service = new MessageService(
-      mockUserRepository,
-      mockPlatformAccountRepository,
-      mockChannelRepository,
-      mockServerRepository,
-      mockMessageRepository,
-      linkMockGenRepo
-    );
+      const service = new MessageService(
+        mockUserRepository,
+        mockPlatformAccountRepository,
+        mockChannelRepository,
+        mockServerRepository,
+        linkMockMsgRepo,
+        mockGenerationRepository,
+      );
 
-    const mockMessage = {
-      platform: "discord",
-      author: { id: "a1" },
-      id: "m1",
-      content: "Hey",
-    };
+      const mockMessage = {
+        platform: "discord",
+        author: { id: "a1" },
+        id: "m1",
+        content: "Hey",
+      };
 
-    await service.saveMessage(mockMessage, "gen-1");
-    assert.strictEqual(linked, true);
-  });
+      await service.saveMessage(mockMessage, "gen-1");
+      assert.strictEqual(savedGenerationId, "gen-1");
+    },
+  );
 });

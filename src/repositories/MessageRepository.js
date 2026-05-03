@@ -65,30 +65,26 @@ export class MessageRepository {
       },
     });
 
-    return messages.reverse().map((message) => ({
-      id: message.id,
-      authorId: message.authorId,
-      authorPlatformId: message.author?.platformId,
-      content: message.content,
-      createdAt: message.createdAt,
-    }));
+    return await this._toHistoryMessages(messages.reverse());
   }
 
   /**
-   * Get chat history for a channel by Discord channel ID.
-   * @param {string} discordChannelId - Discord channel ID
+   * Get chat history for a channel by platform and platform channel ID.
+   * @param {string} platform - Platform name (e.g. "discord", "cli")
+   * @param {string} platformChannelId - Platform-specific channel ID
    * @param {number} limit - Maximum number of messages to retrieve
    * @returns {Promise<Array>}
    */
-  async getHistoryByDiscordChannelId(
-    discordChannelId,
+  async getHistoryByPlatformChannelId(
+    platform,
+    platformChannelId,
     limit = this.configManager.get("conversation.maxContextMessages"),
   ) {
     const messages = await prisma.message.findMany({
       where: {
         channel: {
-          platform: "discord",
-          platformId: discordChannelId,
+          platform,
+          platformId: platformChannelId,
         },
       },
       orderBy: { createdAt: "desc" },
@@ -102,13 +98,14 @@ export class MessageRepository {
       },
     });
 
-    return messages.reverse().map((message) => ({
-      id: message.id,
-      authorId: message.authorId,
-      authorPlatformId: message.author?.platformId,
-      content: message.content,
-      createdAt: message.createdAt,
-    }));
+    return await this._toHistoryMessages(messages.reverse());
+  }
+
+  async addGenerationId(messageId, generationId) {
+    await prisma.message.update({
+      where: { id: messageId },
+      data: { generationId },
+    });
   }
 
   /**
@@ -129,14 +126,42 @@ export class MessageRepository {
 
   /**
    * Delete messages for a specific channel.
+   * Memory records linked to the messages will have their messageId cleared first.
    * @param {string} channelId - Channel ID
    * @returns {Promise<number>} Number of deleted messages
    */
   async deleteByChannel(channelId) {
-    const result = await prisma.message.deleteMany({
+    const messages = await prisma.message.findMany({
       where: { channelId },
+      select: { id: true },
     });
+
+    if (!messages.length) return 0;
+    const ids = messages.map((m) => m.id);
+
+    const [_, result] = await prisma.$transaction([
+      prisma.memory.updateMany({
+        where: { messageId: { in: ids } },
+        data: { messageId: null },
+      }),
+      prisma.message.deleteMany({
+        where: { channelId },
+      }),
+    ]);
+
     return result.count;
+  }
+
+  /**
+   * Find messages by generationId.
+   * @param {string} generationId
+   * @returns {Promise<Array>}
+   */
+  async findByGenerationId(generationId) {
+    return await prisma.message.findMany({
+      where: { generationId },
+      orderBy: { createdAt: "asc" },
+    });
   }
 
   /**
@@ -154,14 +179,15 @@ export class MessageRepository {
     if (!message) return false;
 
     // Memory 관계 해제 후 메시지 삭제
-    await prisma.memory.updateMany({
-      where: { messageId: message.id },
-      data: { messageId: null },
-    });
-
-    await prisma.message.delete({
-      where: { id: message.id },
-    });
+    await prisma.$transaction([
+      prisma.memory.updateMany({
+        where: { messageId: message.id },
+        data: { messageId: null },
+      }),
+      prisma.message.delete({
+        where: { id: message.id },
+      }),
+    ]);
 
     return true;
   }
@@ -184,15 +210,88 @@ export class MessageRepository {
 
     const ids = messages.map((m) => m.id);
 
-    await prisma.memory.updateMany({
-      where: { messageId: { in: ids } },
-      data: { messageId: null },
-    });
-
-    const result = await prisma.message.deleteMany({
-      where: { id: { in: ids } },
-    });
+    const [_, result] = await prisma.$transaction([
+      prisma.memory.updateMany({
+        where: { messageId: { in: ids } },
+        data: { messageId: null },
+      }),
+      prisma.message.deleteMany({
+        where: { id: { in: ids } },
+      }),
+    ]);
 
     return result.count;
+  }
+
+  async _toHistoryMessages(messages) {
+    const generationIds = [
+      ...new Set(
+        messages.flatMap((message) =>
+          this._parseAttachments(message.attachmentsJson)
+            .filter((attachment) => attachment?.type === "generated_image")
+            .map((attachment) => attachment.generationId)
+            .filter(Boolean),
+        ),
+      ),
+    ];
+
+    const generations = generationIds.length
+      ? await prisma.generation.findMany({
+          where: { id: { in: generationIds } },
+          select: { id: true, input: true },
+        })
+      : [];
+    const promptByGenerationId = new Map(
+      generations.map((generation) => [generation.id, generation.input]),
+    );
+
+    return messages.map((message) =>
+      this._toHistoryMessage(message, promptByGenerationId),
+    );
+  }
+
+  _toHistoryMessage(message, promptByGenerationId = new Map()) {
+    return {
+      id: message.id,
+      authorId: message.authorId,
+      authorPlatformId: message.author?.platformId,
+      content: this._renderContentForAI(message, promptByGenerationId),
+      createdAt: message.createdAt,
+    };
+  }
+
+  _renderContentForAI(message, promptByGenerationId = new Map()) {
+    const content = message.content || "";
+    const attachments = this._parseAttachments(message.attachmentsJson);
+    const generatedImages = attachments.filter(
+      (attachment) =>
+        attachment?.type === "generated_image" && attachment.imageId,
+    );
+
+    if (generatedImages.length === 0) {
+      return content;
+    }
+
+    const imageLines = generatedImages.map((image) => {
+      const prompt =
+        promptByGenerationId.get(image.generationId) || image.prompt;
+      const promptLine = prompt ? ` Prompt: ${prompt}` : "";
+      return `- [IMAGE:${image.imageId}] (${image.filename || `${image.imageId}.png`}).${promptLine}`;
+    });
+
+    return [content, "Attached generated images:", ...imageLines]
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  _parseAttachments(attachmentsJson) {
+    if (!attachmentsJson) return [];
+
+    try {
+      const parsed = JSON.parse(attachmentsJson);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
   }
 }

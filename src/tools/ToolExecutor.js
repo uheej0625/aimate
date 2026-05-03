@@ -13,6 +13,7 @@ const logger = createLogger("ToolExecutor");
  *   - configManager   : ConfigManager 인스턴스
  *   - cronService     : CronService 인스턴스 (선택)
  *   - channel         : Channel 레코드 (선택)
+ *   - generationRepository : GenerationRepository 인스턴스 (선택)
  */
 export class ToolExecutor {
   /**
@@ -20,17 +21,20 @@ export class ToolExecutor {
    * @param {import('../config/ConfigManager.js').default} configManager
    * @param {Map<string, any>} platformClients  platform ID → 클라이언트 인스턴스
    * @param {import('../services/CronService.js').CronService} [cronService]  CronService 인스턴스 (선택)
+   * @param {import('../repositories/GenerationRepository.js').GenerationRepository} [generationRepository]
    */
   constructor(
     toolRegistry,
     configManager,
     platformClients = new Map(),
     cronService = null,
+    generationRepository = null,
   ) {
     this.toolRegistry = toolRegistry;
     this.configManager = configManager;
     this.platformClients = platformClients;
     this.cronService = cronService;
+    this.generationRepository = generationRepository;
   }
 
   /**
@@ -38,9 +42,10 @@ export class ToolExecutor {
    * @param {{ name: string, args: Object }} toolCall
    * @param {string} platform
    * @param {Object} [channelRecord] - 내부 Channel 레코드 (선택)
+   * @param {Object} [aiService] - AI 서비스 컨텍스트 (선택)
    * @returns {Promise<any>} 툴 실행 결과
    */
-  async execute(toolCall, platform, channelRecord = null) {
+  async execute(toolCall, platform, channelRecord = null, aiService = null) {
     const tool = this.toolRegistry.getTool(toolCall.name);
 
     if (!tool) {
@@ -55,7 +60,9 @@ export class ToolExecutor {
       platformClients: this.platformClients,
       configManager: this.configManager,
       cronService: this.cronService,
+      generationRepository: this.generationRepository,
       channel: channelRecord,
+      aiService,
     };
 
     try {
@@ -76,11 +83,19 @@ export class ToolExecutor {
    * @param {{ name: string, args: Object }[]} toolCalls
    * @param {string} platform
    * @param {Object} [channelRecord] - 내부 Channel 레코드 (선택)
+   * @param {Object} [aiService] - AI 서비스 컨텍스트 (선택)
    * @returns {Promise<any[]>} 순서를 보존한 결과 배열
    */
-  async executeAll(toolCalls, platform, channelRecord = null) {
+  async executeAll(
+    toolCalls,
+    platform,
+    channelRecord = null,
+    aiService = null,
+  ) {
     return Promise.all(
-      toolCalls.map((tc) => this.execute(tc, platform, channelRecord)),
+      toolCalls.map((tc) =>
+        this.execute(tc, platform, channelRecord, aiService),
+      ),
     );
   }
 }

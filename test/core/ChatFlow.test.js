@@ -35,12 +35,16 @@ test("ChatFlow tests", async (t) => {
       messageIds: ["msg-1"],
       currentUserId: "user-1",
     }),
-    generate: async () => ({
+    generateChat: async () => ({
       messages: ["Hello explorer!"],
       emotionDelta: { happiness: 1 },
       emotionReason: "Greeting",
       relationshipDelta: { friendship: 1 },
     }),
+  };
+
+  const mockMessageRepository = {
+    addGenerationId: async () => {},
   };
 
   const mockMessageSender = {
@@ -65,6 +69,7 @@ test("ChatFlow tests", async (t) => {
   const chatFlow = new ChatFlow(
     mockGenerationRepository,
     mockChannelRepository,
+    mockMessageRepository,
     mockAiService,
     mockMessageSender,
     mockConfigManager,
@@ -106,6 +111,7 @@ test("ChatFlow tests", async (t) => {
     const cancelChatFlow = new ChatFlow(
       cancelMockGenRepo,
       mockChannelRepository,
+      mockMessageRepository,
       mockAiService,
       cancelMockSender,
       mockConfigManager,
@@ -128,7 +134,7 @@ test("ChatFlow tests", async (t) => {
     async () => {
       const errorMockAiService = {
         ...mockAiService,
-        generate: async () => {
+        generateChat: async () => {
           throw new Error("AI Timeout or failure");
         },
       };
@@ -137,6 +143,7 @@ test("ChatFlow tests", async (t) => {
       const errorChatFlow = new ChatFlow(
         mockGenerationRepository,
         mockChannelRepository,
+        mockMessageRepository,
         errorMockAiService,
         mockMessageSender,
         mockConfigManager,
@@ -170,7 +177,7 @@ test("ChatFlow tests", async (t) => {
 
       const invalidAiService = {
         ...mockAiService,
-        generate: async () => ({
+        generateChat: async () => ({
           messages: ["I am very happy"],
           emotionDelta: { happiness: 150, sadness: -50 },
           emotionReason: "Invalid limits",
@@ -180,6 +187,7 @@ test("ChatFlow tests", async (t) => {
       const validateChatFlow = new ChatFlow(
         mockGenerationRepository,
         mockChannelRepository,
+        mockMessageRepository,
         invalidAiService,
         mockMessageSender,
         mockConfigManager,

@@ -1,44 +1,51 @@
-import fs from "fs/promises";
-import path from "path";
 import { GoogleCloudProvider } from "../providers/GoogleCloudProvider.js";
 import { VertexProvider } from "../providers/VertexProvider.js";
-import { ScopeKey } from "../repositories/EmotionStateRepository.js";
+import { OpenAIProvider } from "../providers/OpenAIProvider.js";
 import { CharacterLoader } from "../loaders/CharacterLoader.js";
-import { PromptBuilder } from "./PromptBuilder.js";
+import { PromptComposer } from "./PromptComposer.js";
+import { SequenceBuilder } from "./SequenceBuilder.js";
 import { createLogger } from "../core/logger.js";
+import {
+  GENERATED_IMAGE_TAG_REGEX,
+  normalizeImageId,
+} from "../tools/imageReferenceUtils.js";
 
 const logger = createLogger("AIService");
 
 export class AIService {
   /**
-   * @param {import('../services/ContextService.js').ContextService} contextService
+   * @param {import('../services/HistoryService.js').HistoryService} historyService
    * @param {import('../config/ConfigManager.js').default} configManager
    * @param {import('../tools/ToolRegistry.js').ToolRegistry} [toolRegistry]
    * @param {import('../tools/ToolExecutor.js').ToolExecutor} [toolExecutor]
-   * @param {import('./PromptBuilder.js').PromptBuilder} [promptBuilder]
+   * @param {import('./PromptComposer.js').PromptComposer} [promptComposer]
    * @param {import('../repositories/UserRepository.js').UserRepository} [userRepository]
+   * @param {import('./SequenceBuilder.js').SequenceBuilder} [sequenceBuilder]
    */
   constructor(
-    contextService,
+    historyService,
     configManager,
     toolRegistry = null,
     toolExecutor = null,
-    promptBuilder = null,
+    promptComposer = null,
     userRepository = null,
+    sequenceBuilder = null,
   ) {
     this.configManager = configManager;
-    this.contextService = contextService;
+    this.historyService = historyService;
     this.toolRegistry = toolRegistry;
     this.toolExecutor = toolExecutor;
-    this.promptBuilder =
-      promptBuilder ?? new PromptBuilder(new CharacterLoader());
+    this.promptComposer =
+      promptComposer ??
+      new PromptComposer(new CharacterLoader(), null, configManager);
+    this.sequenceBuilder =
+      sequenceBuilder ?? new SequenceBuilder(this.promptComposer);
     this.userRepository = userRepository;
 
     this.chatModel = this.createModel("chat");
+    this.imageModel = this.createModel("image");
     //this.summaryModel = this.createModel("summary");
     //this.embeddingModel = this.createModel("embedding");
-
-    this.systemInstruction = null;
   }
 
   /**
@@ -47,7 +54,7 @@ export class AIService {
    * @param {string} botId
    * @param {Object} [channelRecord] - 내부 Channel 레코드 (emotion state 조회용)
    * @param {string} [cronMessage] - Cron job에서 전달되는 시스템 메시지 (선택)
-   * @returns {Promise<{context: Array, systemInstruction: string, messageIds: Array, currentUserId: string|null}>}
+   * @returns {Promise<{context: Array, systemInstruction: string, messageIds: Array, inputMessages: Array<string>, currentUserId: string|null}>}
    */
   async prepareContext(
     channelId,
@@ -55,9 +62,14 @@ export class AIService {
     channelRecord = null,
     cronMessage = null,
   ) {
-    // 1. DB에서 히스토리 로드 (단일 쿼리)
-    const { history, messageIds, lastUserPlatformAccountId } =
-      await this.contextService.fetchHistoryData(channelId, botId);
+    // 1. DB에서 히스토리 모두 로드 (단일 쿼리)
+    const {
+      historyMessages,
+      pendingMessages,
+      messageIds,
+      inputMessages,
+      lastUserPlatformAccountId,
+    } = await this.historyService.fetchHistoryData(channelId, botId);
 
     // 2. 마지막 유저의 관계 상태 조회
     let currentUserId = null;
@@ -76,32 +88,29 @@ export class AIService {
       }
     }
 
-    // 3. 시스템 인스트럭션 빌드
-    const sysTemplate = await this.loadSystemInstruction();
-    const systemInstruction = await this.promptBuilder.build(
-      sysTemplate,
-      channelRecord,
-      userRecord,
+    // 3. sequence.js 및 컨텍스트 빌드
+    const promptName = this.configManager.get("ai.chat.prompt") || "default";
+    const sequenceDef = await this.sequenceBuilder.loadSequence(promptName);
+    const { systemInstruction, context } = await this.sequenceBuilder.build(
+      sequenceDef,
+      {
+        historyMessages,
+        pendingMessages,
+        botId,
+        cronMessage,
+        channelRecord,
+        userRecord,
+        promptName,
+      },
     );
 
-    // 4. 실험 프롬프트 part1(변수 치환), part2(정적) 로드
-    const { part1Template, part2Template } = await this.loadContextParts();
-    const part1 = await this.promptBuilder.build(
-      part1Template,
-      channelRecord,
-      userRecord,
-    );
-
-    // 5. 컨텍스트 조립: [part1] → [히스토리] → [cronMessage?] → [part2]
-    const context = this.contextService.assembleContext(
-      history,
-      botId,
-      cronMessage,
-      part1,
-      part2Template,
-    );
-
-    return { context, systemInstruction, messageIds, currentUserId };
+    return {
+      context,
+      systemInstruction,
+      messageIds,
+      inputMessages,
+      currentUserId,
+    };
   }
 
   /**
@@ -126,7 +135,7 @@ export class AIService {
    * @param {Object} [channelRecord]   - 내부 Channel 레코드 (툴 실행 컨텍스트용)
    * @returns {Promise<{messages: string[], emotionDelta: Object, emotionReason: string}>}
    */
-  async generate(
+  async generateChat(
     context,
     systemInstruction,
     platform = "cli",
@@ -148,6 +157,7 @@ export class AIService {
 
     // DB 컨텍스트 + 이번 generation에서 발생한 tool 결과 (ephemeral, DB 저장 안 함)
     let ephemeralContext = [];
+    const generatedImageTags = [];
     const apiRequests = [];
     const apiResponses = [];
 
@@ -156,7 +166,7 @@ export class AIService {
       const toolCalls = [];
       let textBuffer = "";
 
-      for await (const event of this.chatModel.generate(
+      for await (const event of this.chatModel.generateChat(
         fullContext,
         systemInstruction,
         toolDeclarations,
@@ -180,7 +190,10 @@ export class AIService {
       // tool_call이 없으면 최종 텍스트 응답 → JSON 파싱
       if (toolCalls.length === 0) {
         return {
-          ...this._parseAIResponse(textBuffer),
+          ...this._withGeneratedImageTags(
+            this._parseAIResponse(textBuffer),
+            generatedImageTags,
+          ),
           apiRequests,
           apiResponses,
         };
@@ -188,9 +201,15 @@ export class AIService {
 
       // maxSteps 초과 시 루프 탈출
       if (step === maxSteps) {
-        logger.warn({ maxSteps }, "Tool call loop reached maxSteps, forcing stop");
+        logger.warn(
+          { maxSteps },
+          "Tool call loop reached maxSteps, forcing stop",
+        );
         return {
-          ...this._parseAIResponse(textBuffer),
+          ...this._withGeneratedImageTags(
+            this._parseAIResponse(textBuffer),
+            generatedImageTags,
+          ),
           apiRequests,
           apiResponses,
         };
@@ -201,7 +220,14 @@ export class AIService {
         toolCalls,
         platform,
         channelRecord,
+        this, // aiService 주입
       );
+
+      for (const tag of this._extractGeneratedImageTags(results)) {
+        if (!generatedImageTags.includes(tag)) {
+          generatedImageTags.push(tag);
+        }
+      }
 
       // 툴 결과를 ephemeral context에 추가 (다음 AI 호출에 포함됨)
       ephemeralContext.push({
@@ -278,7 +304,10 @@ export class AIService {
 
       return parsed;
     } catch (e) {
-      logger.warn({ err: e }, "Failed to parse AI response as Markdown, using raw text");
+      logger.warn(
+        { err: e },
+        "Failed to parse AI response as Markdown, using raw text",
+      );
       return {
         messages: [text.trim()],
         emotionDelta: {},
@@ -288,107 +317,52 @@ export class AIService {
     }
   }
 
-  /**
-   * Load system instruction from file (lazy loading).
-   * @returns {Promise<string>}
-   */
-  async loadSystemInstruction() {
-    if (!this.systemInstruction) {
-      const systemInstructionPath = path.join(
-        process.cwd(),
-        "content/prompts/experiment/system.md",
-      );
-      this.systemInstruction = await fs.readFile(
-        systemInstructionPath,
-        "utf-8",
-      );
-    }
-    return this.systemInstruction;
-  }
+  _extractGeneratedImageTags(toolResults = []) {
+    const tags = [];
+    const addImageId = (imageId) => {
+      const normalized = normalizeImageId(imageId);
+      if (normalized) tags.push(`[IMAGE:${normalized}]`);
+    };
 
-  /**
-   * 실험 프롬프트 part1, part2 템플릿을 로드한다.
-   * @returns {Promise<{part1Template: string, part2Template: string}>}
-   */
-  async loadContextParts() {
-    const base = path.join(process.cwd(), "content/prompts/experiment");
-    const [part1Template, part2Template] = await Promise.all([
-      fs.readFile(path.join(base, "part1.md"), "utf-8"),
-      fs.readFile(path.join(base, "part2.md"), "utf-8"),
-    ]);
-    return { part1Template, part2Template };
-  }
+    for (const result of toolResults) {
+      if (!result || result.error) continue;
 
-  /**
-   * 시스템 프롬프트 템플릿의 변수를 실제 값으로 치환한다.
-   *
-   * 치환 대상:
-   *   {character}         - 캐릭터 마크다운 파일 내용
-   *   {emotionalState}    - 채널 스코프 감정 수치 (없으면 기본값)
-   *   {relationshipState} - 유저별 관계 수치 (없으면 기본값)
-   *   {currentTime}       - 현재 시각 (로컬)
-   *
-   * @param {string} template - 시스템 프롬프트 템플릿
-   * @param {Object|null} channelRecord - 내부 Channel 레코드
-   * @param {Object|null} userRecord - 현재 유저의 User 레코드
-   * @returns {Promise<string>}
-   */
-  async _buildSystemInstruction(
-    template,
-    channelRecord = null,
-    userRecord = null,
-  ) {
-    // {character} - CharacterLoader를 사용하여 동적 템플릿 렌더링
-    const character = await this.characterLoader.load();
+      if (result.imageId) {
+        addImageId(result.imageId);
+      }
 
-    // {emotionalState} — channelRecord.scope 기준으로 스코프 선택
-    let emotionalState = EMOTION_KEYS.map((k) => `${k}: 50`).join("\n");
-    if (this.emotionStateRepository && channelRecord?.id) {
-      try {
-        const scope = channelRecord.scope ?? "channel";
-        let state;
-        if (scope === "global") {
-          state = await this.emotionStateRepository.getGlobal();
-        } else if (scope === "server" && channelRecord.serverId) {
-          state = await this.emotionStateRepository.getForServer(
-            channelRecord.serverId,
-          );
-        } else {
-          state = await this.emotionStateRepository.getForChannel(
-            channelRecord.id,
-          );
+      if (result.instruction) {
+        GENERATED_IMAGE_TAG_REGEX.lastIndex = 0;
+        let match;
+        while (
+          (match = GENERATED_IMAGE_TAG_REGEX.exec(result.instruction)) !== null
+        ) {
+          addImageId(match[1]);
         }
-        emotionalState = EMOTION_KEYS.map((k) => `${k}: ${state[k]}`).join(
-          "\n",
-        );
-      } catch (e) {
-        logger.warn({ err: e }, "Failed to load emotion state");
       }
     }
 
-    // {currentTime}
-    const currentTime = new Date().toLocaleString("ko-KR", {
-      timeZone: "Asia/Seoul",
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-      weekday: "long",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+    return [...new Set(tags)];
+  }
 
-    // {relationshipState} — userRecord에서 관계 수치 로드
-    const relationshipState = RELATIONSHIP_KEYS.map((k) => {
-      const defaults = { affinity: 30, trust: 30, affection: 20 };
-      const v = userRecord?.[k];
-      return `${k}: ${typeof v === "number" ? v : defaults[k]}`;
-    }).join("\n");
+  _withGeneratedImageTags(parsed, generatedImageTags = []) {
+    if (!generatedImageTags.length) return parsed;
 
-    return template
-      .replace("{character}", character)
-      .replace("{emotionalState}", emotionalState)
-      .replace("{relationshipState}", relationshipState)
-      .replace("{currentTime}", currentTime);
+    const existingText = parsed.messages.join("\n");
+    const missingTags = generatedImageTags.filter(
+      (tag) => !existingText.includes(tag),
+    );
+    if (!missingTags.length) return parsed;
+
+    if (parsed.messages.length === 0) {
+      parsed.messages = missingTags;
+      return parsed;
+    }
+
+    const lastIndex = parsed.messages.length - 1;
+    parsed.messages[lastIndex] =
+      `${parsed.messages[lastIndex]}\n${missingTags.join("\n")}`.trim();
+    return parsed;
   }
 
   createModel(purpose) {
@@ -399,10 +373,14 @@ export class AIService {
         return new GoogleCloudProvider(this.configManager, purpose);
       case "vertex":
         return new VertexProvider(this.configManager, purpose);
-      //case "openai":
-      //return new OpenAIProvider(this.configManager, purpose);
+      case "openai":
+        return new OpenAIProvider(this.configManager, purpose);
       default:
         throw new Error(`Unknown provider: ${config.provider}`);
     }
+  }
+
+  async generateImage(prompt, options = {}) {
+    return this.imageModel.generateImage(prompt, options);
   }
 }

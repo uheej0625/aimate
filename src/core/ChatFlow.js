@@ -22,6 +22,7 @@ export class ChatFlow {
   constructor(
     generationRepository,
     channelRepository,
+    messsageRepository,
     aiService,
     messageSender,
     configManager,
@@ -30,6 +31,7 @@ export class ChatFlow {
   ) {
     this.generationRepository = generationRepository;
     this.channelRepository = channelRepository;
+    this.messageRepository = messsageRepository;
     this.aiService = aiService;
     this.messageSender = messageSender;
     this.configManager = configManager;
@@ -40,7 +42,7 @@ export class ChatFlow {
 
   /**
    * Execute the conversation logic.
-   * @param {import('discord.js').TextBasedChannel} channel
+   * @param {Object} channel - The platform-specific channel object (e.g., Discord TextBasedChannel)
    * @param {string} botId
    * @param {string} [cronMessage] - Cron job에서 전달되는 시스템 메시지 (선택)
    */
@@ -68,23 +70,33 @@ export class ChatFlow {
       // 1. Start Generation Tracking
       generation = await this.generationRepository.create({
         channelId: channelRecord.id,
-        messagesJson: "[]",
+        type: "CHAT",
+        prompt: this.configManager.get("ai.chat.prompt") || "default",
         status: "PROCESSING",
       });
 
       // 2. Prepare Context
-      const { context, systemInstruction, messageIds, currentUserId } =
-        await this.aiService.prepareContext(
-          channelRecord.id,
-          botId,
-          channelRecord,
-          cronMessage,
-        );
-
-      // 3. Save context message IDs
-      await this.generationRepository.updateDetails(generation.id, {
+      const {
+        context,
+        systemInstruction,
         messageIds,
+        inputMessages,
+        currentUserId,
+      } = await this.aiService.prepareContext(
+        channelRecord.id,
+        botId,
+        channelRecord,
+        cronMessage,
+      );
+
+      // 3. Update Generation with input details
+      await this.generationRepository.updateDetails(generation.id, {
+        input: JSON.stringify(inputMessages),
       });
+
+      for (const id of messageIds) {
+        await this.messageRepository.addGenerationId(id, generation.id);
+      }
 
       // 4. Check Cancellation before generating
       const result = await this.generationRepository.checkAndUpdateStatus(
@@ -98,7 +110,7 @@ export class ChatFlow {
       }
 
       // 5. Generate response (JSON parsed)
-      const aiResult = await this.aiService.generate(
+      const aiResult = await this.aiService.generateChat(
         context,
         systemInstruction,
         channel.platform,
@@ -120,10 +132,12 @@ export class ChatFlow {
             : undefined;
 
       await this.generationRepository.updateDetails(generation.id, {
-        responseMessages: aiResult.messages,
-        emotionDelta: aiResult.emotionDelta,
-        emotionReason: aiResult.emotionReason,
-        relationshipDelta: aiResult.relationshipDelta,
+        output: JSON.stringify(aiResult.messages),
+        metadata: {
+          emotionDelta: aiResult.emotionDelta,
+          emotionReason: aiResult.emotionReason,
+          relationshipDelta: aiResult.relationshipDelta,
+        },
         apiRequest,
         apiResponse,
       });

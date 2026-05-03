@@ -109,19 +109,28 @@ model Message {
 model Generation {
   id                Int      @id @default(autoincrement())
   
+  type              String   @default("CHAT") // "CHAT", "IMAGE", "VOICE", "EMBEDDING"
+
   channelId         String
   channel           Channel @relation(fields: [channelId], references: [id])
   
-  messageIdsJson    String
-  apiRequestJson    String?
-  apiResponseJson   String?
   status            String @default("PENDING")  // PENDING, PROCESSING, GENERATED, COMPLETED, CANCELLED, FAILED
 
-  // Parsed AI response fields
-  responseMessagesJson  String?   // ["msg1", "msg2", ...] - AI가 생성한 메시지 배열
-  emotionDeltaJson      String?   // {"attachment":0,"jealousy":0,...} - 감정 변화량
-  emotionReason         String?   // emotion shift reason (english)
-  relationshipDeltaJson String?   // {"affinity":0,"trust":0,"affection":0} - 관계 변화량
+  // API 로깅
+  apiRequest        String?
+  apiResponse       String?
+
+  // 사용된 프롬프트 이름 (content/prompts/ 하위 폴더명, e.g., "default", "experiment")
+  prompt            String?
+
+  // 입력: chat → user 메시지 원문 배열 (JSON), image → 프롬프트 원문
+  input             String?
+
+  // 출력: chat → AI 응답 메시지 원문 배열 (JSON), image → 파일명/경로
+  output            String?
+
+  // chat 전용 부가 데이터 (없으면 null)
+  metadata          String? // { "emotionDelta": {...}, "emotionReason": "...", "relationshipDelta": {...} }
   
   messages          Message[]
   

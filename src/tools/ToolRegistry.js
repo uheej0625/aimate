@@ -1,3 +1,10 @@
+import fs from "fs/promises";
+import path from "path";
+import { fileURLToPath, pathToFileURL } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 /**
  * ToolRegistry
  *
@@ -30,7 +37,13 @@ export class ToolRegistry {
    * @param {Function} toolDef.execute     - async (args, context) => result
    */
   register(toolDef) {
-    if (!toolDef.name) throw new Error("Tool must have a name");
+    if (!toolDef || !toolDef.name) throw new Error("Tool must have a name");
+    if (typeof toolDef.execute !== "function") {
+      throw new Error(`Tool ${toolDef.name} must have an execute function`);
+    }
+    if (this.tools.has(toolDef.name)) {
+      throw new Error(`Duplicate tool definition for: ${toolDef.name}`);
+    }
     this.tools.set(toolDef.name, {
       platforms: ["*"],
       requires: [],
@@ -46,6 +59,34 @@ export class ToolRegistry {
   registerAll(toolDefs) {
     for (const def of toolDefs) {
       this.register(def);
+    }
+  }
+
+  /**
+   * 디렉토리에서 툴들을 동적으로 불러온다.
+   * @param {string} dirPath - 툴 모듈들이 있는 디렉토리 절대 경로 (기본값: 현재 디렉토리/definitions)
+   */
+  async loadFromDirectory(dirPath = path.join(__dirname, "definitions")) {
+    try {
+      const files = await fs.readdir(dirPath);
+      const jsFiles = files.filter((f) => f.endsWith(".js"));
+      jsFiles.sort();
+
+      for (const file of jsFiles) {
+        const filePath = path.join(dirPath, file);
+
+        try {
+          const module = await import(pathToFileURL(filePath).href);
+          const toolDef = module.default;
+          if (toolDef) {
+            this.register(toolDef);
+          }
+        } catch (err) {
+          console.error(`Failed to load tool from ${file}:`, err);
+        }
+      }
+    } catch (err) {
+      console.error(`Failed to read tool directory ${dirPath}:`, err);
     }
   }
 

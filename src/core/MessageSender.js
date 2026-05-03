@@ -1,4 +1,11 @@
+import fs from "fs";
 import { createLogger } from "./logger.js";
+import {
+  GENERATED_IMAGE_TAG_REGEX,
+  imageIdToFilename,
+  imageIdToPath,
+  normalizeImageId,
+} from "../tools/imageReferenceUtils.js";
 
 const logger = createLogger("MessageSender");
 
@@ -29,9 +36,51 @@ export class MessageSender {
   async sendChunk(channel, text, generationId) {
     if (!text) return true;
 
-    await channel.sendTyping();
+    // --- 멀티모달 이미지 태그 파싱 ---
+    const files = [];
+    const generatedImageAttachments = [];
+    let match;
+    GENERATED_IMAGE_TAG_REGEX.lastIndex = 0;
+    while ((match = GENERATED_IMAGE_TAG_REGEX.exec(text)) !== null) {
+      const parsedValue = match[1].trim();
+      let attachmentPath = parsedValue;
+      let imageId = null;
 
-    const delay = this._calculateDelay(text);
+      // 만약 경로를 뜻하는 slash가 없다면 (imageId 등으로 추론)
+      if (!parsedValue.includes("/") && !parsedValue.includes("\\")) {
+        imageId = normalizeImageId(parsedValue);
+        const filename = imageIdToFilename(imageId);
+        const localPath = imageIdToPath(imageId);
+        if (fs.existsSync(localPath)) {
+          attachmentPath = localPath;
+          generatedImageAttachments.push(
+            await this._buildGeneratedImageAttachment(imageId, filename),
+          );
+        } else {
+          logger.warn(
+            { imageId: parsedValue },
+            "Image file not found, skipping attachment",
+          );
+          continue; // 파일이 없으면 건너뜀
+        }
+      }
+
+      files.push({ attachment: attachmentPath });
+    }
+
+    // 파일 경로 태그를 텍스트에서 제거 후 앞뒤 공백 정리
+    GENERATED_IMAGE_TAG_REGEX.lastIndex = 0;
+    const cleanText = text.replace(GENERATED_IMAGE_TAG_REGEX, "").trim();
+
+    // 텍스트도 없고 파일도 없으면 스킵
+    if (!cleanText && files.length === 0) return true;
+
+    // Discord.js 채널이 아닐 경우(cli 등)를 위한 fallback
+    if (typeof channel.sendTyping === "function") {
+      await channel.sendTyping();
+    }
+
+    const delay = this._calculateDelay(cleanText);
     await new Promise((resolve) => setTimeout(resolve, delay));
 
     if (generationId) {
@@ -45,10 +94,25 @@ export class MessageSender {
       }
     }
 
-    const message = await channel.send(text);
+    // CLI 등 send 메서드 없는 채널에 대한 fallback
+    if (typeof channel.send !== "function") {
+      logger.debug({ cleanText }, "Channel has no send method, skipping");
+      return true;
+    }
+
+    // 전송 옵션 구성
+    const sendOptions = {};
+    if (cleanText) sendOptions.content = cleanText;
+    if (files.length > 0) sendOptions.files = files;
+
+    const message = await channel.send(sendOptions);
 
     // Save message with all related entities
-    await this.messageService.saveMessage(message, generationId);
+    await this.messageService.saveMessage(
+      message,
+      generationId,
+      generatedImageAttachments,
+    );
 
     return true;
   }
@@ -87,5 +151,17 @@ export class MessageSender {
         text.length * this.configManager.get("conversation.typingDelayPerChar"),
       ),
     );
+  }
+
+  async _buildGeneratedImageAttachment(imageId, filename) {
+    const generation =
+      await this.generationRepository.findCompletedImageByOutput(filename);
+
+    return {
+      type: "generated_image",
+      imageId,
+      filename,
+      generationId: generation?.id ?? null,
+    };
   }
 }

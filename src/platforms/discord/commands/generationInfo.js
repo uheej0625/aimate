@@ -35,18 +35,26 @@ export default {
 
     const gen = dbMessage.generation;
 
-    const responseMessages = gen.responseMessagesJson
-      ? JSON.parse(gen.responseMessagesJson)
-      : [];
-    const emotionDelta = gen.emotionDeltaJson
-      ? JSON.parse(gen.emotionDeltaJson)
-      : null;
-    const relationshipDelta = gen.relationshipDeltaJson
-      ? JSON.parse(gen.relationshipDeltaJson)
-      : null;
-    const contextMessageIds = gen.messageIdsJson
-      ? JSON.parse(gen.messageIdsJson)
-      : [];
+    let metadata = {};
+    if (gen.metadata) {
+      try {
+        metadata = JSON.parse(gen.metadata);
+      } catch (e) {}
+    }
+
+    const responseMessages =
+      gen.output && gen.type === "CHAT" ? JSON.parse(gen.output) : [];
+    const emotionDelta = metadata.emotionDelta || null;
+    const relationshipDelta = metadata.relationshipDelta || null;
+    const emotionReason = metadata.emotionReason || "";
+
+    // For chat, input is a JSON string of msg IDs. For others, just raw text.
+    let contextMessageIds = [];
+    if (gen.input && gen.type === "CHAT") {
+      try {
+        contextMessageIds = JSON.parse(gen.input);
+      } catch (e) {}
+    }
 
     // 상태 이모지
     const statusEmoji = {
@@ -128,10 +136,10 @@ export default {
     }
 
     // 감정 변화 이유
-    if (gen.emotionReason) {
+    if (emotionReason) {
       embed.addFields({
         name: "감정 변화 이유",
-        value: gen.emotionReason,
+        value: emotionReason,
         inline: true,
       });
     }

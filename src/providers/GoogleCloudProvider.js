@@ -93,7 +93,7 @@ export class GoogleCloudProvider {
    * @param {boolean}  [options.stream=false]
    * @yields {{ type: string, content?: string, name?: string, args?: Object }}
    */
-  async *generate(
+  async *generateChat(
     context,
     systemPrompt,
     toolDeclarations = [],
@@ -163,5 +163,11 @@ export class GoogleCloudProvider {
     }
 
     throw lastError;
+  }
+
+  async generateImage(prompt, options = {}) {
+    throw new Error(
+      "generateImage is not implemented yet for GoogleCloudProvider",
+    );
   }
 }

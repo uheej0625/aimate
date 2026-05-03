@@ -23,7 +23,7 @@ const main = async () => {
     logger.info("Starting AiMate");
 
     // Initialize DI Container
-    const container = createContainer(client);
+    const container = await createContainer(client);
 
     // Attach services to client for access in events
     client.services = container;
