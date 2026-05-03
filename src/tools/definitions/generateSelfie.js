@@ -1,11 +1,5 @@
-import fs from "fs";
 import path from "path";
-import crypto from "crypto";
-import {
-  buildTemplateContext,
-  renderTemplateFile,
-} from "../../utils/renderTemplate.js";
-import { buildImageToolContext } from "../imageToolContextUtils.js";
+import { executeImageGenerationTool } from "../ImageGenerationToolRunner.js";
 
 /** @type {import('../ActionRegistry.js').ToolDef} */
 export default {
@@ -72,113 +66,24 @@ export default {
    * @param {Object} context
    */
   execute: async (args, context) => {
-    const { aiService, configManager, generationRepository, channel } = context;
-    if (!aiService) {
-      throw new Error("AIService not available in tool context");
-    }
-    if (!generationRepository) {
-      throw new Error("GenerationRepository not available in tool context");
-    }
-    if (!channel?.id) {
-      throw new Error("Channel not available in tool context");
-    }
-
-    const promptName = configManager?.get("ai.image.prompt") || "default";
     const referenceImagePath = path.join(
       process.cwd(),
       "content",
       "character",
       "reference.png",
     );
-    if (!fs.existsSync(referenceImagePath)) {
-      throw new Error(
-        "Selfie generation requires content/character/reference.png",
-      );
-    }
-    const { sourceImagePaths, templateData } = buildImageToolContext(
-      args,
-      configManager,
-    );
-
-    const templatePath = path.join(
-      process.cwd(),
-      "content",
-      "prompts",
-      promptName,
-      "image",
-      "selfie.md",
-    );
-    const prompt = await renderTemplateFile(
-      templatePath,
-      buildTemplateContext(templateData),
-    );
-
-    const gen = await generationRepository.create({
-      channelId: channel.id,
-      type: "IMAGE",
-      prompt: promptName,
-      input: prompt,
-      status: "PROCESSING",
+    return executeImageGenerationTool(args, context, {
+      toolName: "generate_selfie",
+      templateFile: "selfie.md",
+      imageOptions: { size: "1024x1536" },
+      referenceImages: [
+        {
+          path: referenceImagePath,
+          requiredMessage:
+            "Selfie generation requires content/character/reference.png",
+        },
+      ],
+      describe: (toolArgs) => `Generated selfie for scene: ${toolArgs.scene}`,
     });
-    const generationId = gen.id;
-
-    let imageBuffer;
-    let apiRequest = {
-      prompt,
-      referenceImage: referenceImagePath,
-      sourceImages: sourceImagePaths,
-    };
-    let apiResponse = null;
-    let imageId = crypto.randomBytes(4).toString("hex");
-    let filename = `${imageId}.png`;
-
-    try {
-      const result = await aiService.generateImage(prompt, {
-        image: [referenceImagePath, ...sourceImagePaths],
-        size: "1024x1536",
-      });
-      imageBuffer = result.buffer || result;
-      apiRequest = result.request || apiRequest;
-      apiResponse = result.response || {
-        status: "success",
-        tool: "generate_selfie",
-      };
-
-      if (generationId) {
-        await generationRepository.updateDetails(generationId, {
-          apiRequest,
-          apiResponse,
-          output: filename,
-        });
-        await generationRepository.updateStatus(generationId, "COMPLETED");
-      }
-    } catch (err) {
-      if (generationId) {
-        await generationRepository.updateDetails(generationId, {
-          apiRequest,
-          apiResponse: { error: err.message, stack: err.stack },
-        });
-        await generationRepository.updateStatus(generationId, "FAILED");
-      }
-      throw err;
-    }
-
-    const imageDir = path.join(process.cwd(), "content", "image");
-
-    // Ensure directory exists
-    if (!fs.existsSync(imageDir)) {
-      fs.mkdirSync(imageDir, { recursive: true });
-    }
-
-    const filePath = path.join(imageDir, filename);
-    fs.writeFileSync(filePath, imageBuffer);
-
-    return {
-      status: "success",
-      imageId: imageId,
-      generationId,
-      instruction: `Image generated successfully! You MUST include this tag somewhere in your response message exactly like this so the user can see it: [IMAGE:${imageId}]`,
-      description: `Generated selfie for scene: ${args.scene}`,
-    };
   },
 };

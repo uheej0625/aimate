@@ -1,11 +1,4 @@
-import fs from "fs";
-import path from "path";
-import crypto from "crypto";
-import {
-  buildTemplateContext,
-  renderTemplateFile,
-} from "../../utils/renderTemplate.js";
-import { buildImageToolContext } from "../imageToolContextUtils.js";
+import { executeImageGenerationTool } from "../ImageGenerationToolRunner.js";
 
 /** @type {import('../ActionRegistry.js').ToolDef} */
 export default {
@@ -67,96 +60,10 @@ export default {
    * @param {Object} context
    */
   execute: async (args, context) => {
-    const { aiService, configManager, generationRepository, channel } = context;
-    if (!aiService) {
-      throw new Error("AIService not available in tool context");
-    }
-    if (!generationRepository) {
-      throw new Error("GenerationRepository not available in tool context");
-    }
-    if (!channel?.id) {
-      throw new Error("Channel not available in tool context");
-    }
-
-    const promptName = configManager?.get("ai.image.prompt") || "default";
-    const { sourceImagePaths, templateData } = buildImageToolContext(
-      args,
-      configManager,
-    );
-    const templatePath = path.join(
-      process.cwd(),
-      "content",
-      "prompts",
-      promptName,
-      "image",
-      "photo.md",
-    );
-    const prompt = await renderTemplateFile(
-      templatePath,
-      buildTemplateContext(templateData),
-    );
-
-    const gen = await generationRepository.create({
-      channelId: channel.id,
-      type: "IMAGE",
-      prompt: promptName,
-      input: prompt,
-      status: "PROCESSING",
+    return executeImageGenerationTool(args, context, {
+      toolName: "generate_photo",
+      templateFile: "photo.md",
+      describe: (toolArgs) => `Generated photo for scene: ${toolArgs.scene}`,
     });
-    const generationId = gen.id;
-
-    let imageBuffer;
-    let apiRequest = { prompt, sourceImages: sourceImagePaths };
-    let apiResponse = null;
-    let imageId = crypto.randomBytes(4).toString("hex");
-    let filename = `${imageId}.png`;
-
-    try {
-      const result = await aiService.generateImage(prompt, {
-        image: sourceImagePaths,
-      });
-      imageBuffer = result.buffer || result;
-      apiRequest = result.request || apiRequest;
-      apiResponse = result.response || {
-        status: "success",
-        tool: "generate_photo",
-      };
-
-      if (generationId) {
-        await generationRepository.updateDetails(generationId, {
-          apiRequest,
-          apiResponse,
-          output: filename,
-        });
-        await generationRepository.updateStatus(generationId, "COMPLETED");
-      }
-    } catch (err) {
-      if (generationId) {
-        await generationRepository.updateDetails(generationId, {
-          apiRequest,
-          apiResponse: { error: err.message, stack: err.stack },
-        });
-        await generationRepository.updateStatus(generationId, "FAILED");
-      }
-      throw err;
-    }
-
-    const imageDir = path.join(process.cwd(), "content", "image");
-
-    // Ensure directory exists
-    if (!fs.existsSync(imageDir)) {
-      fs.mkdirSync(imageDir, { recursive: true });
-    }
-
-    const filePath = path.join(imageDir, filename);
-    fs.writeFileSync(filePath, imageBuffer);
-
-    return {
-      status: "success",
-      imageId: imageId,
-      generationId,
-      instruction: `Image generated successfully! You MUST include this tag somewhere in your response message exactly like this so the user can see it: [IMAGE:${imageId}]`,
-      description: `Generated photo for scene: ${args.scene}`,
-    };
   },
 };
