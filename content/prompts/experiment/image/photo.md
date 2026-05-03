@@ -20,14 +20,23 @@ Candid everyday perspective.
 
 ## Scene Data
 
-Scene: {{scene}}
-Purpose: {{purpose}}
-Mood: {{vibe}}
-Human presence: {{humanPresence}}
-Lighting: {{lighting}}
-Details: {{details}}
+Scene: {{data.scene}}
+Purpose: {{data.purpose}}
+Mood: {{data.vibe}}
+Human presence: {{data.humanPresence}}
+Lighting: {{data.lighting}}
+Details: {{data.details}}
+Source images: {{data.sourceImageRefs}}
+Current datetime: {{system.now.raw}}
 
 ## Rules
+
+If source images are listed, use the attached source image(s) as visual references or edit bases according to the user's request.
+If source images are None, create a new image from the scene data only.
+
+Use the datetime context when it naturally affects the scene, lighting, sky, open shops, room ambience, visible clocks, device screens, or chat-share realism.
+If the user explicitly asks for a different time, follow the user's requested time instead.
+Do not show a bright daytime scene when the current time context indicates night unless the scene is clearly indoors with artificial lighting or the user requested daylight.
 
 This must remain a 2D anime-style illustration at all times.
 Do NOT generate photorealism or real photography.

@@ -75,6 +75,22 @@ export class GenerationRepository {
   }
 
   /**
+   * Find the latest completed image generation by its output filename.
+   * @param {string} filename - Generated image filename, e.g. "21dc101b.png"
+   * @returns {Promise<Object|null>}
+   */
+  async findCompletedImageByOutput(filename) {
+    return await prisma.generation.findFirst({
+      where: {
+        type: "IMAGE",
+        status: "COMPLETED",
+        output: filename,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+  }
+
+  /**
    * Execute a transaction to check and update generation status.
    * @param {string} generationId - Generation ID
    * @param {string} newStatus - New status to set

@@ -19,16 +19,20 @@ Modern smartphone or PC environment in South Korea. Use Korean UI patterns.
 
 ## Scene Data
 
-- ScreenType: {{screenType}}
-- AppContext: {{appContext}}
-- Purpose: {{purpose}}
+- ScreenType: {{data.screenType}}
+- AppContext: {{data.appContext}}
+- Purpose: {{data.purpose}}
+- Source images: {{data.sourceImageRefs}}
+  Current datetime: {{system.now}}
 
 ## Time & System UI
 
-- Current Time: {{currentTime}} (e.g., 09:41)
-- Date (optional): {{currentDate}} (e.g., 2026-04-26)
+- Current datetime: {{system.now.raw}}
+- Current time: {{system.now.time}}
+- Date: {{system.now.date}} ({{system.now.weekday}})
+- Time of day: {{system.now.timeOfDay}}
+- Use up-to-date OS conventions ({{system.now.raw}} standard UI)
 - Battery / Signal / WiFi icons must reflect a realistic, modern status bar
-- Use up-to-date OS conventions (Android / iOS inspired, 2026 standard UI)
 
 ## UI/UX Guidelines
 
@@ -39,6 +43,9 @@ Modern smartphone or PC environment in South Korea. Use Korean UI patterns.
 - Proper spacing, hierarchy, and touch-friendly components
 
 ## Rules
+
+If source images are listed, use the attached source image(s) as visual references or edit bases according to the user's request.
+If source images are None, create a new screenshot from the screen data only.
 
 This must always look like a smartphone screenshot.
 
@@ -52,7 +59,7 @@ Only digital UI is allowed.
 
 All elements must appear as part of a mobile screen UI:
 
-- status bar (with {{currentTime}})
+- status bar
 - app navigation (top bar, bottom tab, etc.)
 - chat bubbles or feeds
 - buttons and icons

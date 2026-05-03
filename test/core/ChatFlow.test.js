@@ -43,6 +43,10 @@ test("ChatFlow tests", async (t) => {
     }),
   };
 
+  const mockMessageRepository = {
+    addGenerationId: async () => {},
+  };
+
   const mockMessageSender = {
     sendChunk: async () => true,
   };
@@ -65,6 +69,7 @@ test("ChatFlow tests", async (t) => {
   const chatFlow = new ChatFlow(
     mockGenerationRepository,
     mockChannelRepository,
+    mockMessageRepository,
     mockAiService,
     mockMessageSender,
     mockConfigManager,
@@ -106,6 +111,7 @@ test("ChatFlow tests", async (t) => {
     const cancelChatFlow = new ChatFlow(
       cancelMockGenRepo,
       mockChannelRepository,
+      mockMessageRepository,
       mockAiService,
       cancelMockSender,
       mockConfigManager,
@@ -137,6 +143,7 @@ test("ChatFlow tests", async (t) => {
       const errorChatFlow = new ChatFlow(
         mockGenerationRepository,
         mockChannelRepository,
+        mockMessageRepository,
         errorMockAiService,
         mockMessageSender,
         mockConfigManager,
@@ -180,6 +187,7 @@ test("ChatFlow tests", async (t) => {
       const validateChatFlow = new ChatFlow(
         mockGenerationRepository,
         mockChannelRepository,
+        mockMessageRepository,
         invalidAiService,
         mockMessageSender,
         mockConfigManager,

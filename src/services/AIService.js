@@ -2,12 +2,15 @@ import fs from "fs/promises";
 import path from "path";
 import { GoogleCloudProvider } from "../providers/GoogleCloudProvider.js";
 import { VertexProvider } from "../providers/VertexProvider.js";
-import { OpenAIProvider } from "../providers/OpenaiProvider.js";
-import { ScopeKey } from "../repositories/EmotionStateRepository.js";
+import { OpenAIProvider } from "../providers/OpenAIProvider.js";
 import { CharacterLoader } from "../loaders/CharacterLoader.js";
-import { PromptBuilder } from "./PromptBuilder.js";
+import { PromptComposer } from "./PromptComposer.js";
 import { SequenceBuilder } from "./SequenceBuilder.js";
 import { createLogger } from "../core/logger.js";
+import {
+  GENERATED_IMAGE_TAG_REGEX,
+  normalizeImageId,
+} from "../tools/imageReferenceUtils.js";
 
 const logger = createLogger("AIService");
 
@@ -17,7 +20,7 @@ export class AIService {
    * @param {import('../config/ConfigManager.js').default} configManager
    * @param {import('../tools/ToolRegistry.js').ToolRegistry} [toolRegistry]
    * @param {import('../tools/ToolExecutor.js').ToolExecutor} [toolExecutor]
-   * @param {import('./PromptBuilder.js').PromptBuilder} [promptBuilder]
+   * @param {import('./PromptComposer.js').PromptComposer} [promptComposer]
    * @param {import('../repositories/UserRepository.js').UserRepository} [userRepository]
    * @param {import('./SequenceBuilder.js').SequenceBuilder} [sequenceBuilder]
    */
@@ -26,7 +29,7 @@ export class AIService {
     configManager,
     toolRegistry = null,
     toolExecutor = null,
-    promptBuilder = null,
+    promptComposer = null,
     userRepository = null,
     sequenceBuilder = null,
   ) {
@@ -34,10 +37,11 @@ export class AIService {
     this.historyService = historyService;
     this.toolRegistry = toolRegistry;
     this.toolExecutor = toolExecutor;
-    this.promptBuilder =
-      promptBuilder ?? new PromptBuilder(new CharacterLoader());
+    this.promptComposer =
+      promptComposer ??
+      new PromptComposer(new CharacterLoader(), null, configManager);
     this.sequenceBuilder =
-      sequenceBuilder ?? new SequenceBuilder(this.promptBuilder);
+      sequenceBuilder ?? new SequenceBuilder(this.promptComposer);
     this.userRepository = userRepository;
 
     this.chatModel = this.createModel("chat");
@@ -61,8 +65,13 @@ export class AIService {
     cronMessage = null,
   ) {
     // 1. DB에서 히스토리 모두 로드 (단일 쿼리)
-    const { history, messageIds, inputMessages, lastUserPlatformAccountId } =
-      await this.historyService.fetchHistoryData(channelId, botId);
+    const {
+      historyMessages,
+      pendingMessages,
+      messageIds,
+      inputMessages,
+      lastUserPlatformAccountId,
+    } = await this.historyService.fetchHistoryData(channelId, botId);
 
     // 2. 마지막 유저의 관계 상태 조회
     let currentUserId = null;
@@ -87,7 +96,8 @@ export class AIService {
     const { systemInstruction, context } = await this.sequenceBuilder.build(
       sequenceDef,
       {
-        allMessages: history,
+        historyMessages,
+        pendingMessages,
         botId,
         cronMessage,
         channelRecord,
@@ -149,6 +159,7 @@ export class AIService {
 
     // DB 컨텍스트 + 이번 generation에서 발생한 tool 결과 (ephemeral, DB 저장 안 함)
     let ephemeralContext = [];
+    const generatedImageTags = [];
     const apiRequests = [];
     const apiResponses = [];
 
@@ -181,7 +192,10 @@ export class AIService {
       // tool_call이 없으면 최종 텍스트 응답 → JSON 파싱
       if (toolCalls.length === 0) {
         return {
-          ...this._parseAIResponse(textBuffer),
+          ...this._withGeneratedImageTags(
+            this._parseAIResponse(textBuffer),
+            generatedImageTags,
+          ),
           apiRequests,
           apiResponses,
         };
@@ -194,7 +208,10 @@ export class AIService {
           "Tool call loop reached maxSteps, forcing stop",
         );
         return {
-          ...this._parseAIResponse(textBuffer),
+          ...this._withGeneratedImageTags(
+            this._parseAIResponse(textBuffer),
+            generatedImageTags,
+          ),
           apiRequests,
           apiResponses,
         };
@@ -207,6 +224,12 @@ export class AIService {
         channelRecord,
         this, // aiService 주입
       );
+
+      for (const tag of this._extractGeneratedImageTags(results)) {
+        if (!generatedImageTags.includes(tag)) {
+          generatedImageTags.push(tag);
+        }
+      }
 
       // 툴 결과를 ephemeral context에 추가 (다음 AI 호출에 포함됨)
       ephemeralContext.push({
@@ -294,6 +317,54 @@ export class AIService {
         relationshipDelta: {},
       };
     }
+  }
+
+  _extractGeneratedImageTags(toolResults = []) {
+    const tags = [];
+    const addImageId = (imageId) => {
+      const normalized = normalizeImageId(imageId);
+      if (normalized) tags.push(`[IMAGE:${normalized}]`);
+    };
+
+    for (const result of toolResults) {
+      if (!result || result.error) continue;
+
+      if (result.imageId) {
+        addImageId(result.imageId);
+      }
+
+      if (result.instruction) {
+        GENERATED_IMAGE_TAG_REGEX.lastIndex = 0;
+        let match;
+        while (
+          (match = GENERATED_IMAGE_TAG_REGEX.exec(result.instruction)) !== null
+        ) {
+          addImageId(match[1]);
+        }
+      }
+    }
+
+    return [...new Set(tags)];
+  }
+
+  _withGeneratedImageTags(parsed, generatedImageTags = []) {
+    if (!generatedImageTags.length) return parsed;
+
+    const existingText = parsed.messages.join("\n");
+    const missingTags = generatedImageTags.filter(
+      (tag) => !existingText.includes(tag),
+    );
+    if (!missingTags.length) return parsed;
+
+    if (parsed.messages.length === 0) {
+      parsed.messages = missingTags;
+      return parsed;
+    }
+
+    const lastIndex = parsed.messages.length - 1;
+    parsed.messages[lastIndex] =
+      `${parsed.messages[lastIndex]}\n${missingTags.join("\n")}`.trim();
+    return parsed;
   }
 
   createModel(purpose) {

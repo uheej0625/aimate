@@ -14,7 +14,10 @@ export class HistoryService {
    */
   async fetchHistoryData(channelId, botId) {
     const history = await this.messageRepository.getHistory(channelId);
-    const pendingMessages = this.extractPendingMessages(history, botId);
+    const { historyMessages, pendingMessages } = this.splitHistoryAndPending(
+      history,
+      botId,
+    );
     const messageIds = pendingMessages.map((m) => m.id);
     const inputMessages = pendingMessages.map((m) => m.content);
 
@@ -26,37 +29,48 @@ export class HistoryService {
       }
     }
 
-    return { history, messageIds, inputMessages, lastUserPlatformAccountId };
+    return {
+      history,
+      historyMessages,
+      pendingMessages,
+      messageIds,
+      inputMessages,
+      lastUserPlatformAccountId,
+    };
+  }
+
+  /**
+   * 히스토리를 이미 답변된 메시지와 아직 답변되지 않은 메시지로 나눈다.
+   * @param {Array} history
+   * @param {string} botId
+   * @returns {{ historyMessages: Array, pendingMessages: Array }}
+   */
+  splitHistoryAndPending(history, botId) {
+    let lastBotIndex = -1;
+    for (let i = history.length - 1; i >= 0; i--) {
+      if (history[i].authorPlatformId === botId) {
+        lastBotIndex = i;
+        break;
+      }
+    }
+
+    if (lastBotIndex === -1) {
+      return { historyMessages: [], pendingMessages: [...history] };
+    }
+
+    return {
+      historyMessages: history.slice(0, lastBotIndex + 1),
+      pendingMessages: history.slice(lastBotIndex + 1),
+    };
   }
 
   /**
    * 아직 답변되지 않은 user 메시지 목록을 추출한다.
-   * 히스토리 끝에서 연속된 user 메시지를 수집하고, bot 응답을 만나면 중단.
-   *
-   * Example:
-   * [bot, user, user, user] → returns [{id, content}, ...]
-   * [user, bot, user] → returns [{id, content}]
-   *
-   * @param {Array} history - Message history array
-   * @param {string} botId - Bot's Discord user ID (platformId)
-   * @returns {Array<{id: number, content: string}>} Messages in chronological order
+   * @param {Array} history
+   * @param {string} botId
+   * @returns {Array}
    */
   extractPendingMessages(history, botId) {
-    const messages = [];
-
-    // Traverse history backwards to find unanswered user messages
-    for (let i = history.length - 1; i >= 0; i--) {
-      const message = history[i];
-
-      // Stop when we hit the bot's last response
-      if (message.authorPlatformId === botId) {
-        break;
-      }
-
-      // Collect user message
-      messages.unshift({ id: message.id, content: message.content });
-    }
-
-    return messages;
+    return this.splitHistoryAndPending(history, botId).pendingMessages;
   }
 }

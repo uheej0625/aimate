@@ -24,16 +24,22 @@ test("HistoryService tests", async (t) => {
   const historyService = new HistoryService(mockMessageRepository);
 
   await t.test(
-    "extractPendingMessages should return messages since last bot response",
+    "splitHistoryAndPending should split at last bot response",
     () => {
       const history = [
         { id: "m1", authorPlatformId: "bot-1", content: "Old bot" },
         { id: "m2", authorPlatformId: "user-1", content: "New user 1" },
         { id: "m3", authorPlatformId: "user-1", content: "New user 2" },
       ];
-      const messages = historyService.extractPendingMessages(history, "bot-1");
-      const ids = messages.map((m) => m.id);
-      assert.deepStrictEqual(ids, ["m2", "m3"]);
+      const result = historyService.splitHistoryAndPending(history, "bot-1");
+      assert.deepStrictEqual(
+        result.historyMessages.map((m) => m.id),
+        ["m1"],
+      );
+      assert.deepStrictEqual(
+        result.pendingMessages.map((m) => m.id),
+        ["m2", "m3"],
+      );
     },
   );
 

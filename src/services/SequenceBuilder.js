@@ -6,40 +6,10 @@ const logger = createLogger("SequenceBuilder");
 
 export class SequenceBuilder {
   /**
-   * @param {import('./PromptBuilder.js').PromptBuilder} promptBuilder
+   * @param {import('./PromptComposer.js').PromptComposer} promptComposer
    */
-  constructor(promptBuilder) {
-    this.promptBuilder = promptBuilder;
-  }
-
-  /**
-   * history 배열을 answered와 pending으로 분리한다.
-   * @param {Array} history
-   * @param {string} botId
-   * @returns {{ historyMessages: Array, pendingMessages: Array }}
-   */
-  splitHistoryAndPending(history, botId) {
-    const historyMessages = [];
-    const pendingMessages = [];
-
-    // Find the index of the last bot message
-    let lastBotIndex = -1;
-    for (let i = history.length - 1; i >= 0; i--) {
-      if (history[i].authorPlatformId === botId) {
-        lastBotIndex = i;
-        break;
-      }
-    }
-
-    if (lastBotIndex === -1) {
-      // No bot message found, everything is pending
-      pendingMessages.push(...history);
-    } else {
-      historyMessages.push(...history.slice(0, lastBotIndex + 1));
-      pendingMessages.push(...history.slice(lastBotIndex + 1));
-    }
-
-    return { historyMessages, pendingMessages };
+  constructor(promptComposer) {
+    this.promptComposer = promptComposer;
   }
 
   /**
@@ -63,13 +33,14 @@ export class SequenceBuilder {
   /**
    * sequence.js 명세에 따라 컨텍스트 배열을 조립한다.
    * @param {Array} sequenceDef
-   * @param {Object} options - { allMessages, botId, cronMessage, channelRecord, userRecord, promptName }
+   * @param {Object} options - { historyMessages, pendingMessages, botId, cronMessage, channelRecord, userRecord, promptName }
    * @returns {Promise<{ systemInstruction: string, context: Array }>}
    */
   async build(
     sequenceDef,
     {
-      allMessages,
+      historyMessages = [],
+      pendingMessages = [],
       botId,
       cronMessage,
       channelRecord,
@@ -77,11 +48,6 @@ export class SequenceBuilder {
       promptName = "default",
     },
   ) {
-    const { historyMessages, pendingMessages } = this.splitHistoryAndPending(
-      allMessages,
-      botId,
-    );
-
     let systemInstruction = "";
     let systemInstructionSet = false;
     const context = [];
@@ -96,11 +62,10 @@ export class SequenceBuilder {
     for (const step of sequenceDef) {
       if (step.type === "file") {
         const filePath = path.join(promptDir, step.source);
-        const rendered = await this.promptBuilder.buildFromFile(
-          filePath,
+        const rendered = await this.promptComposer.renderFile(filePath, {
           channelRecord,
           userRecord,
-        );
+        });
 
         if (!rendered) continue; // skip if file not found or empty
 

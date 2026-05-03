@@ -65,13 +65,7 @@ export class MessageRepository {
       },
     });
 
-    return messages.reverse().map((message) => ({
-      id: message.id,
-      authorId: message.authorId,
-      authorPlatformId: message.author?.platformId,
-      content: message.content,
-      createdAt: message.createdAt,
-    }));
+    return await this._toHistoryMessages(messages.reverse());
   }
 
   /**
@@ -104,13 +98,7 @@ export class MessageRepository {
       },
     });
 
-    return messages.reverse().map((message) => ({
-      id: message.id,
-      authorId: message.authorId,
-      authorPlatformId: message.author?.platformId,
-      content: message.content,
-      createdAt: message.createdAt,
-    }));
+    return await this._toHistoryMessages(messages.reverse());
   }
 
   async addGenerationId(messageId, generationId) {
@@ -233,5 +221,77 @@ export class MessageRepository {
     ]);
 
     return result.count;
+  }
+
+  async _toHistoryMessages(messages) {
+    const generationIds = [
+      ...new Set(
+        messages.flatMap((message) =>
+          this._parseAttachments(message.attachmentsJson)
+            .filter((attachment) => attachment?.type === "generated_image")
+            .map((attachment) => attachment.generationId)
+            .filter(Boolean),
+        ),
+      ),
+    ];
+
+    const generations = generationIds.length
+      ? await prisma.generation.findMany({
+          where: { id: { in: generationIds } },
+          select: { id: true, input: true },
+        })
+      : [];
+    const promptByGenerationId = new Map(
+      generations.map((generation) => [generation.id, generation.input]),
+    );
+
+    return messages.map((message) =>
+      this._toHistoryMessage(message, promptByGenerationId),
+    );
+  }
+
+  _toHistoryMessage(message, promptByGenerationId = new Map()) {
+    return {
+      id: message.id,
+      authorId: message.authorId,
+      authorPlatformId: message.author?.platformId,
+      content: this._renderContentForAI(message, promptByGenerationId),
+      createdAt: message.createdAt,
+    };
+  }
+
+  _renderContentForAI(message, promptByGenerationId = new Map()) {
+    const content = message.content || "";
+    const attachments = this._parseAttachments(message.attachmentsJson);
+    const generatedImages = attachments.filter(
+      (attachment) =>
+        attachment?.type === "generated_image" && attachment.imageId,
+    );
+
+    if (generatedImages.length === 0) {
+      return content;
+    }
+
+    const imageLines = generatedImages.map((image) => {
+      const prompt =
+        promptByGenerationId.get(image.generationId) || image.prompt;
+      const promptLine = prompt ? ` Prompt: ${prompt}` : "";
+      return `- [IMAGE:${image.imageId}] (${image.filename || `${image.imageId}.png`}).${promptLine}`;
+    });
+
+    return [content, "Attached generated images:", ...imageLines]
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  _parseAttachments(attachmentsJson) {
+    if (!attachmentsJson) return [];
+
+    try {
+      const parsed = JSON.parse(attachmentsJson);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
   }
 }

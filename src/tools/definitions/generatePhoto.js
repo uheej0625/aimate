@@ -1,7 +1,11 @@
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
-import { renderTemplateFile } from "../../utils/templateUtils.js";
+import {
+  buildTemplateContext,
+  renderTemplateFile,
+} from "../../utils/renderTemplate.js";
+import { buildImageToolContext } from "../imageToolContextUtils.js";
 
 /** @type {import('../ActionRegistry.js').ToolDef} */
 export default {
@@ -47,13 +51,19 @@ export default {
           items: { type: "string" },
           description: "Extra objects or scene hints.",
         },
+        sourceImages: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Optional. Leave empty or omit when creating a new image. Include previous generated image IDs, such as ['21dc101b'] or ['[IMAGE:21dc101b]'], only when the user wants to reuse, reference, or modify earlier images.",
+        },
       },
       required: ["scene"],
     },
   },
 
   /**
-   * @param {{ scene: string, purpose?: string, vibe?: string, humanPresence?: string, lighting?: string, details?: string[] }} args
+   * @param {{ scene: string, purpose?: string, vibe?: string, humanPresence?: string, lighting?: string, details?: string[], sourceImages?: string[] }} args
    * @param {Object} context
    */
   execute: async (args, context) => {
@@ -61,8 +71,18 @@ export default {
     if (!aiService) {
       throw new Error("AIService not available in tool context");
     }
+    if (!generationRepository) {
+      throw new Error("GenerationRepository not available in tool context");
+    }
+    if (!channel?.id) {
+      throw new Error("Channel not available in tool context");
+    }
 
     const promptName = configManager?.get("ai.image.prompt") || "default";
+    const { sourceImagePaths, templateData } = buildImageToolContext(
+      args,
+      configManager,
+    );
     const templatePath = path.join(
       process.cwd(),
       "content",
@@ -71,28 +91,30 @@ export default {
       "image",
       "photo.md",
     );
-    const prompt = await renderTemplateFile(templatePath, args);
+    const prompt = await renderTemplateFile(
+      templatePath,
+      buildTemplateContext(templateData),
+    );
 
-    let generationId = null;
-    if (generationRepository && channel?.id) {
-      const gen = await generationRepository.create({
-        channelId: channel.id,
-        type: "IMAGE",
-        prompt: promptName,
-        input: prompt,
-        status: "PROCESSING",
-      });
-      generationId = gen.id;
-    }
+    const gen = await generationRepository.create({
+      channelId: channel.id,
+      type: "IMAGE",
+      prompt: promptName,
+      input: prompt,
+      status: "PROCESSING",
+    });
+    const generationId = gen.id;
 
     let imageBuffer;
-    let apiRequest = { prompt };
+    let apiRequest = { prompt, sourceImages: sourceImagePaths };
     let apiResponse = null;
     let imageId = crypto.randomBytes(4).toString("hex");
     let filename = `${imageId}.png`;
 
     try {
-      const result = await aiService.generateImage(prompt);
+      const result = await aiService.generateImage(prompt, {
+        image: sourceImagePaths,
+      });
       imageBuffer = result.buffer || result;
       apiRequest = result.request || apiRequest;
       apiResponse = result.response || {
@@ -132,6 +154,7 @@ export default {
     return {
       status: "success",
       imageId: imageId,
+      generationId,
       instruction: `Image generated successfully! You MUST include this tag somewhere in your response message exactly like this so the user can see it: [IMAGE:${imageId}]`,
       description: `Generated photo for scene: ${args.scene}`,
     };

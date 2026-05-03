@@ -13,6 +13,7 @@ const logger = createLogger("ToolExecutor");
  *   - configManager   : ConfigManager 인스턴스
  *   - cronService     : CronService 인스턴스 (선택)
  *   - channel         : Channel 레코드 (선택)
+ *   - generationRepository : GenerationRepository 인스턴스 (선택)
  */
 export class ToolExecutor {
   /**
@@ -20,17 +21,20 @@ export class ToolExecutor {
    * @param {import('../config/ConfigManager.js').default} configManager
    * @param {Map<string, any>} platformClients  platform ID → 클라이언트 인스턴스
    * @param {import('../services/CronService.js').CronService} [cronService]  CronService 인스턴스 (선택)
+   * @param {import('../repositories/GenerationRepository.js').GenerationRepository} [generationRepository]
    */
   constructor(
     toolRegistry,
     configManager,
     platformClients = new Map(),
     cronService = null,
+    generationRepository = null,
   ) {
     this.toolRegistry = toolRegistry;
     this.configManager = configManager;
     this.platformClients = platformClients;
     this.cronService = cronService;
+    this.generationRepository = generationRepository;
   }
 
   /**
@@ -56,6 +60,7 @@ export class ToolExecutor {
       platformClients: this.platformClients,
       configManager: this.configManager,
       cronService: this.cronService,
+      generationRepository: this.generationRepository,
       channel: channelRecord,
       aiService,
     };

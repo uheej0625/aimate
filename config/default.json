@@ -1,8 +1,10 @@
 {
   "app": {
-    "name": "DiscordMate",
+    "name": "AiMate",
     "version": "1.0.0",
-    "environment": "development"
+    "environment": "development",
+    "timezone": "Asia/Seoul",
+    "language": "ko-KR"
   },
   "ai": {
     "chat": {
@@ -31,7 +33,8 @@
     "image": {
       "provider": "openai",
       "model": "gpt-image-2-2026-04-21",
-      "prompt": "experiment"
+      "prompt": "experiment",
+      "includeTimeContext": true
     }
   },
   "discord": {
@@ -45,7 +48,6 @@
     "maxContextMessages": 20,
     "maxHistoryDays": 30,
     "enableMemory": true,
-    "messageBreakTag": "[BREAK]",
     "bufferTimeout": 3000,
     "typingDelayMin": 1000,
     "typingDelayMax": 2000,

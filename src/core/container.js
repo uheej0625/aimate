@@ -11,7 +11,7 @@ import { HistoryService } from "../services/HistoryService.js";
 import { MessageService } from "../services/MessageService.js";
 import { BotAccountService } from "../services/BotAccountService.js";
 import { CronService } from "../services/CronService.js";
-import { PromptBuilder } from "../services/PromptBuilder.js";
+import { PromptComposer } from "../services/PromptComposer.js";
 import { configManager } from "../config/index.js";
 import { MessageHandler } from "./MessageHandler.js";
 import { ConversationBuffer } from "./ConversationBuffer.js";
@@ -60,21 +60,23 @@ export async function createContainer(client = null) {
     configManager,
     platformClients,
     null, // cronService는 나중에 설정
+    generationRepository,
   );
 
   // Services (business logic layer)
   const historyService = new HistoryService(messageRepository);
   const characterLoader = new CharacterLoader();
-  const promptBuilder = new PromptBuilder(
+  const promptComposer = new PromptComposer(
     characterLoader,
     emotionStateRepository,
+    configManager,
   );
   const aiService = new AIService(
     historyService,
     configManager,
     toolRegistry,
     toolExecutor,
-    promptBuilder,
+    promptComposer,
     userRepository,
   );
   const messageService = new MessageService(

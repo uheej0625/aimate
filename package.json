@@ -5,8 +5,8 @@
   "main": "src/platforms/discord/index.js",
   "scripts": {
     "dev": "npm run discord",
-    "discord": "nodemon src/platforms/discord/index.js",
-    "cli": "node src/platforms/cli/index.js",
+    "discord": "node PLATFORM=discord src/platforms/discord/index.js",
+    "cli": "node PLATFORM=cli src/platforms/cli/index.js",
     "deploy": "node src/platforms/discord/deploy.js",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",

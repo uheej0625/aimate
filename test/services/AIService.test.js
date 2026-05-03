@@ -20,7 +20,7 @@ test("AIService tests", async (t) => {
     }),
   };
 
-  const mockPromptBuilder = {
+  const mockPromptComposer = {
     build: async (template) => `built-${template}`,
     buildFromFile: async (file) => `built-file-${file}`,
   };
@@ -38,7 +38,7 @@ test("AIService tests", async (t) => {
     mockConfigManager,
     null,
     null,
-    mockPromptBuilder,
+    mockPromptComposer,
     mockUserRepository,
     {
       loadSequence: async () => [],
@@ -77,4 +77,52 @@ friendship: 2
     assert.strictEqual(result.systemInstruction, "built-sys-template");
     assert.strictEqual(result.currentUserId, "u123");
   });
+
+  await t.test(
+    "generateChat should preserve generated image tags when model omits them",
+    async () => {
+      let callCount = 0;
+      aiService.chatModel = {
+        generateChat: async function* () {
+          callCount += 1;
+          if (callCount === 1) {
+            yield {
+              type: "tool_call",
+              name: "generate_selfie",
+              args: { scene: "room" },
+            };
+            return;
+          }
+
+          yield {
+            type: "text",
+            content:
+              "## messages\n이거면 됐나\n## emotion_delta\nattachment: 0",
+          };
+        },
+      };
+      aiService.toolRegistry = {
+        getActiveTools: () => [{ declaration: { name: "generate_selfie" } }],
+      };
+      aiService.toolExecutor = {
+        executeAll: async () => [
+          {
+            status: "success",
+            imageId: "9a9d426d",
+            instruction:
+              "Image generated successfully! Include [IMAGE:9a9d426d].",
+          },
+        ],
+      };
+
+      const result = await aiService.generateChat(
+        ["user message"],
+        "system",
+        "discord",
+      );
+
+      assert.strictEqual(result.messages.length, 1);
+      assert.match(result.messages[0], /\[IMAGE:9a9d426d\]/);
+    },
+  );
 });

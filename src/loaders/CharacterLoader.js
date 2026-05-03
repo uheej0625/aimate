@@ -1,6 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import { createLogger } from "../core/logger.js";
+import { renderTemplate } from "../utils/renderTemplate.js";
 
 const logger = createLogger("CharacterLoader");
 
@@ -45,8 +46,7 @@ export class CharacterLoader {
     // 동적 컨텍스트 준비
     const context = this._buildContext(variables);
 
-    // 템플릿 렌더링
-    this._cachedResult = this._renderTemplate(template, context);
+    this._cachedResult = renderTemplate(template, context);
     return this._cachedResult;
   }
 
@@ -76,43 +76,6 @@ export class CharacterLoader {
       grade, // 계산된 학년
       // 필요시 추가 변수들...
     };
-  }
-
-  /**
-   * 템플릿 문자열에서 {{표현식}}을 찾아 평가하고 치환
-   * @param {string} template - 템플릿 문자열
-   * @param {Object} context - 평가 컨텍스트
-   * @returns {string} 렌더링된 문자열
-   */
-  _renderTemplate(template, context) {
-    // {{...}} 패턴을 찾아서 평가
-    return template.replace(/\{\{(.+?)\}\}/g, (match, expression) => {
-      try {
-        // 간단한 표현식 평가 (산술, 속성 접근)
-        const result = this._evaluateExpression(expression.trim(), context);
-        return result !== undefined ? String(result) : match;
-      } catch (error) {
-        logger.warn({ expression, err: error }, "표현식 평가 실패");
-        return match; // 실패하면 원본 유지
-      }
-    });
-  }
-
-  /**
-   * 표현식을 안전하게 평가
-   * @param {string} expression - 평가할 표현식 (예: "today.year - birthday.year")
-   * @param {Object} context - 컨텍스트 객체
-   * @returns {*} 평가 결과
-   */
-  _evaluateExpression(expression, context) {
-    // Function 생성자를 사용한 안전한 표현식 평가
-    // context의 키들을 함수 파라미터로, 값들을 인자로 전달
-    const keys = Object.keys(context);
-    const values = Object.values(context);
-
-    // eslint-disable-next-line no-new-func
-    const fn = new Function(...keys, `return (${expression});`);
-    return fn(...values);
   }
 
   /**

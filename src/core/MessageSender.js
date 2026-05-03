@@ -1,6 +1,11 @@
 import fs from "fs";
-import path from "path";
 import { createLogger } from "./logger.js";
+import {
+  GENERATED_IMAGE_TAG_REGEX,
+  imageIdToFilename,
+  imageIdToPath,
+  normalizeImageId,
+} from "../tools/imageReferenceUtils.js";
 
 const logger = createLogger("MessageSender");
 
@@ -32,28 +37,30 @@ export class MessageSender {
     if (!text) return true;
 
     // --- 멀티모달 이미지 태그 파싱 ---
-    const imageRegex = /\[IMAGE:(.*?)\]/g;
     const files = [];
+    const generatedImageAttachments = [];
     let match;
-    while ((match = imageRegex.exec(text)) !== null) {
+    GENERATED_IMAGE_TAG_REGEX.lastIndex = 0;
+    while ((match = GENERATED_IMAGE_TAG_REGEX.exec(text)) !== null) {
       const parsedValue = match[1].trim();
       let attachmentPath = parsedValue;
+      let imageId = null;
 
       // 만약 경로를 뜻하는 slash가 없다면 (imageId 등으로 추론)
-      if (!parsedValue.includes("/") && !parsedValue.includes("\\\\")) {
-        const filename = parsedValue.endsWith(".png")
-          ? parsedValue
-          : `${parsedValue}.png`;
-        const localPath = path.join(
-          process.cwd(),
-          "content",
-          "image",
-          filename,
-        );
+      if (!parsedValue.includes("/") && !parsedValue.includes("\\")) {
+        imageId = normalizeImageId(parsedValue);
+        const filename = imageIdToFilename(imageId);
+        const localPath = imageIdToPath(imageId);
         if (fs.existsSync(localPath)) {
           attachmentPath = localPath;
+          generatedImageAttachments.push(
+            await this._buildGeneratedImageAttachment(imageId, filename),
+          );
         } else {
-          logger.warn({ imageId: parsedValue }, "Image file not found, skipping attachment");
+          logger.warn(
+            { imageId: parsedValue },
+            "Image file not found, skipping attachment",
+          );
           continue; // 파일이 없으면 건너뜀
         }
       }
@@ -62,7 +69,8 @@ export class MessageSender {
     }
 
     // 파일 경로 태그를 텍스트에서 제거 후 앞뒤 공백 정리
-    const cleanText = text.replace(imageRegex, "").trim();
+    GENERATED_IMAGE_TAG_REGEX.lastIndex = 0;
+    const cleanText = text.replace(GENERATED_IMAGE_TAG_REGEX, "").trim();
 
     // 텍스트도 없고 파일도 없으면 스킵
     if (!cleanText && files.length === 0) return true;
@@ -100,7 +108,11 @@ export class MessageSender {
     const message = await channel.send(sendOptions);
 
     // Save message with all related entities
-    await this.messageService.saveMessage(message, generationId);
+    await this.messageService.saveMessage(
+      message,
+      generationId,
+      generatedImageAttachments,
+    );
 
     return true;
   }
@@ -139,5 +151,17 @@ export class MessageSender {
         text.length * this.configManager.get("conversation.typingDelayPerChar"),
       ),
     );
+  }
+
+  async _buildGeneratedImageAttachment(imageId, filename) {
+    const generation =
+      await this.generationRepository.findCompletedImageByOutput(filename);
+
+    return {
+      type: "generated_image",
+      imageId,
+      filename,
+      generationId: generation?.id ?? null,
+    };
   }
 }

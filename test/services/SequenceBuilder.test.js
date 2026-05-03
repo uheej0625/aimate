@@ -3,32 +3,14 @@ import assert from "node:assert";
 import { SequenceBuilder } from "../../src/services/SequenceBuilder.js";
 
 test("SequenceBuilder tests", async (t) => {
-  const mockPromptBuilder = {
-    buildFromFile: async (source) => {
+  const mockPromptComposer = {
+    renderFile: async (source) => {
       const basename = source.replace(/\\/g, "/").split("/").pop();
       return `rendered:${basename}`;
     },
   };
 
-  const builder = new SequenceBuilder(mockPromptBuilder);
-
-  await t.test(
-    "splitHistoryAndPending should split at last bot message",
-    () => {
-      const history = [
-        { id: 1, authorPlatformId: "bot", content: "bot1" },
-        { id: 2, authorPlatformId: "user", content: "user1" },
-        { id: 3, authorPlatformId: "bot", content: "bot2" },
-        { id: 4, authorPlatformId: "user", content: "user2" },
-        { id: 5, authorPlatformId: "user", content: "user3" },
-      ];
-
-      const result = builder.splitHistoryAndPending(history, "bot");
-      assert.strictEqual(result.historyMessages.length, 3);
-      assert.strictEqual(result.pendingMessages.length, 2);
-      assert.strictEqual(result.pendingMessages[0].id, 4);
-    },
-  );
+  const builder = new SequenceBuilder(mockPromptComposer);
 
   await t.test("build should build sequence components correctly", async () => {
     const sequenceDef = [
@@ -38,13 +20,16 @@ test("SequenceBuilder tests", async (t) => {
       { type: "pending" },
     ];
 
-    const allMessages = [
+    const historyMessages = [
       { id: 1, authorPlatformId: "bot", content: "bot1" },
+    ];
+    const pendingMessages = [
       { id: 2, authorPlatformId: "user", content: "user1" },
     ];
 
     const { systemInstruction, context } = await builder.build(sequenceDef, {
-      allMessages,
+      historyMessages,
+      pendingMessages,
       botId: "bot",
       cronMessage: "cron-test",
     });

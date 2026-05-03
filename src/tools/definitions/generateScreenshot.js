@@ -1,7 +1,11 @@
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
-import { renderTemplateFile } from "../../utils/templateUtils.js";
+import {
+  buildTemplateContext,
+  renderTemplateFile,
+} from "../../utils/renderTemplate.js";
+import { buildImageToolContext } from "../imageToolContextUtils.js";
 
 /** @type {import('../ActionRegistry.js').ToolDef} */
 export default {
@@ -32,13 +36,19 @@ export default {
           description:
             "Why this screenshot is being shared. Example: showing a route, sharing a funny post",
         },
+        sourceImages: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Optional. Leave empty or omit when creating a new screenshot. Include previous generated image IDs, such as ['21dc101b'] or ['[IMAGE:21dc101b]'], only when the user wants to reuse, reference, or modify earlier images.",
+        },
       },
       required: ["screenType", "appContext"],
     },
   },
 
   /**
-   * @param {{ screenType: string, appContext: string, purpose?: string }} args
+   * @param {{ screenType: string, appContext: string, purpose?: string, sourceImages?: string[] }} args
    * @param {Object} context
    */
   execute: async (args, context) => {
@@ -46,12 +56,18 @@ export default {
     if (!aiService) {
       throw new Error("AIService not available in tool context");
     }
-
-    const now = new Date();
-    const currentDate = now.toISOString().split("T")[0]; // YYYY-MM-DD
-    const currentTime = now.toTimeString().split(" ")[0].substring(0, 5); // HH:MM
+    if (!generationRepository) {
+      throw new Error("GenerationRepository not available in tool context");
+    }
+    if (!channel?.id) {
+      throw new Error("Channel not available in tool context");
+    }
 
     const promptName = configManager?.get("ai.image.prompt") || "default";
+    const { sourceImagePaths, templateData } = buildImageToolContext(
+      args,
+      configManager,
+    );
     const templatePath = path.join(
       process.cwd(),
       "content",
@@ -60,39 +76,35 @@ export default {
       "image",
       "screenshot.md",
     );
-    const prompt = await renderTemplateFile(templatePath, {
-      ...args,
-      currentDate,
-      currentTime,
-    });
+    const prompt = await renderTemplateFile(
+      templatePath,
+      buildTemplateContext(templateData),
+    );
 
-    let generationId = null;
-    if (generationRepository && channel?.id) {
-      const gen = await generationRepository.create({
-        channelId: channel.id,
-        type: "IMAGE",
-        prompt: promptName,
-        input: prompt,
-        status: "PROCESSING",
-      });
-      generationId = gen.id;
-    }
+    const gen = await generationRepository.create({
+      channelId: channel.id,
+      type: "IMAGE",
+      prompt: promptName,
+      input: prompt,
+      status: "PROCESSING",
+    });
+    const generationId = gen.id;
 
     let imageBuffer;
-    let apiRequest = { prompt };
+    let apiRequest = { prompt, sourceImages: sourceImagePaths };
     let apiResponse = null;
     let imageId = crypto.randomBytes(4).toString("hex");
     let filename = `${imageId}.png`;
 
     try {
-      const result = await aiService.generateImage(prompt);
+      const result = await aiService.generateImage(prompt, {
+        image: sourceImagePaths,
+      });
       imageBuffer = result.buffer || result;
       apiRequest = result.request || apiRequest;
       apiResponse = result.response || {
         status: "success",
         tool: "generate_screenshot",
-        currentDate,
-        currentTime,
       };
 
       if (generationId) {
@@ -127,6 +139,7 @@ export default {
     return {
       status: "success",
       imageId: imageId,
+      generationId,
       instruction: `Image generated successfully! You MUST include this tag somewhere in your response message exactly like this so the user can see it: [IMAGE:${imageId}]`,
       description: `Generated screenshot for: ${args.appContext}`,
     };
