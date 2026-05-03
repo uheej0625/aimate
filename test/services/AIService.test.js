@@ -88,8 +88,8 @@ friendship: 2
           if (callCount === 1) {
             yield {
               type: "tool_call",
-              name: "generate_selfie",
-              args: { scene: "room" },
+              name: "generate_photo",
+              args: { kind: "selfie", scene: "room" },
             };
             return;
           }
@@ -102,7 +102,7 @@ friendship: 2
         },
       };
       aiService.toolRegistry = {
-        getActiveTools: () => [{ declaration: { name: "generate_selfie" } }],
+        getActiveTools: () => [{ declaration: { name: "generate_photo" } }],
       };
       aiService.toolExecutor = {
         executeAll: async () => [
