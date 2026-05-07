@@ -1,6 +1,6 @@
 # AiMate
 
-Discord, Instagram, CLI에서 동작하는 AI 대화 봇입니다. 단순 질의응답이 아니라 **실제 친구처럼 짧은 메시지를 여러 번 주고받는 경험**을 목표로 합니다. 대화를 거듭할수록 감정 상태가 쌓이고, 관계가 변하고, 봇이 먼저 말을 걸기도 합니다.
+Discord와 CLI에서 동작하는 AI 대화 봇입니다. 단순 질의응답이 아니라 **실제 친구처럼 짧은 메시지를 여러 번 주고받는 경험**을 목표로 합니다. 대화를 거듭할수록 감정 상태가 쌓이고, 관계가 변하고, 봇이 먼저 말을 걸기도 합니다.
 
 ---
 
@@ -28,13 +28,11 @@ cp .env.example .env
 
 채워야 하는 주요 항목:
 
-| 변수                 | 설명                    |
-| -------------------- | ----------------------- |
-| `DISCORD_TOKEN`      | Discord 봇 토큰         |
-| `DISCORD_CLIENT_ID`  | Discord 애플리케이션 ID |
-| `INSTAGRAM_USERNAME` | Instagram 계정 ID       |
-| `INSTAGRAM_PASSWORD` | Instagram 계정 비밀번호 |
-| `GOOGLE_CLOUD_API_KEY`     | Google Google Cloud API 키    |
+| 변수                   | 설명                    |
+| ---------------------- | ----------------------- |
+| `DISCORD_TOKEN`        | Discord 봇 토큰         |
+| `DISCORD_CLIENT_ID`    | Discord 애플리케이션 ID |
+| `GOOGLE_CLOUD_API_KEY` | Google Cloud API 키     |
 
 ### 3. 데이터베이스 초기화
 
@@ -50,7 +48,6 @@ Prisma가 `prisma/schema.prisma`를 읽어 로컬 SQLite 파일을 생성합니�
 | ------------------- | ------------------------------------ |
 | `npm run dev`       | Discord 봇 실행                      |
 | `npm run cli`       | 터미널에서 직접 대화 (개발·테스트용) |
-| `npm run instagram` | Instagram DM 봇 실행                 |
 | `npm run deploy`    | Discord 슬래시 커맨드 등록           |
 
 새 기능을 만들었다면 `npm run cli`로 먼저 빠르게 확인해보세요. Discord 재시작 없이 프롬프트와 캐릭터 설정을 테스트할 수 있습니다.
@@ -87,7 +84,7 @@ LLM이 필요하다고 판단하면 스스로 도구를 호출합니다.
 src/
 ├── core/          # 메시지 처리 흐름 (ChatFlow, MessageHandler 등)
 ├── engines/       # 감정(Emotion), 관계(Relationship) 엔진
-├── platforms/     # Discord / Instagram / CLI 어댑터
+├── platforms/     # Discord / CLI 어댑터
 ├── providers/     # Google Cloud, Vertex AI 연동
 ├── repositories/  # DB 접근 레이어 (Prisma)
 ├── services/      # 비즈니스 로직 (AI, Context, Cron 등)
@@ -98,7 +95,7 @@ content/
 └── prompts/       # 시스템 프롬프트 템플릿
 ```
 
-각 플랫폼(Discord, Instagram, CLI)은 들어오는 메시지를 동일한 내부 포맷으로 변환한 뒤 동일한 처리 흐름을 탑니다. 내부 메시지 포맷은 `docs/message-format.md`를 참조하세요.
+각 플랫폼(Discord, CLI)은 들어오는 메시지를 동일한 내부 포맷으로 변환한 뒤 동일한 처리 흐름을 탑니다. 내부 메시지 포맷은 `docs/message-format.md`를 참조하세요.
 
 ---
 
@@ -107,7 +104,7 @@ content/
 - **Runtime**: Node.js (ES Modules)
 - **Database**: Prisma + SQLite
 - **AI**: Google Google Cloud API, Vertex AI
-- **Platforms**: discord.js, Instagram Private API
+- **Platforms**: discord.js, CLI
 - **기타**: pino (로깅), node-cron (스케줄링), jsdom + @mozilla/readability (URL 파싱)
 
 ---

@@ -120,12 +120,6 @@ export class CronService {
       if (platform === "discord") {
         const rawChannel = await client.channels.fetch(job.channel.platformId);
         channel = adaptDiscordChannel(rawChannel);
-      } else if (platform === "instagram") {
-        channel = adaptInstagramChannel(
-          job.channel.platformId,
-          client.realtime,
-          client.user.id,
-        );
       } else if (platform === "cli") {
         // CLI는 특별 처리 (임시로 job.channel을 그대로 사용)
         channel = job.channel;

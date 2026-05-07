@@ -72,9 +72,7 @@
     "vertexProjectId": "",
     "vertexLocation": "global",
     "vertexClientEmail": "",
-    "vertexPrivateKey": "",
-    "instagramUsername": "",
-    "instagramPassword": ""
+    "vertexPrivateKey": ""
   },
   "tools": {
     "maxSteps": 5

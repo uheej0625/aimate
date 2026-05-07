@@ -55,19 +55,6 @@ if (process.env.VERTEX_PRIVATE_KEY) {
     process.env.VERTEX_PRIVATE_KEY,
   );
 }
-if (process.env.INSTAGRAM_USERNAME) {
-  configManager.setInMemory(
-    "secrets.instagramUsername",
-    process.env.INSTAGRAM_USERNAME,
-  );
-}
-if (process.env.INSTAGRAM_PASSWORD) {
-  configManager.setInMemory(
-    "secrets.instagramPassword",
-    process.env.INSTAGRAM_PASSWORD,
-  );
-}
-
 // Validate required configuration
 const requiredFields = ["secrets.googleCloudApiKey"];
 const missingFields = requiredFields.filter((field) => {
