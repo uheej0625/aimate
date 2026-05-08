@@ -1,3 +1,6 @@
+import { fixWindowsEncoding } from "../../utils/system.js";
+fixWindowsEncoding();
+
 import "../../config/env.js";
 import { v4 as uuidv4 } from "uuid";
 import { createContainer } from "../../core/container.js";

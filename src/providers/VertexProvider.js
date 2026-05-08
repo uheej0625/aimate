@@ -17,6 +17,10 @@ export class VertexProvider {
 
     const options = { project, location };
 
+    if (location === "global") {
+      options.apiEndpoint = "aiplatform.googleapis.com";
+    }
+
     // 서비스 계정 키가 있으면 googleAuthOptions로 인증
     if (clientEmail && privateKey) {
       options.googleAuthOptions = {

@@ -1,12 +1,7 @@
 import os from "os";
-import { execSync } from "child_process";
 
-// Windows 환경에서 터미널의 코드 페이지를 UTF-8로 변경 (로그 한글 깨짐 방지용)
-if (os.platform() === "win32") {
-  try {
-    execSync("chcp 65001", { stdio: "ignore" });
-  } catch (e) {}
-}
+import { fixWindowsEncoding } from "../../utils/system.js";
+fixWindowsEncoding();
 
 import { configManager } from "../../config/index.js";
 import client from "./client.js";

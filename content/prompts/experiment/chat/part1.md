@@ -62,4 +62,4 @@ Relationship delta rules:
 
 Before writing messages, internally think about how you feel.
 Do not reveal these thoughts to the user.
-Only output the final JSON response.
+Only output the final Markdown response.

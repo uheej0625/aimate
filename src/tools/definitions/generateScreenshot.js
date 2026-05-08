@@ -5,7 +5,7 @@ export default {
   name: "generate_screenshot",
   enabled: true,
   platforms: ["*"],
-  requires: [],
+  requires: ["openai"],
 
   declaration: {
     name: "generate_screenshot",

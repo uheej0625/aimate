@@ -29,7 +29,13 @@ if (process.env.DISCORD_CLIENT_ID) {
   );
 }
 if (process.env.GOOGLE_CLOUD_API_KEY) {
-  configManager.setInMemory("secrets.googleCloudApiKey", process.env.GOOGLE_CLOUD_API_KEY);
+  configManager.setInMemory(
+    "secrets.googleCloudApiKey",
+    process.env.GOOGLE_CLOUD_API_KEY,
+  );
+}
+if (process.env.OPENAI_API_KEY) {
+  configManager.setInMemory("secrets.openaiApiKey", process.env.OPENAI_API_KEY);
 }
 if (process.env.VERTEX_PROJECT_ID) {
   configManager.setInMemory(
@@ -55,19 +61,6 @@ if (process.env.VERTEX_PRIVATE_KEY) {
     process.env.VERTEX_PRIVATE_KEY,
   );
 }
-if (process.env.INSTAGRAM_USERNAME) {
-  configManager.setInMemory(
-    "secrets.instagramUsername",
-    process.env.INSTAGRAM_USERNAME,
-  );
-}
-if (process.env.INSTAGRAM_PASSWORD) {
-  configManager.setInMemory(
-    "secrets.instagramPassword",
-    process.env.INSTAGRAM_PASSWORD,
-  );
-}
-
 // Validate required configuration
 const requiredFields = ["secrets.googleCloudApiKey"];
 const missingFields = requiredFields.filter((field) => {
