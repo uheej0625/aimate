@@ -4,9 +4,10 @@
   "description": "",
   "main": "src/platforms/discord/index.js",
   "scripts": {
+    "setup": "npm install && node scripts/setup.js && npm run db:init && npm run deploy",
     "dev": "npm run discord",
-    "discord": "node PLATFORM=discord src/platforms/discord/index.js",
-    "cli": "node PLATFORM=cli src/platforms/cli/index.js",
+    "discord": "cross-env PLATFORM=discord node src/platforms/discord/index.js",
+    "cli": "cross-env PLATFORM=cli node src/platforms/cli/index.js",
     "deploy": "node src/platforms/discord/deploy.js",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
@@ -17,7 +18,11 @@
   "author": "",
   "type": "module",
   "license": "ISC",
+  "engines": {
+    "node": ">=20.12.0"
+  },
   "devDependencies": {
+    "cross-env": "^10.1.0",
     "nodemon": "^3.1.11",
     "prettier": "^3.6.2",
     "prisma": "^5.22.0"
@@ -25,6 +30,7 @@
   "dependencies": {
     "@google-cloud/vertexai": "^1.10.0",
     "@google/genai": "^1.30.0",
+    "@inquirer/prompts": "^8.4.2",
     "@mozilla/readability": "^0.6.0",
     "@prisma/client": "^5.22.0",
     "chokidar": "^5.0.0",
