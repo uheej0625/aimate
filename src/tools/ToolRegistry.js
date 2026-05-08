@@ -106,9 +106,10 @@ export class ToolRegistry {
       if (!platformOk) return false;
 
       // 3. 자격증명 체크
-      const credentialsOk = tool.requires.every((service) =>
-        this.configManager.has(`secrets.${service}ApiKey`),
-      );
+      const credentialsOk = tool.requires.every((service) => {
+        const key = `secrets.${service}ApiKey`;
+        return this.configManager.has(key) && !!this.configManager.get(key);
+      });
       if (!credentialsOk) return false;
 
       return true;

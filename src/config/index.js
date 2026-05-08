@@ -29,7 +29,13 @@ if (process.env.DISCORD_CLIENT_ID) {
   );
 }
 if (process.env.GOOGLE_CLOUD_API_KEY) {
-  configManager.setInMemory("secrets.googleCloudApiKey", process.env.GOOGLE_CLOUD_API_KEY);
+  configManager.setInMemory(
+    "secrets.googleCloudApiKey",
+    process.env.GOOGLE_CLOUD_API_KEY,
+  );
+}
+if (process.env.OPENAI_API_KEY) {
+  configManager.setInMemory("secrets.openaiApiKey", process.env.OPENAI_API_KEY);
 }
 if (process.env.VERTEX_PROJECT_ID) {
   configManager.setInMemory(

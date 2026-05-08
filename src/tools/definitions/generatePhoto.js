@@ -6,7 +6,7 @@ export default {
   name: "generate_photo",
   enabled: true,
   platforms: ["*"],
-  requires: [],
+  requires: ["openai"],
 
   declaration: {
     name: "generate_photo",
