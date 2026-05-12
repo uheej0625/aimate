@@ -8,6 +8,7 @@ test("AIService tests", async (t) => {
       if (key === "ai.chat") return { provider: "googleCloud", stream: false };
       if (key === "ai.image") return { provider: "googleCloud", stream: false };
       if (key === "ai.chat.stream") return false;
+      if (key === "secrets.googleCloudApiKey") return "test-google-key";
       return null;
     },
   };

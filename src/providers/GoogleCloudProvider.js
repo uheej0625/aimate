@@ -4,12 +4,36 @@ import { createLogger } from "../core/logger.js";
 const logger = createLogger("GoogleCloudProvider");
 
 export class GoogleCloudProvider {
+  static validateConfig(configManager, purpose) {
+    const missing = [];
+
+    if (!configManager.get("secrets.googleCloudApiKey")) {
+      missing.push("GOOGLE_CLOUD_API_KEY");
+    }
+
+    if (!configManager.get(`ai.${purpose}.model`)) {
+      missing.push(`ai.${purpose}.model`);
+    }
+
+    return missing;
+  }
+
   constructor(configManager, purpose) {
     this.purpose = purpose;
     this.settings = configManager.get(`ai.${purpose}`);
     this.configManager = configManager;
+
+    if (!this.settings) {
+      throw new Error(`GoogleCloudProvider requires ai.${purpose} settings`);
+    }
+
+    const apiKey = configManager.get("secrets.googleCloudApiKey");
+    if (!apiKey) {
+      throw new Error("GoogleCloudProvider requires secrets.googleCloudApiKey");
+    }
+
     this.ai = new GoogleGenAI({
-      apiKey: configManager.get("secrets.googleCloudApiKey"),
+      apiKey,
     });
   }
 

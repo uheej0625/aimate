@@ -4,16 +4,54 @@ import { createLogger } from "../core/logger.js";
 const logger = createLogger("VertexProvider");
 
 export class VertexProvider {
+  static validateConfig(configManager, purpose) {
+    const missing = [];
+
+    if (!configManager.get("secrets.vertexProjectId")) {
+      missing.push("VERTEX_PROJECT_ID");
+    }
+
+    if (!configManager.get("secrets.vertexLocation")) {
+      missing.push("VERTEX_LOCATION");
+    }
+
+    if (!configManager.get("secrets.vertexClientEmail")) {
+      missing.push("VERTEX_CLIENT_EMAIL");
+    }
+
+    if (!configManager.get("secrets.vertexPrivateKey")) {
+      missing.push("VERTEX_PRIVATE_KEY");
+    }
+
+    if (!configManager.get(`ai.${purpose}.model`)) {
+      missing.push(`ai.${purpose}.model`);
+    }
+
+    return missing;
+  }
+
   constructor(configManager, purpose) {
     this.purpose = purpose;
     this.settings = configManager.get(`ai.${purpose}`);
     this.configManager = configManager;
+
+    if (!this.settings) {
+      throw new Error(`VertexProvider requires ai.${purpose} settings`);
+    }
 
     const project = configManager.get("secrets.vertexProjectId");
     const location =
       configManager.get("secrets.vertexLocation") || "us-central1";
     const clientEmail = configManager.get("secrets.vertexClientEmail");
     const privateKey = configManager.get("secrets.vertexPrivateKey");
+
+    if (!project) {
+      throw new Error("VertexProvider requires secrets.vertexProjectId");
+    }
+
+    if (!location) {
+      throw new Error("VertexProvider requires secrets.vertexLocation");
+    }
 
     const options = { project, location };
 

@@ -12,7 +12,7 @@ import { MessageService } from "../services/MessageService.js";
 import { BotAccountService } from "../services/BotAccountService.js";
 import { CronService } from "../services/CronService.js";
 import { PromptComposer } from "../services/PromptComposer.js";
-import { configManager } from "../config/index.js";
+import { configManager, validateActiveProviders } from "../config/index.js";
 import { MessageHandler } from "./MessageHandler.js";
 import { ConversationBuffer } from "./ConversationBuffer.js";
 import { MessageSender } from "./MessageSender.js";
@@ -34,6 +34,8 @@ const logger = createLogger("Container");
  * - Easy testing with mock dependencies
  */
 export async function createContainer(client = null) {
+  await validateActiveProviders(configManager);
+
   // Repositories (data layer)
   const messageRepository = new MessageRepository(configManager);
   const userRepository = new UserRepository();

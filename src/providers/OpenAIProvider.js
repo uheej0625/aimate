@@ -13,12 +13,36 @@ const IMAGE_MIME_TYPES = {
 };
 
 export class OpenAIProvider {
+  static validateConfig(configManager, purpose) {
+    const missing = [];
+
+    if (!configManager.get("secrets.openaiApiKey")) {
+      missing.push("OPENAI_API_KEY");
+    }
+
+    if (!configManager.get(`ai.${purpose}.model`)) {
+      missing.push(`ai.${purpose}.model`);
+    }
+
+    return missing;
+  }
+
   constructor(configManager, purpose) {
     this.purpose = purpose;
     this.settings = configManager.get(`ai.${purpose}`);
     this.configManager = configManager;
+
+    if (!this.settings) {
+      throw new Error(`OpenAIProvider requires ai.${purpose} settings`);
+    }
+
+    const apiKey = configManager.get("secrets.openaiApiKey");
+    if (!apiKey) {
+      throw new Error("OpenAIProvider requires secrets.openaiApiKey");
+    }
+
     this.ai = new OpenAI({
-      apiKey: configManager.get("secrets.openaiApiKey"),
+      apiKey,
     });
   }
 
