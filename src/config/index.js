@@ -62,7 +62,8 @@ if (process.env.VERTEX_PRIVATE_KEY) {
   );
 }
 // Validate required configuration
-const requiredFields = ["secrets.googleCloudApiKey"];
+// Google Cloud / OpenAI / Vertex API keys are validated at the provider level when needed
+const requiredFields = [];
 const missingFields = requiredFields.filter((field) => {
   return !configManager.has(field) || !configManager.get(field);
 });
