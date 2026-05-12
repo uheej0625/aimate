@@ -28,8 +28,19 @@ export class MessageRepository {
       generationId = null,
     } = messageData;
 
-    return await prisma.message.create({
-      data: {
+    return await prisma.message.upsert({
+      where: {
+        platform_platformId: {
+          platform,
+          platformId,
+        },
+      },
+      update: {
+        content,
+        attachmentsJson,
+        generationId,
+      },
+      create: {
         platform,
         platformId,
         serverId,

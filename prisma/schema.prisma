@@ -104,6 +104,8 @@ model Message {
 
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+
+  @@unique([platform, platformId])
 }
 
 model Generation {
