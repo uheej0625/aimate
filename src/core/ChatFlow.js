@@ -22,7 +22,7 @@ export class ChatFlow {
   constructor(
     generationRepository,
     channelRepository,
-    messsageRepository,
+    messageRepository,
     aiService,
     messageSender,
     configManager,
@@ -31,7 +31,7 @@ export class ChatFlow {
   ) {
     this.generationRepository = generationRepository;
     this.channelRepository = channelRepository;
-    this.messageRepository = messsageRepository;
+    this.messageRepository = messageRepository;
     this.aiService = aiService;
     this.messageSender = messageSender;
     this.configManager = configManager;
