@@ -48,7 +48,7 @@
     "maxContextMessages": 20,
     "maxHistoryDays": 30,
     "enableMemory": true,
-    "bufferTimeout": 3000,
+    "bufferTimeout": 5000,
     "typingDelayMin": 1000,
     "typingDelayMax": 2000,
     "typingDelayPerChar": 60
