@@ -33,7 +33,7 @@ export class SequenceBuilder {
   /**
    * sequence.js 명세에 따라 컨텍스트 배열을 조립한다.
    * @param {Array} sequenceDef
-   * @param {Object} options - { historyMessages, pendingMessages, botId, cronMessage, channelRecord, userRecord, promptName }
+   * @param {Object} options - { historyMessages, pendingMessages, botId, cronMessage, channelRecord, userRecord, promptName, data }
    * @returns {Promise<{ systemInstruction: string, context: Array }>}
    */
   async build(
@@ -46,6 +46,7 @@ export class SequenceBuilder {
       channelRecord,
       userRecord,
       promptName = "default",
+      data = {},
     },
   ) {
     let systemInstruction = "";
@@ -59,24 +60,51 @@ export class SequenceBuilder {
       "chat",
     );
 
+    const renderOptions = { channelRecord, userRecord, data };
+    const pushRendered = (role, rendered) => {
+      if (!rendered) return;
+
+      if (role === "system" && !systemInstructionSet) {
+        systemInstruction = rendered;
+        systemInstructionSet = true;
+        return;
+      }
+
+      // duplicate system instructions fallback to user role, per spec
+      context.push({
+        role: role === "system" ? "user" : role || "user",
+        content: rendered,
+      });
+    };
+
     for (const step of sequenceDef) {
       if (step.type === "file") {
         const filePath = path.join(promptDir, step.source);
-        const rendered = await this.promptComposer.renderFile(filePath, {
-          channelRecord,
-          userRecord,
-        });
-
-        if (!rendered) continue; // skip if file not found or empty
-
-        if (step.role === "system" && !systemInstructionSet) {
-          systemInstruction = rendered;
-          systemInstructionSet = true;
-        } else {
-          // duplicate system instructions fallback to user role, per spec
-          const role = step.role === "system" ? "user" : step.role || "user";
-          context.push({ role, content: rendered });
-        }
+        const rendered = await this.promptComposer.renderFile(
+          filePath,
+          renderOptions,
+        );
+        pushRendered(step.role, rendered);
+      } else if (step.type === "text") {
+        const rendered = await this.promptComposer.render(
+          step.content ?? "",
+          renderOptions,
+        );
+        pushRendered(step.role, rendered);
+      } else if (step.type === "placeholder") {
+        const template =
+          step.template ??
+          (String(step.source ?? "").includes("{{")
+            ? String(step.source ?? "")
+            : `{{${step.source}}}`);
+        const rendered = await this.promptComposer.render(
+          template,
+          renderOptions,
+        );
+        pushRendered(step.role, rendered);
+      } else if (step.type === "cache-point") {
+        // Explicit no-op until a provider supports prompt caching metadata.
+        continue;
       } else if (step.type === "history") {
         let slicedHistory = historyMessages;
         if (step.slice && Array.isArray(step.slice)) {

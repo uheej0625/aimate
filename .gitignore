@@ -5,6 +5,6 @@ tests/
 prisma/migrations/
 content/character
 content/image
-content/prompts/legacy
+content/prompts/ultimate
 content/prompts/experimental
 docs/
