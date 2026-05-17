@@ -1,7 +1,6 @@
 import { GoogleCloudProvider } from "../providers/GoogleCloudProvider.js";
 import { VertexProvider } from "../providers/VertexProvider.js";
 import { OpenAIProvider } from "../providers/OpenAIProvider.js";
-import { CharacterLoader } from "../loaders/CharacterLoader.js";
 import { PromptComposer } from "./PromptComposer.js";
 import { SequenceBuilder } from "./SequenceBuilder.js";
 import { createLogger } from "../core/logger.js";
@@ -36,8 +35,7 @@ export class AIService {
     this.toolRegistry = toolRegistry;
     this.toolExecutor = toolExecutor;
     this.promptComposer =
-      promptComposer ??
-      new PromptComposer(new CharacterLoader(), null, configManager);
+      promptComposer ?? new PromptComposer(null, configManager);
     this.sequenceBuilder =
       sequenceBuilder ?? new SequenceBuilder(this.promptComposer);
     this.userRepository = userRepository;
