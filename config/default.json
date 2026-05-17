@@ -10,7 +10,7 @@
     "chat": {
       "provider": "vertex",
       "model": "gemini-3-flash-preview",
-      "prompt": "experiment",
+      "prompt": "default",
       "stream": true,
       "systemInstruction": null,
       "temperature": null,
@@ -33,7 +33,7 @@
     "image": {
       "provider": "openai",
       "model": "gpt-image-2-2026-04-21",
-      "prompt": "experiment",
+      "prompt": "default",
       "includeTimeContext": true
     }
   },
