@@ -8,7 +8,10 @@ export const buildSystemContext = (date = new Date()) => {
 
   return {
     now: {
-      raw: date.toISOString(),
+      raw:
+        new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+          .toISOString()
+          .slice(0, -1) + "+09:00",
       time: `${String(date.getHours()).padStart(2, "0")}:${String(
         date.getMinutes(),
       ).padStart(2, "0")}`,
