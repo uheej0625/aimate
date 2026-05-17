@@ -6,4 +6,5 @@ prisma/migrations/
 content/character
 content/image
 content/prompts/legacy
+content/prompts/experimental
 docs/
