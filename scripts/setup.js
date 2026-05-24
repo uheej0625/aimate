@@ -31,6 +31,7 @@ const locales = {
     discordClientId: "Enter your DISCORD_CLIENT_ID:",
     selectProviders: "Select AI providers you want to configure:",
     openaiKey: "Enter OPENAI_API_KEY:",
+    aiGatewayKey: "Enter AI_GATEWAY_API_KEY:",
     googleCloudKey: "Enter GOOGLE_CLOUD_API_KEY:",
     vertexProjectId: "Enter VERTEX_PROJECT_ID:",
     vertexClientEmail: "Enter VERTEX_CLIENT_EMAIL:",
@@ -46,6 +47,7 @@ const locales = {
     selectProviders:
       "설정할 AI 프로바이더를 선택하세요 (스페이스바 선택, 엔터 완료):",
     openaiKey: "OPENAI_API_KEY를 입력하세요:",
+    aiGatewayKey: "AI_GATEWAY_API_KEY를 입력하세요:",
     googleCloudKey: "GOOGLE_CLOUD_API_KEY를 입력하세요:",
     vertexProjectId: "VERTEX_PROJECT_ID를 입력하세요:",
     vertexClientEmail: "VERTEX_CLIENT_EMAIL을 입력하세요:",
@@ -76,6 +78,7 @@ async function main() {
     message: t.selectProviders,
     choices: [
       { name: "OpenAI", value: "openai" },
+      { name: "Vercel AI Gateway", value: "aiGateway" },
       { name: "Google Cloud", value: "googleCloud" },
       { name: "Vertex AI", value: "vertex" },
     ],
@@ -93,6 +96,10 @@ async function main() {
 
   if (providers.includes("openai")) {
     envData.OPENAI_API_KEY = await input({ message: t.openaiKey });
+  }
+
+  if (providers.includes("aiGateway")) {
+    envData.AI_GATEWAY_API_KEY = await input({ message: t.aiGatewayKey });
   }
 
   if (providers.includes("googleCloud")) {
@@ -113,6 +120,11 @@ async function main() {
   if (providers.includes("openai")) {
     envString += "# OpenAI\n";
     envString += `OPENAI_API_KEY=${envData.OPENAI_API_KEY}\n\n`;
+  }
+
+  if (providers.includes("aiGateway")) {
+    envString += "# Vercel AI Gateway\n";
+    envString += `AI_GATEWAY_API_KEY=${envData.AI_GATEWAY_API_KEY}\n\n`;
   }
 
   if (providers.includes("googleCloud")) {

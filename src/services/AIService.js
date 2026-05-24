@@ -1,6 +1,7 @@
 import { GoogleCloudProvider } from "../providers/GoogleCloudProvider.js";
 import { VertexProvider } from "../providers/VertexProvider.js";
 import { OpenAIProvider } from "../providers/OpenAIProvider.js";
+import { AISDKProvider } from "../providers/AISDKProvider.js";
 import { PromptComposer } from "./PromptComposer.js";
 import { SequenceBuilder } from "./SequenceBuilder.js";
 import { createLogger } from "../core/logger.js";
@@ -174,6 +175,7 @@ export class AIService {
           textBuffer += event.content;
         } else if (event.type === "tool_call") {
           toolCalls.push({
+            id: event.id,
             name: event.name,
             args: event.args,
             _rawPart: event._rawPart,
@@ -369,6 +371,8 @@ export class AIService {
     switch (config.provider) {
       case "googleCloud":
         return new GoogleCloudProvider(this.configManager, purpose);
+      case "aiSdk":
+        return new AISDKProvider(this.configManager, purpose);
       case "vertex":
         return new VertexProvider(this.configManager, purpose);
       case "openai":

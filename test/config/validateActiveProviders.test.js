@@ -53,6 +53,46 @@ test("validateActiveProviders accepts valid active provider config", async () =>
   assert.strictEqual(await validateActiveProviders(configManager), true);
 });
 
+test("validateActiveProviders accepts AI SDK gateway provider config", async () => {
+  const configManager = createConfigManager({
+    ai: {
+      chat: {
+        provider: "aiSdk",
+        model: "openai/gpt-5-mini",
+        aiSdk: { provider: "gateway" },
+      },
+      image: { provider: "openai", model: "gpt-image-2-2026-04-21" },
+    },
+    secrets: {
+      aiGatewayApiKey: "gateway-key",
+      openaiApiKey: "openai-key",
+    },
+  });
+
+  assert.strictEqual(await validateActiveProviders(configManager), true);
+});
+
+test("validateActiveProviders validates AI SDK subprovider credentials", async () => {
+  const configManager = createConfigManager({
+    ai: {
+      chat: {
+        provider: "aiSdk",
+        model: "gpt-5-mini",
+        aiSdk: { provider: "openai" },
+      },
+      image: { provider: "openai", model: "gpt-image-2-2026-04-21" },
+    },
+    secrets: {
+      openaiApiKey: "",
+    },
+  });
+
+  await assert.rejects(
+    () => validateActiveProviders(configManager),
+    /OPENAI_API_KEY/,
+  );
+});
+
 test("validateActiveProviders rejects unknown providers", async () => {
   const configManager = createConfigManager({
     ai: {

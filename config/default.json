@@ -10,7 +10,7 @@
     "chat": {
       "provider": "vertex",
       "model": "gemini-3-flash-preview",
-      "prompt": "default",
+      "prompt": "experimental",
       "stream": true,
       "systemInstruction": null,
       "temperature": null,
@@ -68,7 +68,10 @@
   "secrets": {
     "discordToken": "",
     "discordClientId": "",
+    "openaiApiKey": "",
     "googleCloudApiKey": "",
+    "aiGatewayApiKey": "",
+    "aiSdkOpenAICompatibleApiKey": "",
     "vertexProjectId": "",
     "vertexLocation": "global",
     "vertexClientEmail": "",

@@ -18,6 +18,7 @@ configureLogger(configManager);
 const { GoogleCloudProvider } = await import(
   "../src/providers/GoogleCloudProvider.js"
 );
+const { AISDKProvider } = await import("../src/providers/AISDKProvider.js");
 const { VertexProvider } = await import("../src/providers/VertexProvider.js");
 const { PromptComposer } = await import("../src/services/PromptComposer.js");
 const { SequenceBuilder } = await import("../src/services/SequenceBuilder.js");
@@ -217,6 +218,8 @@ function createLiveProvider() {
   const provider = configManager.get("ai.chat.provider");
 
   switch (provider) {
+    case "aiSdk":
+      return new AISDKProvider(configManager, "chat");
     case "googleCloud":
       return new GoogleCloudProvider(configManager, "chat");
     case "vertex":

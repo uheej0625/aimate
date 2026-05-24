@@ -32,7 +32,11 @@ cp .env.example .env
 | ---------------------- | ----------------------- |
 | `DISCORD_TOKEN`        | Discord 봇 토큰         |
 | `DISCORD_CLIENT_ID`    | Discord 애플리케이션 ID |
+| `OPENAI_API_KEY`       | OpenAI 직접 연동 키     |
 | `GOOGLE_CLOUD_API_KEY` | Google Cloud API 키     |
+| `AI_GATEWAY_API_KEY`   | Vercel AI Gateway 키    |
+
+AI provider는 `config/default.json`의 `ai.chat.provider`, `ai.image.provider`에서 고릅니다. 기존 `googleCloud`, `vertex`, `openai` 외에 Vercel AI SDK 기반 `aiSdk`도 사용할 수 있습니다. 예를 들어 AI Gateway를 쓰려면 `provider`를 `aiSdk`로 두고 `model`을 `openai/gpt-5-mini`처럼 Gateway 모델 ID로 설정합니다. `aiSdk.provider`는 기본값이 `gateway`라서 다른 AI SDK provider로 직접 연결할 때만 적으면 됩니다.
 
 ### 3. 데이터베이스 초기화
 
@@ -85,7 +89,7 @@ src/
 ├── core/          # 메시지 처리 흐름 (ChatFlow, MessageHandler 등)
 ├── engines/       # 감정(Emotion), 관계(Relationship) 엔진
 ├── platforms/     # Discord / CLI 어댑터
-├── providers/     # Google Cloud, Vertex AI 연동
+├── providers/     # Google Cloud, Vertex AI, OpenAI, AI SDK 연동
 ├── repositories/  # DB 접근 레이어 (Prisma)
 ├── services/      # 비즈니스 로직 (AI, Context, Cron 등)
 └── tools/         # LLM이 호출하는 도구 정의 및 실행기
@@ -103,7 +107,7 @@ content/
 
 - **Runtime**: Node.js (ES Modules)
 - **Database**: Prisma + SQLite
-- **AI**: Google Google Cloud API, Vertex AI
+- **AI**: Google Cloud API, Vertex AI, OpenAI, Vercel AI SDK
 - **Platforms**: discord.js, CLI
 - **기타**: pino (로깅), node-cron (스케줄링), jsdom + @mozilla/readability (URL 파싱)
 

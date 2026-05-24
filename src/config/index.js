@@ -18,6 +18,11 @@ const ENV_OVERRIDES = [
   ["DISCORD_CLIENT_ID", "secrets.discordClientId"],
   ["GOOGLE_CLOUD_API_KEY", "secrets.googleCloudApiKey"],
   ["OPENAI_API_KEY", "secrets.openaiApiKey"],
+  ["AI_GATEWAY_API_KEY", "secrets.aiGatewayApiKey"],
+  [
+    "AI_SDK_OPENAI_COMPATIBLE_API_KEY",
+    "secrets.aiSdkOpenAICompatibleApiKey",
+  ],
   ["VERTEX_PROJECT_ID", "secrets.vertexProjectId"],
   ["VERTEX_LOCATION", "secrets.vertexLocation"],
   ["VERTEX_CLIENT_EMAIL", "secrets.vertexClientEmail"],
@@ -25,6 +30,8 @@ const ENV_OVERRIDES = [
 ];
 
 const PROVIDER_LOADERS = {
+  aiSdk: async () =>
+    (await import("../providers/AISDKProvider.js")).AISDKProvider,
   googleCloud: async () =>
     (await import("../providers/GoogleCloudProvider.js")).GoogleCloudProvider,
   openai: async () =>
