@@ -7,6 +7,7 @@ import {
   buildSystemContext,
   renderTemplate,
 } from "../utils/renderTemplate.js";
+import { CharacterContextBuilder } from "./CharacterContextBuilder.js";
 
 const logger = createLogger("PromptComposer");
 
@@ -18,18 +19,18 @@ const DEFAULT_RELATIONSHIP = {
 
 export class PromptComposer {
   /**
-   * @param {import('../loaders/CharacterLoader.js').CharacterLoader} characterLoader
    * @param {import('../repositories/EmotionStateRepository.js').EmotionStateRepository} [emotionStateRepository]
    * @param {import('../config/ConfigManager.js').default} [configManager]
+   * @param {CharacterContextBuilder} [characterContextBuilder]
    */
   constructor(
-    characterLoader,
     emotionStateRepository = null,
     configManager = null,
+    characterContextBuilder = new CharacterContextBuilder(),
   ) {
-    this.characterLoader = characterLoader;
     this.emotionStateRepository = emotionStateRepository;
     this.configManager = configManager;
+    this.characterContextBuilder = characterContextBuilder;
   }
 
   /**
@@ -40,10 +41,8 @@ export class PromptComposer {
    * - system.now.*
    * - runtime.*
    * - config.*
-   * - character.identity / character.emotionalState
+   * - character.* / character.identity / character.emotionalState
    * - user.relationshipState
-   *
-   * Legacy top-level aliases are kept for older prompt files.
    *
    * @param {Object} [options]
    * @param {Object} [options.data]
@@ -56,19 +55,22 @@ export class PromptComposer {
     channelRecord = null,
     userRecord = null,
   } = {}) {
-    const identity = await this.characterLoader.load();
+    const system = buildSystemContext();
+    const characterContext = await this.characterContextBuilder.build({
+      system,
+    });
     const emotionalState = await this.resolveEmotionalState(channelRecord);
     const relationshipState = this.resolveRelationshipState(userRecord);
 
     return {
       data,
-      system: buildSystemContext(),
+      system,
       runtime: buildRuntimeContext(),
       config: this.configManager?.getAll?.() ?? {},
       character: {
-        identity,
+        ...characterContext,
         emotionalState,
-        toString: () => identity,
+        toString: () => characterContext.identity,
       },
       user: {
         ...(userRecord ?? {}),

@@ -11,6 +11,7 @@ import { HistoryService } from "../services/HistoryService.js";
 import { MessageService } from "../services/MessageService.js";
 import { BotAccountService } from "../services/BotAccountService.js";
 import { CronService } from "../services/CronService.js";
+import { CharacterContextBuilder } from "../services/CharacterContextBuilder.js";
 import { PromptComposer } from "../services/PromptComposer.js";
 import { configManager, validateActiveProviders } from "../config/index.js";
 import { MessageHandler } from "./MessageHandler.js";
@@ -19,7 +20,6 @@ import { MessageSender } from "./MessageSender.js";
 import { ChatFlow } from "./ChatFlow.js";
 import { ToolRegistry } from "../tools/ToolRegistry.js";
 import { ToolExecutor } from "../tools/ToolExecutor.js";
-import { CharacterLoader } from "../loaders/CharacterLoader.js";
 import { createLogger } from "./logger.js";
 
 const logger = createLogger("Container");
@@ -67,11 +67,11 @@ export async function createContainer(client = null) {
 
   // Services (business logic layer)
   const historyService = new HistoryService(messageRepository);
-  const characterLoader = new CharacterLoader();
+  const characterContextBuilder = new CharacterContextBuilder();
   const promptComposer = new PromptComposer(
-    characterLoader,
     emotionStateRepository,
     configManager,
+    characterContextBuilder,
   );
   const aiService = new AIService(
     historyService,
