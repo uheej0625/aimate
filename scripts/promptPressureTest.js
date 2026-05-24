@@ -1,6 +1,8 @@
 import fs from "fs/promises";
 import path from "path";
 import { loadEnv } from "../src/config/env.js";
+import { createConfigManager } from "../src/config/index.js";
+import { configureLogger } from "../src/core/logger.js";
 import {
   BOT_ID,
   PRESSURE_TEST_IDENTITY,
@@ -10,19 +12,15 @@ import {
 
 loadEnv();
 
-const [
-  { GoogleCloudProvider },
-  { VertexProvider },
-  { configManager },
-  { PromptComposer },
-  { SequenceBuilder },
-] = await Promise.all([
-  import("../src/providers/GoogleCloudProvider.js"),
-  import("../src/providers/VertexProvider.js"),
-  import("../src/config/index.js"),
-  import("../src/services/PromptComposer.js"),
-  import("../src/services/SequenceBuilder.js"),
-]);
+const configManager = createConfigManager({ watch: false });
+configureLogger(configManager);
+
+const { GoogleCloudProvider } = await import(
+  "../src/providers/GoogleCloudProvider.js"
+);
+const { VertexProvider } = await import("../src/providers/VertexProvider.js");
+const { PromptComposer } = await import("../src/services/PromptComposer.js");
+const { SequenceBuilder } = await import("../src/services/SequenceBuilder.js");
 
 const PROMPTS_DIR = path.resolve(process.cwd(), "content", "prompts");
 const DEFAULT_RUNS = 2;

@@ -13,7 +13,7 @@ import { BotAccountService } from "../services/BotAccountService.js";
 import { CronService } from "../services/CronService.js";
 import { CharacterContextBuilder } from "../services/CharacterContextBuilder.js";
 import { PromptComposer } from "../services/PromptComposer.js";
-import { configManager, validateActiveProviders } from "../config/index.js";
+import { validateActiveProviders } from "../config/index.js";
 import { MessageHandler } from "./MessageHandler.js";
 import { ConversationBuffer } from "./ConversationBuffer.js";
 import { MessageSender } from "./MessageSender.js";
@@ -33,7 +33,11 @@ const logger = createLogger("Container");
  * - Single source of truth for instance creation
  * - Easy testing with mock dependencies
  */
-export async function createContainer(client = null) {
+export async function createContainer({ configManager, client = null }) {
+  if (!configManager) {
+    throw new Error("createContainer requires a configManager.");
+  }
+
   await validateActiveProviders(configManager);
 
   // Repositories (data layer)

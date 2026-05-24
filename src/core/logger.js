@@ -1,20 +1,40 @@
 import pino from "pino";
-import { configManager } from "../config/index.js";
 
-const level = configManager.get("logging.level") || "info";
-const isDev = configManager.get("app.environment") === "development";
-const isTest = process.env.NODE_ENV === "test" || process.argv.some(arg => arg.includes("--test")) || process.execArgv.some(arg => arg.includes("--test")) || !!process.env.NODE_TEST_CONTEXT;
+function isTestRuntime() {
+  return (
+    process.env.NODE_ENV === "test" ||
+    process.argv.some((arg) => arg.includes("--test")) ||
+    process.execArgv.some((arg) => arg.includes("--test")) ||
+    !!process.env.NODE_TEST_CONTEXT
+  );
+}
 
-const logger = pino({
-  level,
-  timestamp: pino.stdTimeFunctions.isoTime,
-  ...(isDev && !isTest && {
-      transport: {
-        target: "pino-pretty",
-        options: { colorize: true, translateTime: "SYS:HH:MM:ss" },
-      },
-    }),
-});
+function createRootLogger({ level = "info", isDev = false } = {}) {
+  const isTest = isTestRuntime();
+
+  return pino({
+    level,
+    timestamp: pino.stdTimeFunctions.isoTime,
+    ...(isDev &&
+      !isTest && {
+        transport: {
+          target: "pino-pretty",
+          options: { colorize: true, translateTime: "SYS:HH:MM:ss" },
+        },
+      }),
+  });
+}
+
+let logger = createRootLogger();
+
+export function configureLogger(configManager) {
+  logger = createRootLogger({
+    level: configManager?.get("logging.level") || "info",
+    isDev: configManager?.get("app.environment") === "development",
+  });
+
+  return logger;
+}
 
 /**
  * 모듈별 child logger를 생성한다.
@@ -25,4 +45,4 @@ export function createLogger(module) {
   return logger.child({ module });
 }
 
-export default logger;
+export { logger as default };

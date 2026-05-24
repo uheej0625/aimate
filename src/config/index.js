@@ -1,12 +1,10 @@
 /**
- * Configuration management using ConfigManager
+ * Configuration helpers.
  *
- * Loads config from default.json and provides hot-reload support
- * Environment variables override file values
+ * Loads config/default.json and applies environment variable overrides.
  *
  * Priority: Environment Variables > default.json
  */
-import "./env.js";
 import ConfigManager from "./ConfigManager.js";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -14,11 +12,18 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Initialize ConfigManager with default.json
-const configPath = path.resolve(__dirname, "../../config/default.json");
-const configManager = new ConfigManager(configPath);
-
 const ACTIVE_AI_PURPOSES = ["chat", "image"];
+const ENV_OVERRIDES = [
+  ["DISCORD_TOKEN", "secrets.discordToken"],
+  ["DISCORD_CLIENT_ID", "secrets.discordClientId"],
+  ["GOOGLE_CLOUD_API_KEY", "secrets.googleCloudApiKey"],
+  ["OPENAI_API_KEY", "secrets.openaiApiKey"],
+  ["VERTEX_PROJECT_ID", "secrets.vertexProjectId"],
+  ["VERTEX_LOCATION", "secrets.vertexLocation"],
+  ["VERTEX_CLIENT_EMAIL", "secrets.vertexClientEmail"],
+  ["VERTEX_PRIVATE_KEY", "secrets.vertexPrivateKey"],
+];
+
 const PROVIDER_LOADERS = {
   googleCloud: async () =>
     (await import("../providers/GoogleCloudProvider.js")).GoogleCloudProvider,
@@ -28,49 +33,38 @@ const PROVIDER_LOADERS = {
     (await import("../providers/VertexProvider.js")).VertexProvider,
 };
 
-// Override secrets only with environment variables (in memory, not saved to file)
-if (process.env.DISCORD_TOKEN) {
-  configManager.setInMemory("secrets.discordToken", process.env.DISCORD_TOKEN);
-}
-if (process.env.DISCORD_CLIENT_ID) {
-  configManager.setInMemory(
-    "secrets.discordClientId",
-    process.env.DISCORD_CLIENT_ID,
+function isTestRuntime() {
+  return (
+    process.env.NODE_ENV === "test" ||
+    process.argv.some((arg) => arg.includes("--test")) ||
+    process.execArgv.some((arg) => arg.includes("--test")) ||
+    !!process.env.NODE_TEST_CONTEXT
   );
 }
-if (process.env.GOOGLE_CLOUD_API_KEY) {
-  configManager.setInMemory(
-    "secrets.googleCloudApiKey",
-    process.env.GOOGLE_CLOUD_API_KEY,
-  );
+
+export function getDefaultConfigPath() {
+  return path.resolve(__dirname, "../../config/default.json");
 }
-if (process.env.OPENAI_API_KEY) {
-  configManager.setInMemory("secrets.openaiApiKey", process.env.OPENAI_API_KEY);
+
+export function applyEnvOverrides(manager, env = process.env) {
+  for (const [envKey, configPath] of ENV_OVERRIDES) {
+    if (env[envKey]) {
+      manager.setInMemory(configPath, env[envKey]);
+    }
+  }
+
+  return manager;
 }
-if (process.env.VERTEX_PROJECT_ID) {
-  configManager.setInMemory(
-    "secrets.vertexProjectId",
-    process.env.VERTEX_PROJECT_ID,
-  );
+
+export function createConfigManager({
+  configPath = getDefaultConfigPath(),
+  env = process.env,
+  watch = !isTestRuntime(),
+} = {}) {
+  const manager = new ConfigManager(configPath, { watch });
+  return applyEnvOverrides(manager, env);
 }
-if (process.env.VERTEX_LOCATION) {
-  configManager.setInMemory(
-    "secrets.vertexLocation",
-    process.env.VERTEX_LOCATION,
-  );
-}
-if (process.env.VERTEX_CLIENT_EMAIL) {
-  configManager.setInMemory(
-    "secrets.vertexClientEmail",
-    process.env.VERTEX_CLIENT_EMAIL,
-  );
-}
-if (process.env.VERTEX_PRIVATE_KEY) {
-  configManager.setInMemory(
-    "secrets.vertexPrivateKey",
-    process.env.VERTEX_PRIVATE_KEY,
-  );
-}
+
 /**
  * Validate only the providers that are instantiated by the app.
  *
@@ -82,9 +76,13 @@ if (process.env.VERTEX_PRIVATE_KEY) {
  * @returns {Promise<boolean>}
  */
 export async function validateActiveProviders(
-  manager = configManager,
+  manager,
   purposes = ACTIVE_AI_PURPOSES,
 ) {
+  if (!manager) {
+    throw new Error("validateActiveProviders requires a config manager.");
+  }
+
   const missing = new Set();
   const invalid = [];
   const providerCache = new Map();
@@ -146,6 +144,4 @@ export async function validateActiveProviders(
   return true;
 }
 
-// Export the config manager instance
-export { configManager };
-export default configManager;
+export { ConfigManager };

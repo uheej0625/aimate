@@ -1,24 +1,23 @@
 import fs from "fs";
 import path from "path";
 import chokidar from "chokidar";
-import { fileURLToPath } from "url";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 /**
  * Configuration file manager with hot-reload support
  * Provides CRUD operations for JSON config files
  */
 class ConfigManager {
-  constructor(configPath = "./config.json") {
+  constructor(configPath = "./config.json", { watch = true } = {}) {
     this.configPath = path.resolve(configPath);
     this.config = null;
     this.watcher = null;
     this.changeCallbacks = [];
+    this.watch = watch;
 
     this.load();
-    this.setupWatcher();
+    if (this.watch) {
+      this.setupWatcher();
+    }
   }
 
   /**
@@ -153,9 +152,6 @@ class ConfigManager {
    * Setup file watcher for hot-reload
    */
   setupWatcher() {
-    const isTest = process.env.NODE_ENV === "test" || process.argv.some(arg => arg.includes("--test")) || process.execArgv.some(arg => arg.includes("--test")) || !!process.env.NODE_TEST_CONTEXT;
-    if (isTest) return;
-
     let debounceTimer = null;
 
     this.watcher = chokidar.watch(this.configPath, {

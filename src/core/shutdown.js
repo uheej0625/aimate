@@ -9,11 +9,13 @@ const logger = createLogger("Shutdown");
  * @param {Object} options
  * @param {import('./ConversationBuffer.js').ConversationBuffer} options.conversationBuffer
  * @param {import('../services/CronService.js').CronService} [options.cronService]
+ * @param {import('../config/ConfigManager.js').default} [options.configManager]
  * @param {import('discord.js').Client|null} [options.client] - Discord 클라이언트 (없으면 무시)
  */
 export function registerShutdown({
   conversationBuffer,
   cronService = null,
+  configManager = null,
   client = null,
 }) {
   let shuttingDown = false;
@@ -60,7 +62,13 @@ export function registerShutdown({
       }
     }
 
-    // 5. Prisma 연결 종료
+    // 5. Config watcher 종료
+    if (configManager) {
+      configManager.close();
+      logger.info("Config watcher closed");
+    }
+
+    // 6. Prisma 연결 종료
     try {
       await prisma.$disconnect();
       logger.info("Database connection closed");
