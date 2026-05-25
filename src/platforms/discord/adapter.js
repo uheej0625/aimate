@@ -16,6 +16,7 @@ export function adaptMessage(discordMessage) {
     id: discordMessage.id,
     content: discordMessage.content,
     platform: "discord",
+    platformChannelId: discordMessage.channelId,
     channelId: discordMessage.channelId,
     guildId: discordMessage.guildId ?? null,
     author: {

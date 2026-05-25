@@ -5,10 +5,7 @@ import { AIService } from "../../src/services/AIService.js";
 test("AIService tests", async (t) => {
   const mockConfigManager = {
     get: (key) => {
-      if (key === "ai.chat") return { provider: "googleCloud", stream: false };
-      if (key === "ai.image") return { provider: "googleCloud", stream: false };
       if (key === "ai.chat.stream") return false;
-      if (key === "secrets.googleCloudApiKey") return "test-google-key";
       return null;
     },
   };
@@ -30,10 +27,6 @@ test("AIService tests", async (t) => {
     findByPlatformAccountId: async () => ({ id: "u123", name: "User" }),
   };
 
-  // Note: AIService calls createModel in constructor.
-  // For testing, we can override the prototype or just accept it will try to create a provider.
-  // Since we don't want to hit real APIs, we'll mock the provider after instantiation.
-
   const aiService = new AIService(
     mockHistoryService,
     mockConfigManager,
@@ -47,6 +40,14 @@ test("AIService tests", async (t) => {
         context: ["assembled-context"],
         systemInstruction: "built-sys-template",
       }),
+    },
+    {
+      modelFactory: {
+        create: () => ({
+          generateChat: async function* () {},
+          generateImage: async () => ({}),
+        }),
+      },
     },
   );
 

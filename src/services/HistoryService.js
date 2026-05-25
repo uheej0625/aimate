@@ -1,9 +1,16 @@
+import { HistoryMessageFormatter } from "./HistoryMessageFormatter.js";
+
 export class HistoryService {
   /**
    * @param {import('../repositories/MessageRepository.js').MessageRepository} messageRepository
+   * @param {HistoryMessageFormatter} [historyMessageFormatter]
    */
-  constructor(messageRepository) {
+  constructor(
+    messageRepository,
+    historyMessageFormatter = new HistoryMessageFormatter(),
+  ) {
     this.messageRepository = messageRepository;
+    this.historyMessageFormatter = historyMessageFormatter;
   }
 
   /**
@@ -13,7 +20,7 @@ export class HistoryService {
    * @returns {Promise<{history: Array, messageIds: Array<number>, inputMessages: Array<string>, lastUserPlatformAccountId: string|null}>}
    */
   async fetchHistoryData(channelId, botId) {
-    const history = await this.messageRepository.getHistory(channelId);
+    const history = await this.loadModelHistory(channelId);
     const { historyMessages, pendingMessages } = this.splitHistoryAndPending(
       history,
       botId,
@@ -37,6 +44,24 @@ export class HistoryService {
       inputMessages,
       lastUserPlatformAccountId,
     };
+  }
+
+  async loadModelHistory(internalChannelId) {
+    if (
+      typeof this.messageRepository.getHistoryRecords !== "function" ||
+      typeof this.messageRepository.findGenerationInputsByIds !== "function"
+    ) {
+      return await this.messageRepository.getHistory(internalChannelId);
+    }
+
+    const records =
+      await this.messageRepository.getHistoryRecords(internalChannelId);
+    const generationIds =
+      this.historyMessageFormatter.extractGeneratedImageGenerationIds(records);
+    const promptByGenerationId =
+      await this.messageRepository.findGenerationInputsByIds(generationIds);
+
+    return this.historyMessageFormatter.format(records, promptByGenerationId);
   }
 
   /**

@@ -20,39 +20,39 @@ export class ConversationBuffer {
 
   /**
    * Add a request to the buffer.
-   * @param {string} channelId
+   * @param {string} platformChannelId
    * @param {import('discord.js').TextBasedChannel} channel
    * @param {string} botId
    * @param {string} [cronMessage] - Cron job에서 전달되는 시스템 메시지 (선택)
    */
-  add(channelId, channel, botId, cronMessage = null) {
+  add(platformChannelId, channel, botId, cronMessage = null) {
     // Clear existing timer if any (user is still typing)
-    if (this.buffers.has(channelId)) {
-      clearTimeout(this.buffers.get(channelId));
+    if (this.buffers.has(platformChannelId)) {
+      clearTimeout(this.buffers.get(platformChannelId));
     }
 
     // Set new timer
     const timer = setTimeout(() => {
-      this.buffers.delete(channelId);
+      this.buffers.delete(platformChannelId);
       this.chatFlow.execute(channel, botId, cronMessage).catch((error) => {
         logger.error(
-          { err: error, channelId },
+          { err: error, platformChannelId },
           "ChatFlow error",
         );
       });
     }, this.BUFFER_TIMEOUT);
 
-    this.buffers.set(channelId, timer);
+    this.buffers.set(platformChannelId, timer);
   }
 
   /**
    * Clear buffer for a channel immediately (e.g. on manual trigger or command)
-   * @param {string} channelId
+   * @param {string} platformChannelId
    */
-  clear(channelId) {
-    if (this.buffers.has(channelId)) {
-      clearTimeout(this.buffers.get(channelId));
-      this.buffers.delete(channelId);
+  clear(platformChannelId) {
+    if (this.buffers.has(platformChannelId)) {
+      clearTimeout(this.buffers.get(platformChannelId));
+      this.buffers.delete(platformChannelId);
     }
   }
 

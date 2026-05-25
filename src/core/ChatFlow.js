@@ -1,43 +1,60 @@
-import { ScopeKey } from "../repositories/EmotionStateRepository.js";
+import { AppEvents, EventBus } from "./EventBus.js";
+import { GenerationFailureHandler } from "./GenerationFailureHandler.js";
+import { GenerationLifecycle } from "./GenerationLifecycle.js";
 import { createLogger } from "./logger.js";
 
 const logger = createLogger("ChatFlow");
 
 /**
  * Core business logic for generating a response in a conversation.
- * Coordinates Context -> AI -> Sender
+ * Coordinates Context -> Chat generation -> Sender.
+ * Side effects that do not control the main response path are emitted as events.
  */
 export class ChatFlow {
   /**
    * @param {import('../repositories/GenerationRepository.js').GenerationRepository} generationRepository
    * @param {import('../repositories/ChannelRepository.js').ChannelRepository} channelRepository
-   * @param {import('../services/AIService.js').AIService} aiService
+   * @param {import('../repositories/MessageRepository.js').MessageRepository} messageRepository
+   * @param {import('../services/ChatGenerationService.js').ChatGenerationService} chatGenerationService
    * @param {import('./MessageSender.js').MessageSender} messageSender
    * @param {import('../config/ConfigManager.js').default} configManager
-   * @param {import('../repositories/EmotionStateRepository.js').EmotionStateRepository} emotionStateRepository
-   * @param {Object} [callbacks]
-   * @param {function} [callbacks.onServiceUnavailable] - 503 등 서비스 불가 시 호출되는 콜백
-   * @param {import('../repositories/UserRepository.js').UserRepository} [callbacks.userRepository]
+   * @param {import('../services/PostGenerationStateUpdater.js').PostGenerationStateUpdater} postGenerationStateUpdater
+   * @param {Object} [options]
+   * @param {import('./EventBus.js').EventBus} [options.eventBus]
+   * @param {import('./GenerationLifecycle.js').GenerationLifecycle} [options.generationLifecycle]
+   * @param {import('./GenerationFailureHandler.js').GenerationFailureHandler} [options.failureHandler]
    */
   constructor(
     generationRepository,
     channelRepository,
     messageRepository,
-    aiService,
+    chatGenerationService,
     messageSender,
     configManager,
-    emotionStateRepository,
-    { onServiceUnavailable, userRepository } = {},
+    postGenerationStateUpdater,
+    { eventBus, generationLifecycle, failureHandler } = {},
   ) {
-    this.generationRepository = generationRepository;
-    this.channelRepository = channelRepository;
-    this.messageRepository = messageRepository;
-    this.aiService = aiService;
+    this.chatGenerationService = chatGenerationService;
     this.messageSender = messageSender;
-    this.configManager = configManager;
-    this.emotionStateRepository = emotionStateRepository;
-    this.userRepository = userRepository ?? null;
-    this.onServiceUnavailable = onServiceUnavailable ?? (() => {});
+    this.postGenerationStateUpdater = postGenerationStateUpdater ?? {
+      apply: async () => {},
+    };
+    this.eventBus = eventBus ?? new EventBus();
+    this.generationLifecycle =
+      generationLifecycle ??
+      new GenerationLifecycle(
+        generationRepository,
+        channelRepository,
+        messageRepository,
+        configManager,
+      );
+    this.failureHandler =
+      failureHandler ??
+      new GenerationFailureHandler(
+        this.generationLifecycle,
+        this.messageSender,
+        this.eventBus,
+      );
   }
 
   /**
@@ -53,26 +70,18 @@ export class ChatFlow {
     try {
       // 0. Get or create internal channel
       const platform = channel.platform;
-      channelRecord = await this.channelRepository.findByPlatformId(
-        platform,
-        channel.id,
+      channelRecord = await this.generationLifecycle.findOrCreateChannel(
+        channel,
       );
 
-      if (!channelRecord) {
-        // Channel should have been created by MessageHandler, but create if missing
-        channelRecord = await this.channelRepository.upsert({
-          platform: platform,
-          platformId: channel.id,
-          serverId: null,
-        });
-      }
-
       // 1. Start Generation Tracking
-      generation = await this.generationRepository.create({
-        channelId: channelRecord.id,
-        type: "CHAT",
-        prompt: this.configManager.get("ai.chat.prompt") || "default",
-        status: "PROCESSING",
+      generation =
+        await this.generationLifecycle.startChatGeneration(channelRecord);
+      await this.eventBus.emitAsync(AppEvents.GenerationStarted, {
+        generation,
+        channelRecord,
+        platform,
+        cronMessage,
       });
 
       // 2. Prepare Context
@@ -82,7 +91,7 @@ export class ChatFlow {
         messageIds,
         inputMessages,
         currentUserId,
-      } = await this.aiService.prepareContext(
+      } = await this.chatGenerationService.prepareContext(
         channelRecord.id,
         botId,
         channelRecord,
@@ -90,27 +99,29 @@ export class ChatFlow {
       );
 
       // 3. Update Generation with input details
-      await this.generationRepository.updateDetails(generation.id, {
-        input: JSON.stringify(inputMessages),
+      await this.generationLifecycle.recordInput(generation.id, {
+        inputMessages,
+        messageIds,
       });
 
-      for (const id of messageIds) {
-        await this.messageRepository.addGenerationId(id, generation.id);
-      }
-
       // 4. Check Cancellation before generating
-      const result = await this.generationRepository.checkAndUpdateStatus(
+      const result = await this.generationLifecycle.markReadyToGenerate(
         generation.id,
-        "GENERATED",
       );
 
       if (!result.shouldProceed) {
         logger.info({ generationId: generation.id }, "Generation cancelled");
+        await this.eventBus.emitAsync(AppEvents.GenerationCancelled, {
+          generation,
+          channelRecord,
+          platform,
+          reason: "status_changed",
+        });
         return;
       }
 
       // 5. Generate response (JSON parsed)
-      const aiResult = await this.aiService.generateChat(
+      const aiResult = await this.chatGenerationService.generateChat(
         context,
         systemInstruction,
         channel.platform,
@@ -118,29 +129,7 @@ export class ChatFlow {
       );
 
       // 6. Save AI response details (including raw API req/res)
-      const apiRequest =
-        aiResult.apiRequests?.length === 1
-          ? aiResult.apiRequests[0]
-          : aiResult.apiRequests?.length > 1
-            ? aiResult.apiRequests
-            : undefined;
-      const apiResponse =
-        aiResult.apiResponses?.length === 1
-          ? aiResult.apiResponses[0]
-          : aiResult.apiResponses?.length > 1
-            ? aiResult.apiResponses
-            : undefined;
-
-      await this.generationRepository.updateDetails(generation.id, {
-        output: JSON.stringify(aiResult.messages),
-        metadata: {
-          emotionDelta: aiResult.emotionDelta,
-          emotionReason: aiResult.emotionReason,
-          relationshipDelta: aiResult.relationshipDelta,
-        },
-        apiRequest,
-        apiResponse,
-      });
+      await this.generationLifecycle.recordOutput(generation.id, aiResult);
 
       // 7. Send each message chunk
       for (const message of aiResult.messages) {
@@ -154,109 +143,40 @@ export class ChatFlow {
             { generationId: generation.id },
             "Generation cancelled during send",
           );
+          await this.eventBus.emitAsync(AppEvents.GenerationCancelled, {
+            generation,
+            channelRecord,
+            platform,
+            reason: "send_cancelled",
+          });
           return;
         }
       }
 
       // 8. Mark as COMPLETED after all messages sent
-      await this.generationRepository.updateStatus(generation.id, "COMPLETED");
+      await this.generationLifecycle.complete(generation.id);
 
-      // 9. Apply emotion delta — channelRecord.scope에 해당하는 스코프 하나만 적용
-      if (
-        aiResult.emotionDelta &&
-        Object.keys(aiResult.emotionDelta).length > 0
-      ) {
-        const delta = aiResult.emotionDelta;
-        const scope = channelRecord.scope ?? "channel";
+      // 9. Apply post-generation domain state changes
+      await this.postGenerationStateUpdater.apply({
+        aiResult,
+        channelRecord,
+        currentUserId,
+      });
 
-        if (scope === "global") {
-          await this.emotionStateRepository.applyDelta(
-            ScopeKey.global(),
-            "GLOBAL",
-            delta,
-          );
-        } else if (scope === "server" && channelRecord.serverId) {
-          await this.emotionStateRepository.applyDelta(
-            ScopeKey.server(channelRecord.serverId),
-            "SERVER",
-            delta,
-            { serverId: channelRecord.serverId },
-          );
-        } else {
-          await this.emotionStateRepository.applyDelta(
-            ScopeKey.channel(channelRecord.id),
-            "CHANNEL",
-            delta,
-            { channelId: channelRecord.id },
-          );
-        }
-
-        logger.info(
-          { scope, reason: aiResult.emotionReason },
-          "Emotion delta applied",
-        );
-      }
-
-      // 10. Apply relationship delta — currentUserId 유저에만 적용
-      if (
-        currentUserId &&
-        this.userRepository &&
-        aiResult.relationshipDelta &&
-        Object.keys(aiResult.relationshipDelta).length > 0
-      ) {
-        await this.userRepository.applyRelationshipDelta(
-          currentUserId,
-          aiResult.relationshipDelta,
-        );
-        logger.info({ userId: currentUserId }, "Relationship delta applied");
-      }
+      await this.eventBus.emitAsync(AppEvents.GenerationCompleted, {
+        generation,
+        channelRecord,
+        platform,
+        aiResult,
+      });
     } catch (error) {
       logger.error({ err: error }, "Error processing response");
-
-      // Mark generation as FAILED
-      if (generation?.id) {
-        try {
-          await this.generationRepository.updateStatus(generation.id, "FAILED");
-        } catch (dbError) {
-          logger.error({ err: dbError }, "Failed to update generation status");
-        }
-      }
-
-      // Check if it's a 503 (Google Cloud) or 429 (Vertex) error
-      const isOverloaded =
-        error.status === 503 ||
-        error.status === 429 ||
-        (error.message &&
-          (error.message.includes('"code": 503') ||
-            error.message.includes('"code": 429')));
-
-      if (isOverloaded) {
-        // 503/429 error: 플랫폼별 콜백으로 처리 위임
-        logger.warn("503/429 Service Unavailable/Overloaded error detected");
-        try {
-          await this.onServiceUnavailable(error, {
-            channelRecord,
-            platform: channel.platform,
-          });
-        } catch (callbackError) {
-          logger.error(
-            { err: callbackError },
-            "Failed to handle service unavailable",
-          );
-        }
-        // Don't send error message to user for 503/429 errors
-      } else {
-        // For other errors, notify user
-        try {
-          await this.messageSender.sendChunk(
-            channel,
-            "죄송합니다. 답변 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
-            generation?.id,
-          );
-        } catch (sendError) {
-          logger.error({ err: sendError }, "Failed to send error message");
-        }
-      }
+      await this.failureHandler.handle({
+        error,
+        generation,
+        channelRecord,
+        channel,
+      });
     }
   }
 }

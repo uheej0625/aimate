@@ -38,6 +38,7 @@ export class MessageService {
    */
   async saveMessage(message, generationId = null, attachments = []) {
     const platform = message.platform;
+    const platformChannelId = message.platformChannelId ?? message.channelId;
 
     // 1. Ensure server exists (if message is in a guild)
     let serverId = null;
@@ -52,7 +53,7 @@ export class MessageService {
     // 2. Ensure channel exists
     const channel = await this.channelRepository.upsert({
       platform: platform,
-      platformId: message.channelId,
+      platformId: platformChannelId,
       serverId: serverId,
     });
 

@@ -13,13 +13,24 @@ import { BotAccountService } from "../services/BotAccountService.js";
 import { CronService } from "../services/CronService.js";
 import { CharacterContextBuilder } from "../services/CharacterContextBuilder.js";
 import { PromptComposer } from "../services/PromptComposer.js";
+import { SequenceBuilder } from "../services/SequenceBuilder.js";
+import { AIModelFactory } from "../services/AIModelFactory.js";
+import { AIResponseParser } from "../services/AIResponseParser.js";
+import { ChatContextPreparer } from "../services/ChatContextPreparer.js";
+import { ChatGenerationService } from "../services/ChatGenerationService.js";
+import { GeneratedImageTagPolicy } from "../services/GeneratedImageTagPolicy.js";
+import { GeneratedImageAttachmentResolver } from "../services/GeneratedImageAttachmentResolver.js";
+import { HistoryMessageFormatter } from "../services/HistoryMessageFormatter.js";
+import { ToolCallingChatRunner } from "../services/ToolCallingChatRunner.js";
 import { validateActiveProviders } from "../config/index.js";
 import { MessageHandler } from "./MessageHandler.js";
 import { ConversationBuffer } from "./ConversationBuffer.js";
 import { MessageSender } from "./MessageSender.js";
 import { ChatFlow } from "./ChatFlow.js";
+import { AppEvents, EventBus } from "./EventBus.js";
 import { ToolRegistry } from "../tools/ToolRegistry.js";
 import { ToolExecutor } from "../tools/ToolExecutor.js";
+import { PostGenerationStateUpdater } from "../services/PostGenerationStateUpdater.js";
 import { createLogger } from "./logger.js";
 
 const logger = createLogger("Container");
@@ -41,6 +52,7 @@ export async function createContainer({ configManager, client = null }) {
   await validateActiveProviders(configManager);
 
   // Repositories (data layer)
+  const historyMessageFormatter = new HistoryMessageFormatter();
   const messageRepository = new MessageRepository(configManager);
   const userRepository = new UserRepository();
   const platformAccountRepository = new PlatformAccountRepository();
@@ -49,6 +61,7 @@ export async function createContainer({ configManager, client = null }) {
   const generationRepository = new GenerationRepository();
   const emotionStateRepository = new EmotionStateRepository();
   const cronJobRepository = new CronJobRepository();
+  const eventBus = new EventBus();
 
   // Tools (function calling)
   const toolRegistry = new ToolRegistry(configManager);
@@ -70,13 +83,32 @@ export async function createContainer({ configManager, client = null }) {
   );
 
   // Services (business logic layer)
-  const historyService = new HistoryService(messageRepository);
+  const historyService = new HistoryService(
+    messageRepository,
+    historyMessageFormatter,
+  );
   const characterContextBuilder = new CharacterContextBuilder();
   const promptComposer = new PromptComposer(
     emotionStateRepository,
     configManager,
     characterContextBuilder,
   );
+  const sequenceBuilder = new SequenceBuilder(promptComposer);
+  const modelFactory = new AIModelFactory(configManager);
+  const chatModel = modelFactory.create("chat");
+  const imageModel = modelFactory.create("image");
+  const responseParser = new AIResponseParser();
+  const generatedImageTagPolicy = new GeneratedImageTagPolicy();
+  const chatContextPreparer = new ChatContextPreparer(
+    historyService,
+    configManager,
+    sequenceBuilder,
+    userRepository,
+  );
+  const chatGenerationRunner = new ToolCallingChatRunner(configManager, {
+    responseParser,
+    generatedImageTagPolicy,
+  });
   const aiService = new AIService(
     historyService,
     configManager,
@@ -84,7 +116,25 @@ export async function createContainer({ configManager, client = null }) {
     toolExecutor,
     promptComposer,
     userRepository,
+    sequenceBuilder,
+    {
+      modelFactory,
+      responseParser,
+      generatedImageTagPolicy,
+      chatContextPreparer,
+      chatGenerationRunner,
+      chatModel,
+      imageModel,
+    },
   );
+  const chatGenerationService = new ChatGenerationService({
+    chatContextPreparer,
+    chatGenerationRunner,
+    chatModel,
+    toolRegistry,
+    toolExecutor,
+    aiService,
+  });
   const messageService = new MessageService(
     userRepository,
     platformAccountRepository,
@@ -99,45 +149,57 @@ export async function createContainer({ configManager, client = null }) {
     messageService,
     generationRepository,
     configManager,
+    {
+      generatedImageAttachmentResolver: new GeneratedImageAttachmentResolver(
+        generationRepository,
+      ),
+    },
+  );
+
+  const postGenerationStateUpdater = new PostGenerationStateUpdater(
+    emotionStateRepository,
+    userRepository,
+  );
+
+  eventBus.on(
+    AppEvents.GenerationServiceUnavailable,
+    async ({ channelRecord, platform }) => {
+      // Discord status update
+      if (client) {
+        const fallbackStatus =
+          configManager.get("discord.fallbackStatus") || "dnd";
+        await client.user.setStatus(fallbackStatus);
+        logger.info({ status: fallbackStatus }, "Bot status changed");
+      }
+
+      // Schedule retry cron job if cronService is available
+      if (cronService && channelRecord) {
+        try {
+          await cronService.registerRetryJob(
+            channelRecord.id,
+            platform,
+            0, // retryCount starts at 0
+          );
+          logger.info(
+            { channelId: channelRecord.id },
+            "Retry cron job scheduled",
+          );
+        } catch (cronError) {
+          logger.error({ err: cronError }, "Failed to schedule retry");
+        }
+      }
+    },
   );
 
   const chatFlow = new ChatFlow(
     generationRepository,
     channelRepository,
     messageRepository,
-    aiService,
+    chatGenerationService,
     messageSender,
     configManager,
-    emotionStateRepository,
-    {
-      userRepository,
-      onServiceUnavailable: async (error, context) => {
-        // Discord status update
-        if (client) {
-          const fallbackStatus =
-            configManager.get("discord.fallbackStatus") || "dnd";
-          await client.user.setStatus(fallbackStatus);
-          logger.info({ status: fallbackStatus }, "Bot status changed");
-        }
-
-        // Schedule retry cron job if cronService is available
-        if (cronService && context?.channelRecord) {
-          try {
-            await cronService.registerRetryJob(
-              context.channelRecord.id,
-              context.platform,
-              0, // retryCount starts at 0
-            );
-            logger.info(
-              { channelId: context.channelRecord.id },
-              "Retry cron job scheduled",
-            );
-          } catch (cronError) {
-            logger.error({ err: cronError }, "Failed to schedule retry");
-          }
-        }
-      },
-    },
+    postGenerationStateUpdater,
+    { eventBus },
   );
 
   const conversationBuffer = new ConversationBuffer(chatFlow, configManager);
@@ -179,11 +241,20 @@ export async function createContainer({ configManager, client = null }) {
     aiService,
     historyService,
     messageService,
+    chatGenerationService,
     botAccountService,
     cronService,
     configManager,
+    sequenceBuilder,
+    modelFactory,
+    responseParser,
+    generatedImageTagPolicy,
+    chatContextPreparer,
+    chatGenerationRunner,
+    postGenerationStateUpdater,
 
     // Core
+    eventBus,
     messageHandler,
     conversationBuffer,
     chatFlow,

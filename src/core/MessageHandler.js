@@ -34,6 +34,7 @@ export class MessageHandler {
   async handle(message) {
     try {
       const botId = message.client.user.id;
+      const platformChannelId = message.platformChannelId ?? message.channelId;
 
       // 1. Filter (봇 자신 / 빈 메시지 / 미활성화 채널 제외)
       if (!(await this.shouldHandle(message, botId))) return;
@@ -46,7 +47,7 @@ export class MessageHandler {
       await this.generationRepository.cancelProcessing(channelRecord.id);
 
       // 5. Add to Buffer
-      this.conversationBuffer.add(message.channelId, message.channel, botId);
+      this.conversationBuffer.add(platformChannelId, message.channel, botId);
     } catch (error) {
       logger.error({ err: error }, "MessageHandler error");
     }
@@ -65,9 +66,10 @@ export class MessageHandler {
 
     // 채널 레코드가 DB에 없으면 미활성화 채널로 간주
     if (this.channelRepository) {
+      const platformChannelId = message.platformChannelId ?? message.channelId;
       const channel = await this.channelRepository.findByPlatformId(
         message.platform,
-        message.channelId,
+        platformChannelId,
       );
       if (!channel) return false;
     }
