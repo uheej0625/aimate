@@ -1,3 +1,4 @@
+import { jsonSchema } from "ai";
 import { Readability } from "@mozilla/readability";
 import { JSDOM } from "jsdom";
 
@@ -8,26 +9,23 @@ export default {
   platforms: ["*"],
   requires: [],
 
-  declaration: {
-    name: "fetch_url",
-    description:
-      "Fetches the text content of a webpage from a URL. Use for summarizing links, reading news, or checking page content. Do not use on image or video URLs.",
-    parameters: {
-      type: "object",
-      properties: {
-        url: {
-          type: "string",
-          description: "The URL of the webpage to fetch.",
-        },
-        maxLength: {
-          type: "number",
-          description:
-            "Maximum text length to return (default: 4000). Request a smaller value for long documents.",
-        },
+  description:
+    "Fetches the text content of a webpage from a URL. Use for summarizing links, reading news, or checking page content. Do not use on image or video URLs.",
+  inputSchema: jsonSchema({
+    type: "object",
+    properties: {
+      url: {
+        type: "string",
+        description: "The URL of the webpage to fetch.",
       },
-      required: ["url"],
+      maxLength: {
+        type: "number",
+        description:
+          "Maximum text length to return (default: 4000). Request a smaller value for long documents.",
+      },
     },
-  },
+    required: ["url"],
+  }),
 
   /**
    * @param {{ url: string, maxLength?: number }} args

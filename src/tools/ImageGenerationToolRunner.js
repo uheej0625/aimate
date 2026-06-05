@@ -12,8 +12,8 @@ import {
 import { buildCurrentTimeContext } from "./timeContextUtils.js";
 
 export async function executeImageGenerationTool(args, context, spec) {
-  const { aiService, configManager, generationRepository, channel } = context;
-  assertImageToolContext({ aiService, generationRepository, channel });
+  const { ai, configManager, generationRepository, channel } = context;
+  assertImageToolContext({ ai, generationRepository, channel });
 
   const promptName = configManager?.get("ai.image.prompt") || "default";
   const sourceImagePaths = resolveSourceImagePaths(args.sourceImages);
@@ -55,7 +55,7 @@ export async function executeImageGenerationTool(args, context, spec) {
   }
 
   try {
-    const result = await aiService.generateImage(prompt, generateImageOptions);
+    const result = await ai.generateImage(prompt, generateImageOptions);
     const imageBuffer = result.buffer || result;
     const outputPath = await writeGeneratedImage(filename, imageBuffer);
 
@@ -87,9 +87,9 @@ export async function executeImageGenerationTool(args, context, spec) {
   }
 }
 
-function assertImageToolContext({ aiService, generationRepository, channel }) {
-  if (!aiService) {
-    throw new Error("AIService not available in tool context");
+function assertImageToolContext({ ai, generationRepository, channel }) {
+  if (!ai) {
+    throw new Error("AI runtime not available in tool context");
   }
   if (!generationRepository) {
     throw new Error("GenerationRepository not available in tool context");

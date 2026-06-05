@@ -32,8 +32,9 @@ const locales = {
     selectProviders: "Select AI providers you want to configure:",
     openaiKey: "Enter OPENAI_API_KEY:",
     aiGatewayKey: "Enter AI_GATEWAY_API_KEY:",
-    googleCloudKey: "Enter GOOGLE_CLOUD_API_KEY:",
+    googleKey: "Enter GOOGLE_GENERATIVE_AI_API_KEY:",
     vertexProjectId: "Enter VERTEX_PROJECT_ID:",
+    vertexLocation: "Enter VERTEX_LOCATION:",
     vertexClientEmail: "Enter VERTEX_CLIENT_EMAIL:",
     vertexPrivateKey:
       "Enter VERTEX_PRIVATE_KEY (Use double quotes if it contains newlines):",
@@ -48,8 +49,9 @@ const locales = {
       "설정할 AI 프로바이더를 선택하세요 (스페이스바 선택, 엔터 완료):",
     openaiKey: "OPENAI_API_KEY를 입력하세요:",
     aiGatewayKey: "AI_GATEWAY_API_KEY를 입력하세요:",
-    googleCloudKey: "GOOGLE_CLOUD_API_KEY를 입력하세요:",
+    googleKey: "GOOGLE_GENERATIVE_AI_API_KEY를 입력하세요:",
     vertexProjectId: "VERTEX_PROJECT_ID를 입력하세요:",
+    vertexLocation: "VERTEX_LOCATION을 입력하세요:",
     vertexClientEmail: "VERTEX_CLIENT_EMAIL을 입력하세요:",
     vertexPrivateKey:
       "VERTEX_PRIVATE_KEY를 입력하세요 (줄바꿈이 포함된 경우 전체를 큰따옴표로 감싸서 입력):",
@@ -79,7 +81,7 @@ async function main() {
     choices: [
       { name: "OpenAI", value: "openai" },
       { name: "Vercel AI Gateway", value: "aiGateway" },
-      { name: "Google Cloud", value: "googleCloud" },
+      { name: "Google Generative AI", value: "google" },
       { name: "Vertex AI", value: "vertex" },
     ],
     validate: (choices) =>
@@ -102,12 +104,15 @@ async function main() {
     envData.AI_GATEWAY_API_KEY = await input({ message: t.aiGatewayKey });
   }
 
-  if (providers.includes("googleCloud")) {
-    envData.GOOGLE_CLOUD_API_KEY = await input({ message: t.googleCloudKey });
+  if (providers.includes("google")) {
+    envData.GOOGLE_GENERATIVE_AI_API_KEY = await input({
+      message: t.googleKey,
+    });
   }
 
   if (providers.includes("vertex")) {
     envData.VERTEX_PROJECT_ID = await input({ message: t.vertexProjectId });
+    envData.VERTEX_LOCATION = await input({ message: t.vertexLocation });
     envData.VERTEX_CLIENT_EMAIL = await input({ message: t.vertexClientEmail });
     envData.VERTEX_PRIVATE_KEY = await input({ message: t.vertexPrivateKey });
   }
@@ -127,14 +132,15 @@ async function main() {
     envString += `AI_GATEWAY_API_KEY=${envData.AI_GATEWAY_API_KEY}\n\n`;
   }
 
-  if (providers.includes("googleCloud")) {
-    envString += "# Google Cloud\n";
-    envString += `GOOGLE_CLOUD_API_KEY=${envData.GOOGLE_CLOUD_API_KEY}\n\n`;
+  if (providers.includes("google")) {
+    envString += "# Google Generative AI\n";
+    envString += `GOOGLE_GENERATIVE_AI_API_KEY=${envData.GOOGLE_GENERATIVE_AI_API_KEY}\n\n`;
   }
 
   if (providers.includes("vertex")) {
     envString += "# Vertex AI\n";
     envString += `VERTEX_PROJECT_ID=${envData.VERTEX_PROJECT_ID}\n`;
+    envString += `VERTEX_LOCATION=${envData.VERTEX_LOCATION}\n`;
     envString += `VERTEX_CLIENT_EMAIL=${envData.VERTEX_CLIENT_EMAIL}\n`;
     envString += `VERTEX_PRIVATE_KEY=${envData.VERTEX_PRIVATE_KEY}\n\n`;
   }

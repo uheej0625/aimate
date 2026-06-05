@@ -2,7 +2,7 @@ import { prisma } from "../database/client.js";
 import {
   applyDelta,
   RELATIONSHIP_KEYS,
-} from "../engines/relationship/RelationshipEngine.js";
+} from "../relationship/RelationshipEngine.js";
 
 /**
  * Repository for User database operations.

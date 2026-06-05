@@ -6,31 +6,27 @@ import { ServerRepository } from "../repositories/ServerRepository.js";
 import { GenerationRepository } from "../repositories/GenerationRepository.js";
 import { EmotionStateRepository } from "../repositories/EmotionStateRepository.js";
 import { CronJobRepository } from "../repositories/CronJobRepository.js";
-import { AIService } from "../services/AIService.js";
-import { HistoryService } from "../services/HistoryService.js";
-import { MessageService } from "../services/MessageService.js";
-import { BotAccountService } from "../services/BotAccountService.js";
-import { CronService } from "../services/CronService.js";
-import { CharacterContextBuilder } from "../services/CharacterContextBuilder.js";
-import { PromptComposer } from "../services/PromptComposer.js";
-import { SequenceBuilder } from "../services/SequenceBuilder.js";
-import { AIModelFactory } from "../services/AIModelFactory.js";
-import { AIResponseParser } from "../services/AIResponseParser.js";
-import { ChatContextPreparer } from "../services/ChatContextPreparer.js";
-import { ChatGenerationService } from "../services/ChatGenerationService.js";
-import { GeneratedImageTagPolicy } from "../services/GeneratedImageTagPolicy.js";
-import { GeneratedImageAttachmentResolver } from "../services/GeneratedImageAttachmentResolver.js";
-import { HistoryMessageFormatter } from "../services/HistoryMessageFormatter.js";
-import { ToolCallingChatRunner } from "../services/ToolCallingChatRunner.js";
-import { validateActiveProviders } from "../config/index.js";
-import { MessageHandler } from "./MessageHandler.js";
-import { ConversationBuffer } from "./ConversationBuffer.js";
-import { MessageSender } from "./MessageSender.js";
-import { ChatFlow } from "./ChatFlow.js";
+import { AiRuntime } from "../ai/AiRuntime.js";
+import { HistoryService } from "../messages/HistoryService.js";
+import { MessageService } from "../messages/MessageService.js";
+import { BotAccountService } from "../accounts/BotAccountService.js";
+import { CronService } from "../scheduling/CronService.js";
+import { CharacterContextBuilder } from "../character/CharacterContextBuilder.js";
+import { PromptComposer } from "../chat/context/PromptComposer.js";
+import { SequenceBuilder } from "../chat/context/SequenceBuilder.js";
+import { AIResponseParser } from "../chat/response/AIResponseParser.js";
+import { ChatContextPreparer } from "../chat/context/ChatContextPreparer.js";
+import { GeneratedImageTagPolicy } from "../chat/response/GeneratedImageTagPolicy.js";
+import { GeneratedImageAttachmentResolver } from "../messages/GeneratedImageAttachmentResolver.js";
+import { HistoryMessageFormatter } from "../messages/HistoryMessageFormatter.js";
+import { validateAiConfig } from "../config/index.js";
+import { MessageHandler } from "../messages/MessageHandler.js";
+import { ConversationBuffer } from "../chat/ConversationBuffer.js";
+import { MessageSender } from "../messages/MessageSender.js";
+import { ChatFlow } from "../chat/ChatFlow.js";
 import { AppEvents, EventBus } from "./EventBus.js";
 import { ToolRegistry } from "../tools/ToolRegistry.js";
-import { ToolExecutor } from "../tools/ToolExecutor.js";
-import { PostGenerationStateUpdater } from "../services/PostGenerationStateUpdater.js";
+import { PostGenerationStateUpdater } from "../chat/state/PostGenerationStateUpdater.js";
 import { createLogger } from "./logger.js";
 
 const logger = createLogger("Container");
@@ -49,7 +45,7 @@ export async function createContainer({ configManager, client = null }) {
     throw new Error("createContainer requires a configManager.");
   }
 
-  await validateActiveProviders(configManager);
+  await validateAiConfig(configManager);
 
   // Repositories (data layer)
   const historyMessageFormatter = new HistoryMessageFormatter();
@@ -74,14 +70,6 @@ export async function createContainer({ configManager, client = null }) {
   // CronService는 나중에 초기화 (conversationBuffer 필요)
   let cronService = null;
 
-  const toolExecutor = new ToolExecutor(
-    toolRegistry,
-    configManager,
-    platformClients,
-    null, // cronService는 나중에 설정
-    generationRepository,
-  );
-
   // Services (business logic layer)
   const historyService = new HistoryService(
     messageRepository,
@@ -94,9 +82,6 @@ export async function createContainer({ configManager, client = null }) {
     characterContextBuilder,
   );
   const sequenceBuilder = new SequenceBuilder(promptComposer);
-  const modelFactory = new AIModelFactory(configManager);
-  const chatModel = modelFactory.create("chat");
-  const imageModel = modelFactory.create("image");
   const responseParser = new AIResponseParser();
   const generatedImageTagPolicy = new GeneratedImageTagPolicy();
   const chatContextPreparer = new ChatContextPreparer(
@@ -105,35 +90,19 @@ export async function createContainer({ configManager, client = null }) {
     sequenceBuilder,
     userRepository,
   );
-  const chatGenerationRunner = new ToolCallingChatRunner(configManager, {
-    responseParser,
-    generatedImageTagPolicy,
-  });
-  const aiService = new AIService(
+  const aiRuntime = new AiRuntime({
     historyService,
     configManager,
     toolRegistry,
-    toolExecutor,
     promptComposer,
     userRepository,
     sequenceBuilder,
-    {
-      modelFactory,
-      responseParser,
-      generatedImageTagPolicy,
-      chatContextPreparer,
-      chatGenerationRunner,
-      chatModel,
-      imageModel,
-    },
-  );
-  const chatGenerationService = new ChatGenerationService({
+    responseParser,
+    generatedImageTagPolicy,
     chatContextPreparer,
-    chatGenerationRunner,
-    chatModel,
-    toolRegistry,
-    toolExecutor,
-    aiService,
+    platformClients,
+    generationRepository,
+    getCronService: () => cronService,
   });
   const messageService = new MessageService(
     userRepository,
@@ -195,7 +164,7 @@ export async function createContainer({ configManager, client = null }) {
     generationRepository,
     channelRepository,
     messageRepository,
-    chatGenerationService,
+    aiRuntime,
     messageSender,
     configManager,
     postGenerationStateUpdater,
@@ -210,9 +179,6 @@ export async function createContainer({ configManager, client = null }) {
     conversationBuffer,
     platformClients,
   );
-
-  // ToolExecutor에 cronService 설정
-  toolExecutor.cronService = cronService;
 
   const messageHandler = new MessageHandler(
     messageService,
@@ -238,19 +204,16 @@ export async function createContainer({ configManager, client = null }) {
     cronJobRepository,
 
     // Services & Components
-    aiService,
+    aiRuntime,
     historyService,
     messageService,
-    chatGenerationService,
     botAccountService,
     cronService,
     configManager,
     sequenceBuilder,
-    modelFactory,
     responseParser,
     generatedImageTagPolicy,
     chatContextPreparer,
-    chatGenerationRunner,
     postGenerationStateUpdater,
 
     // Core
@@ -262,6 +225,5 @@ export async function createContainer({ configManager, client = null }) {
 
     // Tools
     toolRegistry,
-    toolExecutor,
   };
 }

@@ -1,3 +1,5 @@
+import { jsonSchema } from "ai";
+
 /** @type {import('../ToolRegistry.js').ToolDef} */
 export default {
   name: "set_status_message",
@@ -5,25 +7,22 @@ export default {
   platforms: ["discord"], // Discord 어댑터가 있어야 동작
   requires: [], // 별도 API Key 불필요 (이미 연결된 Discord 클라이언트 사용)
 
-  declaration: {
-    name: "set_status_message",
-    description: "Discord에서 봇의 상태 메시지(활동 이름)를 변경한다.",
-    parameters: {
-      type: "object",
-      properties: {
-        message: {
-          type: "string",
-          description: "설정할 상태 메시지 텍스트",
-        },
-        type: {
-          type: "string",
-          enum: ["PLAYING", "WATCHING", "LISTENING", "COMPETING"],
-          description: "Discord 활동 유형. 기본값: PLAYING",
-        },
+  description: "Discord에서 봇의 상태 메시지(활동 이름)를 변경한다.",
+  inputSchema: jsonSchema({
+    type: "object",
+    properties: {
+      message: {
+        type: "string",
+        description: "설정할 상태 메시지 텍스트",
       },
-      required: ["message"],
+      type: {
+        type: "string",
+        enum: ["PLAYING", "WATCHING", "LISTENING", "COMPETING"],
+        description: "Discord 활동 유형. 기본값: PLAYING",
+      },
     },
-  },
+    required: ["message"],
+  }),
 
   /**
    * @param {{ message: string, type?: string }} args

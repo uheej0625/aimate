@@ -7,8 +7,8 @@ const logger = createLogger("Shutdown");
  * Graceful shutdown 핸들러를 등록한다.
  *
  * @param {Object} options
- * @param {import('./ConversationBuffer.js').ConversationBuffer} options.conversationBuffer
- * @param {import('../services/CronService.js').CronService} [options.cronService]
+ * @param {import('../chat/ConversationBuffer.js').ConversationBuffer} options.conversationBuffer
+ * @param {import('../scheduling/CronService.js').CronService} [options.cronService]
  * @param {import('../config/ConfigManager.js').default} [options.configManager]
  * @param {import('discord.js').Client|null} [options.client] - Discord 클라이언트 (없으면 무시)
  */

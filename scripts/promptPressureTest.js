@@ -3,6 +3,10 @@ import path from "path";
 import { loadEnv } from "../src/config/env.js";
 import { createConfigManager } from "../src/config/index.js";
 import { configureLogger } from "../src/core/logger.js";
+import { generateText } from "ai";
+import { getAiSettings, getGenerationSettings } from "../src/ai/config.js";
+import { toModelMessages } from "../src/ai/chat.js";
+import { createLanguageModel } from "../src/ai/models.js";
 import {
   BOT_ID,
   PRESSURE_TEST_IDENTITY,
@@ -15,13 +19,12 @@ loadEnv();
 const configManager = createConfigManager({ watch: false });
 configureLogger(configManager);
 
-const { GoogleCloudProvider } = await import(
-  "../src/providers/GoogleCloudProvider.js"
+const { PromptComposer } = await import(
+  "../src/chat/context/PromptComposer.js"
 );
-const { AISDKProvider } = await import("../src/providers/AISDKProvider.js");
-const { VertexProvider } = await import("../src/providers/VertexProvider.js");
-const { PromptComposer } = await import("../src/services/PromptComposer.js");
-const { SequenceBuilder } = await import("../src/services/SequenceBuilder.js");
+const { SequenceBuilder } = await import(
+  "../src/chat/context/SequenceBuilder.js"
+);
 
 const PROMPTS_DIR = path.resolve(process.cwd(), "content", "prompts");
 const DEFAULT_RUNS = 2;
@@ -214,21 +217,11 @@ function createRenderConfig() {
   };
 }
 
-function createLiveProvider() {
-  const provider = configManager.get("ai.chat.provider");
-
-  switch (provider) {
-    case "aiSdk":
-      return new AISDKProvider(configManager, "chat");
-    case "googleCloud":
-      return new GoogleCloudProvider(configManager, "chat");
-    case "vertex":
-      return new VertexProvider(configManager, "chat");
-    default:
-      throw new Error(
-        `Pressure test does not support chat provider: ${provider}`,
-      );
-  }
+function createLiveClient() {
+  return {
+    model: createLanguageModel(configManager, "chat"),
+    settings: getAiSettings(configManager, "chat"),
+  };
 }
 
 async function buildScenarioContext(promptName, scenario) {
@@ -254,21 +247,15 @@ async function buildScenarioContext(promptName, scenario) {
   });
 }
 
-async function callModel(provider, context, systemInstruction) {
-  let text = "";
+async function callModel(client, context, systemInstruction) {
+  const result = await generateText({
+    model: client.model,
+    system: systemInstruction,
+    messages: toModelMessages(context),
+    ...getGenerationSettings(client.settings),
+  });
 
-  for await (const event of provider.generateChat(
-    context,
-    systemInstruction,
-    [],
-    { stream: false },
-  )) {
-    if (event.type === "text") {
-      text += event.content;
-    }
-  }
-
-  return text;
+  return result.text;
 }
 
 function parseMarkdownResponse(text) {
@@ -453,7 +440,7 @@ function printContextPreview(context) {
   });
 }
 
-async function runLiveCase({ promptName, scenario, args, provider }) {
+async function runLiveCase({ promptName, scenario, args, client }) {
   let failures = 0;
 
   for (let runIndex = 1; runIndex <= args.runs; runIndex += 1) {
@@ -475,7 +462,7 @@ async function runLiveCase({ promptName, scenario, args, provider }) {
     }
 
     try {
-      const text = await callModel(provider, context, systemInstruction);
+      const text = await callModel(client, context, systemInstruction);
       const parsed = parseMarkdownResponse(text);
 
       console.log("\n--- raw ---");
@@ -516,7 +503,7 @@ async function run() {
   const selectedScenarios = resolveScenarios(args);
   assertScenariosSelected(args, selectedScenarios);
 
-  const provider = args.live ? createLiveProvider() : null;
+  const client = args.live ? createLiveClient() : null;
   let failures = 0;
 
   for (const scenario of selectedScenarios) {
@@ -525,7 +512,7 @@ async function run() {
 
     for (const promptName of promptNames) {
       if (args.live) {
-        failures += await runLiveCase({ promptName, scenario, args, provider });
+        failures += await runLiveCase({ promptName, scenario, args, client });
       } else {
         await runDryCase({ promptName, scenario, args });
       }

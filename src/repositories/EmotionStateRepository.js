@@ -1,5 +1,5 @@
 import { prisma } from "../database/client.js";
-import { applyDelta, EMOTION_KEYS } from "../engines/emotion/EmotionEngine.js";
+import { applyDelta, EMOTION_KEYS } from "../character/emotion/EmotionEngine.js";
 
 /**
  * EmotionState의 scopeKey 생성 헬퍼

@@ -1,3 +1,4 @@
+import { jsonSchema } from "ai";
 import { createLogger } from "../../core/logger.js";
 
 const logger = createLogger("RegisterCron");
@@ -9,30 +10,27 @@ export default {
   platforms: ["*"], // 모든 플랫폼에서 사용 가능
   requires: [], // 별도 자격증명 불필요
 
-  declaration: {
-    name: "register_cron_job",
-    description:
-      "특정 시각에 AI가 사전에 설정한 메시지를 다시 받아 응답하도록 예약한다. " +
-      "예: 사용자가 1시간 후에 알림을 요청한 경우, 1시간 후에 AI가 메시지를 보내도록 예약할 수 있다.",
-    parameters: {
-      type: "object",
-      properties: {
-        scheduledTime: {
-          type: "string",
-          description:
-            "실행 예정 시각. ISO 8601 형식 또는 상대 시간 (예: '1h', '30m', '2h30m')",
-        },
-        message: {
-          type: "string",
-          description:
-            "예약된 시각에 AI에게 전달할 메시지. " +
-            "이 메시지는 AI가 컨텍스트로 받게 되며, 사용자에게 응답할 때 참고한다. " +
-            "예: '사용자가 1시간 뒤에 깨워달라고 했어. 이 메세지를 받을 때 사용자에게 알려줘.'",
-        },
+  description:
+    "특정 시각에 AI가 사전에 설정한 메시지를 다시 받아 응답하도록 예약한다. " +
+    "예: 사용자가 1시간 후에 알림을 요청한 경우, 1시간 후에 AI가 메시지를 보내도록 예약할 수 있다.",
+  inputSchema: jsonSchema({
+    type: "object",
+    properties: {
+      scheduledTime: {
+        type: "string",
+        description:
+          "실행 예정 시각. ISO 8601 형식 또는 상대 시간 (예: '1h', '30m', '2h30m')",
       },
-      required: ["scheduledTime", "message"],
+      message: {
+        type: "string",
+        description:
+          "예약된 시각에 AI에게 전달할 메시지. " +
+          "이 메시지는 AI가 컨텍스트로 받게 되며, 사용자에게 응답할 때 참고한다. " +
+          "예: '사용자가 1시간 뒤에 깨워달라고 했어. 이 메세지를 받을 때 사용자에게 알려줘.'",
+      },
     },
-  },
+    required: ["scheduledTime", "message"],
+  }),
 
   /**
    * @param {Object} args

@@ -8,6 +8,7 @@
 import ConfigManager from "./ConfigManager.js";
 import path from "path";
 import { fileURLToPath } from "url";
+import { validateAiPurpose } from "../ai/config.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -16,29 +17,15 @@ const ACTIVE_AI_PURPOSES = ["chat", "image"];
 const ENV_OVERRIDES = [
   ["DISCORD_TOKEN", "secrets.discordToken"],
   ["DISCORD_CLIENT_ID", "secrets.discordClientId"],
-  ["GOOGLE_CLOUD_API_KEY", "secrets.googleCloudApiKey"],
+  ["GOOGLE_GENERATIVE_AI_API_KEY", "secrets.googleApiKey"],
   ["OPENAI_API_KEY", "secrets.openaiApiKey"],
   ["AI_GATEWAY_API_KEY", "secrets.aiGatewayApiKey"],
-  [
-    "AI_SDK_OPENAI_COMPATIBLE_API_KEY",
-    "secrets.aiSdkOpenAICompatibleApiKey",
-  ],
+  ["OPENAI_COMPATIBLE_API_KEY", "secrets.openaiCompatibleApiKey"],
   ["VERTEX_PROJECT_ID", "secrets.vertexProjectId"],
   ["VERTEX_LOCATION", "secrets.vertexLocation"],
   ["VERTEX_CLIENT_EMAIL", "secrets.vertexClientEmail"],
   ["VERTEX_PRIVATE_KEY", "secrets.vertexPrivateKey"],
 ];
-
-const PROVIDER_LOADERS = {
-  aiSdk: async () =>
-    (await import("../providers/AISDKProvider.js")).AISDKProvider,
-  googleCloud: async () =>
-    (await import("../providers/GoogleCloudProvider.js")).GoogleCloudProvider,
-  openai: async () =>
-    (await import("../providers/OpenAIProvider.js")).OpenAIProvider,
-  vertex: async () =>
-    (await import("../providers/VertexProvider.js")).VertexProvider,
-};
 
 function isTestRuntime() {
   return (
@@ -73,62 +60,25 @@ export function createConfigManager({
 }
 
 /**
- * Validate only the providers that are instantiated by the app.
- *
- * Provider modules are loaded lazily here to avoid a config -> provider -> logger
- * import cycle during module initialization.
- *
  * @param {ConfigManager} manager
  * @param {string[]} purposes
  * @returns {Promise<boolean>}
  */
-export async function validateActiveProviders(
+export async function validateAiConfig(
   manager,
   purposes = ACTIVE_AI_PURPOSES,
 ) {
   if (!manager) {
-    throw new Error("validateActiveProviders requires a config manager.");
+    throw new Error("validateAiConfig requires a config manager.");
   }
 
   const missing = new Set();
   const invalid = [];
-  const providerCache = new Map();
-  const allowedProviders = Object.keys(PROVIDER_LOADERS);
 
   for (const purpose of purposes) {
-    const settingsPath = `ai.${purpose}`;
-    const settings = manager.get(settingsPath);
-
-    if (!settings) {
-      invalid.push(`${settingsPath} 설정이 없습니다.`);
-      continue;
-    }
-
-    const provider = settings.provider;
-    if (!provider) {
-      missing.add(`${settingsPath}.provider`);
-      continue;
-    }
-
-    const loadProvider = PROVIDER_LOADERS[provider];
-    if (!loadProvider) {
-      invalid.push(
-        `${settingsPath}.provider="${provider}" (허용값: ${allowedProviders.join(", ")})`,
-      );
-      continue;
-    }
-
-    let ProviderClass = providerCache.get(provider);
-    if (!ProviderClass) {
-      ProviderClass = await loadProvider();
-      providerCache.set(provider, ProviderClass);
-    }
-
-    if (typeof ProviderClass.validateConfig === "function") {
-      for (const field of ProviderClass.validateConfig(manager, purpose)) {
-        missing.add(field);
-      }
-    }
+    const result = validateAiPurpose(manager, purpose);
+    for (const field of result.missing) missing.add(field);
+    invalid.push(...result.invalid);
   }
 
   if (invalid.length > 0 || missing.size > 0) {

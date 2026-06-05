@@ -9,32 +9,30 @@
   "ai": {
     "chat": {
       "provider": "vertex",
-      "model": "gemini-3-flash-preview",
+      "model": "gemini-3.5-flash",
       "prompt": "experimental",
-      "stream": true,
-      "systemInstruction": null,
       "temperature": null,
-      "maxTokens": null,
+      "maxOutputTokens": null,
       "topP": null,
       "topK": null,
-      "retryAttempts": 3,
-      "retryDelay": 2000
+      "maxRetries": 3,
+      "providerOptions": {}
     },
     "embedding": {
-      "provider": "googleCloud",
-      "model": null,
-      "systemInstruction": null
+      "provider": "gateway",
+      "model": null
     },
     "summary": {
-      "provider": "googleCloud",
-      "model": "gemini-3-flash-preview",
-      "systemInstruction": null
+      "provider": "gateway",
+      "model": "openai/gpt-5-mini"
     },
     "image": {
-      "provider": "openai",
-      "model": "gpt-image-2-2026-04-21",
+      "provider": "gateway",
+      "model": "openai/gpt-image-2",
       "prompt": "default",
-      "includeTimeContext": true
+      "includeTimeContext": true,
+      "maxRetries": 3,
+      "providerOptions": {}
     }
   },
   "discord": {
@@ -69,9 +67,9 @@
     "discordToken": "",
     "discordClientId": "",
     "openaiApiKey": "",
-    "googleCloudApiKey": "",
+    "googleApiKey": "",
     "aiGatewayApiKey": "",
-    "aiSdkOpenAICompatibleApiKey": "",
+    "openaiCompatibleApiKey": "",
     "vertexProjectId": "",
     "vertexLocation": "global",
     "vertexClientEmail": "",

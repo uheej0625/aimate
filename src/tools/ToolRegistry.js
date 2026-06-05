@@ -1,15 +1,18 @@
 import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
+import { tool } from "ai";
+import { createLogger } from "../core/logger.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const logger = createLogger("ToolRegistry");
 
 /**
  * ToolRegistry
  *
  * 모든 툴 정의를 관리하고, 실행 컨텍스트(platform, 자격증명)에 따라
- * 활성화된 툴 목록을 반환한다.
+ * AI SDK ToolSet을 만든다.
  *
  * 툴 필터링 조건 (AND):
  *   1. tool.enabled === true
@@ -33,13 +36,20 @@ export class ToolRegistry {
    * @param {boolean}  toolDef.enabled     - false 이면 항상 비활성화
    * @param {string[]} toolDef.platforms   - '*' 또는 플랫폼 ID 배열 ('discord', 'telegram', 'cli', …)
    * @param {string[]} toolDef.requires    - 필요한 서비스 키 배열 ('novelai', 'openai', …)
-   * @param {Object}   toolDef.declaration - Google Cloud/OpenAI 함수 스키마
+   * @param {string}   toolDef.description - 모델에 노출되는 툴 설명
+   * @param {Object}   toolDef.inputSchema - AI SDK inputSchema
    * @param {Function} toolDef.execute     - async (args, context) => result
    */
   register(toolDef) {
     if (!toolDef || !toolDef.name) throw new Error("Tool must have a name");
     if (typeof toolDef.execute !== "function") {
       throw new Error(`Tool ${toolDef.name} must have an execute function`);
+    }
+    if (!toolDef.description) {
+      throw new Error(`Tool ${toolDef.name} must have a description`);
+    }
+    if (!toolDef.inputSchema) {
+      throw new Error(`Tool ${toolDef.name} must have an inputSchema`);
     }
     if (this.tools.has(toolDef.name)) {
       throw new Error(`Duplicate tool definition for: ${toolDef.name}`);
@@ -107,6 +117,10 @@ export class ToolRegistry {
 
       // 3. 자격증명 체크
       const credentialsOk = tool.requires.every((service) => {
+        if (service === "image") {
+          return !!this.configManager.get("ai.image.model");
+        }
+
         const key = `secrets.${service}ApiKey`;
         return this.configManager.has(key) && !!this.configManager.get(key);
       });
@@ -114,6 +128,40 @@ export class ToolRegistry {
 
       return true;
     });
+  }
+
+  createToolSet(platform, context) {
+    return Object.fromEntries(
+      this.getActiveTools(platform).map((toolDef) => [
+        toolDef.name,
+        tool({
+          description: toolDef.description,
+          inputSchema: toolDef.inputSchema,
+          execute: async (input, options = {}) => {
+            try {
+              const result = await toolDef.execute(input ?? {}, {
+                ...context,
+                toolCallId: options.toolCallId,
+                messages: options.messages,
+                abortSignal: options.abortSignal,
+              });
+
+              logger.info(
+                { tool: toolDef.name, input, result },
+                "Tool executed",
+              );
+              return result;
+            } catch (error) {
+              logger.error(
+                { err: error, toolName: toolDef.name },
+                "Tool execution error",
+              );
+              return { error: error.message };
+            }
+          },
+        }),
+      ]),
+    );
   }
 
   /**

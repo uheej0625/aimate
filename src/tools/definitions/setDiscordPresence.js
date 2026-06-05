@@ -1,3 +1,5 @@
+import { jsonSchema } from "ai";
+
 /** @type {import('../ToolRegistry.js').ToolDef} */
 export default {
   name: "set_presence_status",
@@ -5,23 +7,20 @@ export default {
   platforms: ["discord"],
   requires: [],
 
-  declaration: {
-    name: "set_presence_status",
-    description:
-      "Discord에서 봇의 온라인 상태를 변경한다. (온라인/방해금지/자리비움/오프라인)",
-    parameters: {
-      type: "object",
-      properties: {
-        status: {
-          type: "string",
-          enum: ["online", "dnd", "idle", "invisible"],
-          description:
-            "설정할 상태. online=온라인, dnd=방해금지, idle=자리비움, invisible=오프라인(숨김)",
-        },
+  description:
+    "Discord에서 봇의 온라인 상태를 변경한다. (온라인/방해금지/자리비움/오프라인)",
+  inputSchema: jsonSchema({
+    type: "object",
+    properties: {
+      status: {
+        type: "string",
+        enum: ["online", "dnd", "idle", "invisible"],
+        description:
+          "설정할 상태. online=온라인, dnd=방해금지, idle=자리비움, invisible=오프라인(숨김)",
       },
-      required: ["status"],
     },
-  },
+    required: ["status"],
+  }),
 
   /**
    * @param {{ status: "online" | "dnd" | "idle" | "invisible" }} args
