@@ -38,7 +38,7 @@ export class ChatGenerationLifecycle {
     return await this.generationRepository.create({
       channelId: channelRecord.id,
       type: "CHAT",
-      prompt: this.configManager.get("ai.chat.prompt") || "default",
+      prompt: getRequiredChatPromptName(this.configManager),
       status: "PROCESSING",
     });
   }
@@ -81,11 +81,6 @@ export class ChatGenerationLifecycle {
 
     await this.generationRepository.updateDetails(generationId, {
       output: JSON.stringify(aiResult.messages),
-      metadata: {
-        emotionDelta: aiResult.emotionDelta,
-        emotionReason: aiResult.emotionReason,
-        relationshipDelta: aiResult.relationshipDelta,
-      },
       apiRequest,
       apiResponse,
     });
@@ -100,3 +95,4 @@ export class ChatGenerationLifecycle {
     await this.generationRepository.updateStatus(generationId, "FAILED");
   }
 }
+import { getRequiredChatPromptName } from "./promptConfig.js";

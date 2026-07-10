@@ -59,6 +59,9 @@ export function validateAiPurpose(configManager, purpose) {
   if (!settings.model) {
     missing.push(`ai.${purpose}.model`);
   }
+  if (!settings.prompt) {
+    missing.push(`ai.${purpose}.prompt`);
+  }
 
   const provider = settings.provider ?? "gateway";
   if (!SUPPORTED_PROVIDERS.includes(provider)) {
@@ -73,7 +76,8 @@ export function validateAiPurpose(configManager, purpose) {
       configManager.get("secrets.aiGatewayApiKey") ||
       process.env.AI_GATEWAY_API_KEY ||
       process.env.VERCEL_OIDC_TOKEN;
-    if (!hasGatewayAuth) missing.push("AI_GATEWAY_API_KEY or VERCEL_OIDC_TOKEN");
+    if (!hasGatewayAuth)
+      missing.push("AI_GATEWAY_API_KEY or VERCEL_OIDC_TOKEN");
   }
 
   if (provider === "openai" && !configManager.get("secrets.openaiApiKey")) {

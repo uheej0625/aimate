@@ -40,6 +40,7 @@ test("SequenceBuilder tests", async (t) => {
       historyMessages,
       pendingMessages,
       botId: "bot",
+      promptName: "minimal",
       cronMessage: "cron-test",
       data: { memories: "memory-test" },
     });

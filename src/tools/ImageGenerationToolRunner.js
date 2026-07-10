@@ -15,7 +15,10 @@ export async function executeImageGenerationTool(args, context, spec) {
   const { ai, configManager, generationRepository, channel } = context;
   assertImageToolContext({ ai, generationRepository, channel });
 
-  const promptName = configManager?.get("ai.image.prompt") || "default";
+  const promptName = configManager?.get("ai.image.prompt");
+  if (typeof promptName !== "string" || promptName.trim() === "") {
+    throw new Error("Missing required configuration: ai.image.prompt");
+  }
   const sourceImagePaths = resolveSourceImagePaths(args.sourceImages);
   const referenceImagePaths = await resolveReferenceImagePaths(
     spec.referenceImages,

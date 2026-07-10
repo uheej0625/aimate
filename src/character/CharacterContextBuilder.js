@@ -1,10 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import { createLogger } from "../core/logger.js";
-import {
-  buildSystemContext,
-  renderTemplate,
-} from "../utils/renderTemplate.js";
+import { buildSystemContext, renderTemplate } from "../utils/renderTemplate.js";
 
 const logger = createLogger("CharacterContextBuilder");
 
@@ -49,9 +46,11 @@ export class CharacterContextBuilder {
       const content = await fs.readFile(this.variablesPath, "utf-8");
       return JSON.parse(content);
     } catch (e) {
+      if (e.code !== "ENOENT") throw e;
+
       logger.warn(
         { err: e, filePath: this.variablesPath },
-        "Failed to read character variables file",
+        "Character variables file not found; continuing without variables",
       );
       return {};
     }
@@ -96,19 +95,11 @@ export class CharacterContextBuilder {
    * @returns {Promise<string>}
    */
   async renderIdentity(character, system) {
-    try {
-      const template = await fs.readFile(this.identityPath, "utf-8");
-      return renderTemplate(template, {
-        character,
-        system,
-      });
-    } catch (e) {
-      logger.warn(
-        { err: e, filePath: this.identityPath },
-        "Failed to read character identity file",
-      );
-      return "";
-    }
+    const template = await fs.readFile(this.identityPath, "utf-8");
+    return renderTemplate(template, {
+      character,
+      system,
+    });
   }
 
   /**

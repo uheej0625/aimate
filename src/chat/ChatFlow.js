@@ -18,7 +18,6 @@ export class ChatFlow {
    * @param {import('../ai/AiRuntime.js').AiRuntime} aiRuntime
    * @param {import('../messages/MessageSender.js').MessageSender} messageSender
    * @param {import('../config/ConfigManager.js').default} configManager
-   * @param {import('./state/PostGenerationStateUpdater.js').PostGenerationStateUpdater} postGenerationStateUpdater
    * @param {Object} [options]
    * @param {import('../core/EventBus.js').EventBus} [options.eventBus]
    * @param {import('./ChatGenerationLifecycle.js').ChatGenerationLifecycle} [options.generationLifecycle]
@@ -31,14 +30,10 @@ export class ChatFlow {
     aiRuntime,
     messageSender,
     configManager,
-    postGenerationStateUpdater,
     { eventBus, generationLifecycle, failureHandler } = {},
   ) {
     this.aiRuntime = aiRuntime;
     this.messageSender = messageSender;
-    this.postGenerationStateUpdater = postGenerationStateUpdater ?? {
-      apply: async () => {},
-    };
     this.eventBus = eventBus ?? new EventBus();
     this.generationLifecycle =
       generationLifecycle ??
@@ -70,9 +65,8 @@ export class ChatFlow {
     try {
       // 0. Get or create internal channel
       const platform = channel.platform;
-      channelRecord = await this.generationLifecycle.findOrCreateChannel(
-        channel,
-      );
+      channelRecord =
+        await this.generationLifecycle.findOrCreateChannel(channel);
 
       // 1. Start Generation Tracking
       generation =
@@ -85,18 +79,13 @@ export class ChatFlow {
       });
 
       // 2. Prepare Context
-      const {
-        context,
-        systemInstruction,
-        messageIds,
-        inputMessages,
-        currentUserId,
-      } = await this.aiRuntime.prepareContext(
-        channelRecord.id,
-        botId,
-        channelRecord,
-        cronMessage,
-      );
+      const { context, systemInstruction, messageIds, inputMessages } =
+        await this.aiRuntime.prepareContext(
+          channelRecord.id,
+          botId,
+          channelRecord,
+          cronMessage,
+        );
 
       // 3. Update Generation with input details
       await this.generationLifecycle.recordInput(generation.id, {
@@ -120,7 +109,7 @@ export class ChatFlow {
         return;
       }
 
-      // 5. Generate response (JSON parsed)
+      // 5. Generate and parse the response
       const aiResult = await this.aiRuntime.generateChat(
         context,
         systemInstruction,
@@ -155,13 +144,6 @@ export class ChatFlow {
 
       // 8. Mark as COMPLETED after all messages sent
       await this.generationLifecycle.complete(generation.id);
-
-      // 9. Apply post-generation domain state changes
-      await this.postGenerationStateUpdater.apply({
-        aiResult,
-        channelRecord,
-        currentUserId,
-      });
 
       await this.eventBus.emitAsync(AppEvents.GenerationCompleted, {
         generation,

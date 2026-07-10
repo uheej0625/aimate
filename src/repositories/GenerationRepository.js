@@ -123,7 +123,7 @@ export class GenerationRepository {
    * @param {Object} [details.apiResponse] - API response data
    * @param {string} [details.input] - Input (prompt or JSON msg IDs)
    * @param {string} [details.output] - Output (file path or JSON msg array)
-   * @param {Object} [details.metadata] - Domain-specific metadata (emotion, relationship, etc.)
+   * @param {Object} [details.metadata] - Optional domain-specific metadata
    * @returns {Promise<Object>}
    */
   async updateDetails(generationId, details) {

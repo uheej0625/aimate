@@ -23,9 +23,6 @@ export async function generateChatReply({
   if (context.length === 0) {
     return {
       messages: ["..."],
-      emotionDelta: {},
-      emotionReason: "",
-      relationshipDelta: {},
       apiRequests: [],
       apiResponses: [],
     };

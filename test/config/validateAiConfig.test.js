@@ -11,8 +11,12 @@ function createConfigManager(config) {
 test("validateAiConfig checks only active AI purposes", async () => {
   const configManager = createConfigManager({
     ai: {
-      chat: { provider: "vertex", model: "gemini-3-flash-preview" },
-      image: { provider: "openai", model: "gpt-image-1" },
+      chat: {
+        provider: "vertex",
+        model: "gemini-3-flash-preview",
+        prompt: "minimal",
+      },
+      image: { provider: "openai", model: "gpt-image-1", prompt: "minimal" },
       summary: { provider: "google", model: "gemini-3-flash-preview" },
     },
     secrets: {
@@ -39,8 +43,12 @@ test("validateAiConfig checks only active AI purposes", async () => {
 test("validateAiConfig accepts valid active provider config", async () => {
   const configManager = createConfigManager({
     ai: {
-      chat: { provider: "google", model: "gemini-3-flash-preview" },
-      image: { provider: "openai", model: "gpt-image-1" },
+      chat: {
+        provider: "google",
+        model: "gemini-3-flash-preview",
+        prompt: "minimal",
+      },
+      image: { provider: "openai", model: "gpt-image-1", prompt: "minimal" },
     },
     secrets: {
       googleApiKey: "google-key",
@@ -57,8 +65,9 @@ test("validateAiConfig accepts gateway provider config", async () => {
       chat: {
         provider: "gateway",
         model: "openai/gpt-5-mini",
+        prompt: "minimal",
       },
-      image: { provider: "openai", model: "gpt-image-1" },
+      image: { provider: "openai", model: "gpt-image-1", prompt: "minimal" },
     },
     secrets: {
       aiGatewayApiKey: "gateway-key",
@@ -75,25 +84,27 @@ test("validateAiConfig validates provider credentials", async () => {
       chat: {
         provider: "openai",
         model: "gpt-5-mini",
+        prompt: "minimal",
       },
-      image: { provider: "openai", model: "gpt-image-1" },
+      image: { provider: "openai", model: "gpt-image-1", prompt: "minimal" },
     },
     secrets: {
       openaiApiKey: "",
     },
   });
 
-  await assert.rejects(
-    () => validateAiConfig(configManager),
-    /OPENAI_API_KEY/,
-  );
+  await assert.rejects(() => validateAiConfig(configManager), /OPENAI_API_KEY/);
 });
 
 test("validateAiConfig rejects unknown providers", async () => {
   const configManager = createConfigManager({
     ai: {
-      chat: { provider: "unknownProvider", model: "some-model" },
-      image: { provider: "openai", model: "gpt-image-1" },
+      chat: {
+        provider: "unknownProvider",
+        model: "some-model",
+        prompt: "minimal",
+      },
+      image: { provider: "openai", model: "gpt-image-1", prompt: "minimal" },
     },
     secrets: {
       openaiApiKey: "openai-key",
@@ -103,5 +114,20 @@ test("validateAiConfig rejects unknown providers", async () => {
   await assert.rejects(
     () => validateAiConfig(configManager),
     /ai\.chat\.provider="unknownProvider"/,
+  );
+});
+
+test("validateAiConfig requires prompt packs for active purposes", async () => {
+  const configManager = createConfigManager({
+    ai: {
+      chat: { provider: "openai", model: "gpt-5-mini" },
+      image: { provider: "openai", model: "gpt-image-1" },
+    },
+    secrets: { openaiApiKey: "openai-key" },
+  });
+
+  await assert.rejects(
+    () => validateAiConfig(configManager),
+    /ai\.chat\.prompt.*ai\.image\.prompt/,
   );
 });

@@ -29,7 +29,7 @@
     "image": {
       "provider": "gateway",
       "model": "openai/gpt-image-2",
-      "prompt": "default",
+      "prompt": "legacy",
       "includeTimeContext": true,
       "maxRetries": 3,
       "providerOptions": {}

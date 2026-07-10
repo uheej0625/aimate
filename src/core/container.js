@@ -4,7 +4,6 @@ import { PlatformAccountRepository } from "../repositories/PlatformAccountReposi
 import { ChannelRepository } from "../repositories/ChannelRepository.js";
 import { ServerRepository } from "../repositories/ServerRepository.js";
 import { GenerationRepository } from "../repositories/GenerationRepository.js";
-import { EmotionStateRepository } from "../repositories/EmotionStateRepository.js";
 import { CronJobRepository } from "../repositories/CronJobRepository.js";
 import { AiRuntime } from "../ai/AiRuntime.js";
 import { HistoryService } from "../messages/HistoryService.js";
@@ -26,7 +25,6 @@ import { MessageSender } from "../messages/MessageSender.js";
 import { ChatFlow } from "../chat/ChatFlow.js";
 import { AppEvents, EventBus } from "./EventBus.js";
 import { ToolRegistry } from "../tools/ToolRegistry.js";
-import { PostGenerationStateUpdater } from "../chat/state/PostGenerationStateUpdater.js";
 import { createLogger } from "./logger.js";
 
 const logger = createLogger("Container");
@@ -55,7 +53,6 @@ export async function createContainer({ configManager, client = null }) {
   const channelRepository = new ChannelRepository();
   const serverRepository = new ServerRepository();
   const generationRepository = new GenerationRepository();
-  const emotionStateRepository = new EmotionStateRepository();
   const cronJobRepository = new CronJobRepository();
   const eventBus = new EventBus();
 
@@ -77,7 +74,6 @@ export async function createContainer({ configManager, client = null }) {
   );
   const characterContextBuilder = new CharacterContextBuilder();
   const promptComposer = new PromptComposer(
-    emotionStateRepository,
     configManager,
     characterContextBuilder,
   );
@@ -88,14 +84,12 @@ export async function createContainer({ configManager, client = null }) {
     historyService,
     configManager,
     sequenceBuilder,
-    userRepository,
   );
   const aiRuntime = new AiRuntime({
     historyService,
     configManager,
     toolRegistry,
     promptComposer,
-    userRepository,
     sequenceBuilder,
     responseParser,
     generatedImageTagPolicy,
@@ -123,11 +117,6 @@ export async function createContainer({ configManager, client = null }) {
         generationRepository,
       ),
     },
-  );
-
-  const postGenerationStateUpdater = new PostGenerationStateUpdater(
-    emotionStateRepository,
-    userRepository,
   );
 
   eventBus.on(
@@ -167,7 +156,6 @@ export async function createContainer({ configManager, client = null }) {
     aiRuntime,
     messageSender,
     configManager,
-    postGenerationStateUpdater,
     { eventBus },
   );
 
@@ -200,7 +188,6 @@ export async function createContainer({ configManager, client = null }) {
     channelRepository,
     serverRepository,
     generationRepository,
-    emotionStateRepository,
     cronJobRepository,
 
     // Services & Components
@@ -214,7 +201,6 @@ export async function createContainer({ configManager, client = null }) {
     responseParser,
     generatedImageTagPolicy,
     chatContextPreparer,
-    postGenerationStateUpdater,
 
     // Core
     eventBus,

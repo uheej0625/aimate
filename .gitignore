@@ -1,5 +1,6 @@
 node_modules/
 prisma/dev.db
+prisma/dev.db-*
 .env
 tests/
 prisma/migrations/
@@ -7,4 +8,5 @@ content/character
 content/image
 content/prompts/ultimate
 content/prompts/experimental
+content/prompts/legacy
 docs/

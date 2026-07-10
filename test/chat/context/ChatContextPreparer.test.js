@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert";
 import { ChatContextPreparer } from "../../../src/chat/context/ChatContextPreparer.js";
 
-test("ChatContextPreparer loads history, current user, and sequence", async () => {
+test("ChatContextPreparer loads history and sequence", async () => {
   let sequenceBuildInput = null;
   const historyService = {
     fetchHistoryData: async () => ({
@@ -10,11 +10,10 @@ test("ChatContextPreparer loads history, current user, and sequence", async () =
       pendingMessages: [{ id: "msg-1", content: "new" }],
       messageIds: ["msg-1"],
       inputMessages: ["new"],
-      lastUserPlatformAccountId: "account-1",
     }),
   };
   const configManager = {
-    get: (key) => (key === "ai.chat.prompt" ? "default" : null),
+    get: (key) => (key === "ai.chat.prompt" ? "minimal" : null),
   };
   const sequenceBuilder = {
     loadSequence: async (promptName) => [`sequence:${promptName}`],
@@ -26,15 +25,10 @@ test("ChatContextPreparer loads history, current user, and sequence", async () =
       };
     },
   };
-  const userRepository = {
-    findByPlatformAccountId: async () => ({ id: "user-1", trust: 40 }),
-  };
-
   const preparer = new ChatContextPreparer(
     historyService,
     configManager,
     sequenceBuilder,
-    userRepository,
   );
 
   const result = await preparer.prepare(
@@ -48,7 +42,6 @@ test("ChatContextPreparer loads history, current user, and sequence", async () =
   assert.strictEqual(result.systemInstruction, "system");
   assert.deepStrictEqual(result.messageIds, ["msg-1"]);
   assert.deepStrictEqual(result.inputMessages, ["new"]);
-  assert.strictEqual(result.currentUserId, "user-1");
-  assert.deepStrictEqual(sequenceBuildInput.sequenceDef, ["sequence:default"]);
-  assert.strictEqual(sequenceBuildInput.input.userRecord.id, "user-1");
+  assert.deepStrictEqual(sequenceBuildInput.sequenceDef, ["sequence:minimal"]);
+  assert.strictEqual(sequenceBuildInput.input.promptName, "minimal");
 });

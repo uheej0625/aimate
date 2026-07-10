@@ -1,5 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
+import { pathToFileURL } from "url";
 import { createLogger } from "../../core/logger.js";
 
 const logger = createLogger("SequenceBuilder");
@@ -8,8 +9,9 @@ export class SequenceBuilder {
   /**
    * @param {import('./PromptComposer.js').PromptComposer} promptComposer
    */
-  constructor(promptComposer) {
+  constructor(promptComposer, { promptsRoot = "content/prompts" } = {}) {
     this.promptComposer = promptComposer;
+    this.promptsRoot = path.resolve(process.cwd(), promptsRoot);
   }
 
   /**
@@ -17,23 +19,24 @@ export class SequenceBuilder {
    * @param {string} promptName
    * @returns {Promise<Array>}
    */
-  async loadSequence(promptName = "default") {
-    const sequencePath = path.resolve(
-      process.cwd(),
-      "content",
-      "prompts",
-      promptName,
-      "chat",
-      "sequence.js",
-    );
-    const imported = await import(`file://${sequencePath}`);
-    return imported.default || imported;
+  async loadSequence(promptName) {
+    if (typeof promptName !== "string" || promptName.trim() === "") {
+      throw new Error("A chat prompt name is required to load a sequence.");
+    }
+
+    const promptDir = this.resolvePromptDir(promptName);
+    const sequencePath = path.join(promptDir, "sequence.js");
+    const imported = await import(pathToFileURL(sequencePath).href);
+    const sequence = imported.default || imported;
+
+    await this.validateSequence(sequence, promptDir);
+    return sequence;
   }
 
   /**
    * sequence.js 명세에 따라 컨텍스트 배열을 조립한다.
    * @param {Array} sequenceDef
-   * @param {Object} options - { historyMessages, pendingMessages, botId, cronMessage, channelRecord, userRecord, promptName, data }
+   * @param {Object} options - { historyMessages, pendingMessages, botId, cronMessage, channelRecord, promptName, data }
    * @returns {Promise<{ systemInstruction: string, context: Array }>}
    */
   async build(
@@ -44,23 +47,20 @@ export class SequenceBuilder {
       botId,
       cronMessage,
       channelRecord,
-      userRecord,
-      promptName = "default",
+      promptName,
       data = {},
     },
   ) {
+    if (typeof promptName !== "string" || promptName.trim() === "") {
+      throw new Error("A chat prompt name is required to build a sequence.");
+    }
+
     let systemInstruction = "";
     let systemInstructionSet = false;
     const context = [];
-    const promptDir = path.resolve(
-      process.cwd(),
-      "content",
-      "prompts",
-      promptName,
-      "chat",
-    );
+    const promptDir = this.resolvePromptDir(promptName.trim());
 
-    const renderOptions = { channelRecord, userRecord, data };
+    const renderOptions = { channelRecord, data };
     const pushRendered = (role, rendered) => {
       if (!rendered) return;
 
@@ -130,9 +130,52 @@ export class SequenceBuilder {
             content: msg.content,
           });
         }
+      } else {
+        throw new Error(`Unsupported prompt sequence step type: ${step.type}`);
       }
     }
 
     return { systemInstruction, context };
+  }
+
+  resolvePromptDir(promptName) {
+    return path.join(this.promptsRoot, promptName, "chat");
+  }
+
+  async validateSequence(sequence, promptDir) {
+    if (!Array.isArray(sequence) || sequence.length === 0) {
+      throw new Error("Prompt sequence must export a non-empty array.");
+    }
+
+    const supportedTypes = new Set([
+      "file",
+      "text",
+      "placeholder",
+      "cache-point",
+      "history",
+      "pending",
+    ]);
+    let systemSteps = 0;
+
+    for (const step of sequence) {
+      if (!step || !supportedTypes.has(step.type)) {
+        throw new Error(`Unsupported prompt sequence step type: ${step?.type}`);
+      }
+
+      if (step.role === "system") systemSteps++;
+
+      if (step.type === "file") {
+        if (!step.source) {
+          throw new Error("Prompt file steps require a source.");
+        }
+        await fs.access(path.join(promptDir, step.source));
+      }
+    }
+
+    if (systemSteps !== 1) {
+      throw new Error(
+        `Prompt sequence must contain exactly one system step; found ${systemSteps}.`,
+      );
+    }
   }
 }

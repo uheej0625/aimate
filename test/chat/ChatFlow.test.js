@@ -34,14 +34,8 @@ test("ChatFlow tests", async (t) => {
       systemInstruction: "You are a bot",
       messageIds: ["msg-1"],
       inputMessages: ["hello"],
-      currentUserId: "user-1",
     }),
-    generateChat: async () => ({
-      messages: ["Hello explorer!"],
-      emotionDelta: { happiness: 1 },
-      emotionReason: "Greeting",
-      relationshipDelta: { friendship: 1 },
-    }),
+    generateChat: async () => ({ messages: ["Hello explorer!"] }),
   };
 
   const baseMessageRepository = {
@@ -55,6 +49,7 @@ test("ChatFlow tests", async (t) => {
   const baseConfigManager = {
     get: (key) => {
       if (key === "discord.fallbackStatus") return "dnd";
+      if (key === "ai.chat.prompt") return "minimal";
       return null;
     },
   };
@@ -66,7 +61,6 @@ test("ChatFlow tests", async (t) => {
     aiRuntime = baseAiRuntime,
     messageSender = baseMessageSender,
     configManager = baseConfigManager,
-    postGenerationStateUpdater = { apply: async () => {} },
     eventBus = new EventBus(),
   } = {}) {
     return new ChatFlow(
@@ -76,7 +70,6 @@ test("ChatFlow tests", async (t) => {
       aiRuntime,
       messageSender,
       configManager,
-      postGenerationStateUpdater,
       { eventBus },
     );
   }
@@ -84,21 +77,18 @@ test("ChatFlow tests", async (t) => {
   await t.test(
     "execute should complete successfully with normal flow",
     async () => {
-      let stateUpdaterPayload = null;
-      const postGenerationStateUpdater = {
-        apply: async (payload) => {
-          stateUpdaterPayload = payload;
+      let sentMessage = null;
+      const messageSender = {
+        sendChunk: async (_channel, message) => {
+          sentMessage = message;
+          return true;
         },
       };
-
-      const chatFlow = createChatFlow({ postGenerationStateUpdater });
+      const chatFlow = createChatFlow({ messageSender });
 
       await chatFlow.execute({ platform: "discord", id: "12345" }, "bot-123");
 
-      assert.strictEqual(stateUpdaterPayload.currentUserId, "user-1");
-      assert.deepStrictEqual(stateUpdaterPayload.aiResult.emotionDelta, {
-        happiness: 1,
-      });
+      assert.strictEqual(sentMessage, "Hello explorer!");
     },
   );
 

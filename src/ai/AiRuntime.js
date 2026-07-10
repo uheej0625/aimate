@@ -12,7 +12,6 @@ export class AiRuntime {
     configManager,
     toolRegistry = null,
     promptComposer = null,
-    userRepository = null,
     sequenceBuilder = null,
     responseParser = null,
     generatedImageTagPolicy = null,
@@ -27,8 +26,7 @@ export class AiRuntime {
     this.platformClients = platformClients;
     this.generationRepository = generationRepository;
     this.getCronService = getCronService;
-    this.promptComposer =
-      promptComposer ?? new PromptComposer(null, configManager);
+    this.promptComposer = promptComposer ?? new PromptComposer(configManager);
     this.sequenceBuilder =
       sequenceBuilder ?? new SequenceBuilder(this.promptComposer);
     this.responseParser = responseParser ?? new AIResponseParser();
@@ -40,7 +38,6 @@ export class AiRuntime {
         historyService,
         configManager,
         this.sequenceBuilder,
-        userRepository,
       );
   }
 

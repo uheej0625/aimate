@@ -20,9 +20,6 @@ test("GeneratedImageTagPolicy appends missing tags to final message", () => {
   const result = policy.appendMissingTags(
     {
       messages: ["done"],
-      emotionDelta: {},
-      emotionReason: "",
-      relationshipDelta: {},
     },
     ["[IMAGE:9a9d426d]"],
   );
