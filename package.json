@@ -12,10 +12,7 @@
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
     "db:init": "prisma generate && prisma db push",
-    "test": "cross-env NODE_ENV=test node --test \"test/**/*.test.js\"",
-    "test:prompt": "cross-env NODE_ENV=test node test/promptTest.js",
-    "test:prompt:pressure": "node scripts/promptPressureTest.js",
-    "test:prompt:pressure:live": "node scripts/promptPressureTest.js --live"
+    "test": "cross-env NODE_ENV=test node --test \"test/**/*.test.js\""
   },
   "author": "",
   "type": "module",
