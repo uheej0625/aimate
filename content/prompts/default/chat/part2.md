@@ -7,17 +7,13 @@ Your response must follow this Markdown structure exactly:
 
 첫 번째 메시지 [BREAK] 두 번째 메시지 [BREAK] 세 번째 메시지
 
-## emotion_delta
+## affect_delta
 
-attachment: 0
-jealousy: 0
-trust: 0
-awe: 0
-anxiety: 0
-possessiveness: 0
-self_worth: 0
+mood: 0
+energy: 0
+security: 0
 
-## emotion_reason
+## affect_reason
 
 why your emotions shifted (in english, 1 sentence)
 
@@ -25,7 +21,7 @@ why your emotions shifted (in english, 1 sentence)
 
 affinity: 0
 trust: 0
-affection: 0
+closeness: 0
 ```
 
 **CRITICAL FORMATTING RULES FOR MESSAGES:**
