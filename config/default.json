@@ -10,7 +10,7 @@
     "chat": {
       "provider": "vertex",
       "model": "gemini-3.5-flash",
-      "prompt": "experimental",
+      "prompt": "ultimate",
       "temperature": null,
       "maxOutputTokens": null,
       "topP": null,
@@ -29,7 +29,7 @@
     "image": {
       "provider": "gateway",
       "model": "openai/gpt-image-2",
-      "prompt": "legacy",
+      "prompt": "ultimate",
       "includeTimeContext": true,
       "maxRetries": 3,
       "providerOptions": {}
