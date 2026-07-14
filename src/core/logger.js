@@ -11,9 +11,11 @@ function isTestRuntime() {
 
 function createRootLogger({ level = "info", isDev = false } = {}) {
   const isTest = isTestRuntime();
+  const isInteractiveCli =
+    process.env.PLATFORM === "cli" && process.stdout.isTTY;
 
   return pino({
-    level,
+    level: isInteractiveCli ? "silent" : level,
     timestamp: pino.stdTimeFunctions.isoTime,
     ...(isDev &&
       !isTest && {

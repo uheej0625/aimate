@@ -60,6 +60,8 @@ Prisma가 `prisma/schema.prisma`를 읽어 로컬 SQLite 파일을 생성합니�
 
 새 기능을 만들었다면 `npm run cli`로 먼저 빠르게 확인해보세요. Discord 재시작 없이 프롬프트와 캐릭터 설정을 테스트할 수 있습니다.
 
+CLI는 전체 화면 TUI로 실행되며 대화 채널과 히스토리가 데이터베이스에 유지됩니다. `Ctrl+N`으로 새 채팅을 만들고, `Tab`과 방향키로 채널을 전환합니다. `Enter`는 전송, `Shift+Enter` 또는 `Alt+Enter`는 줄바꿈, `PgUp`/`PgDn`은 대화 스크롤, `Ctrl+Q`는 종료입니다.
+
 ---
 
 ## 주요 기능
