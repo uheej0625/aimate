@@ -19,6 +19,8 @@ export class AiRuntime {
     platformClients = new Map(),
     generationRepository = null,
     getCronService = () => null,
+    generateTextFn = undefined,
+    createLanguageModelFn = undefined,
   }) {
     this.configManager = configManager;
     this.historyService = historyService;
@@ -26,6 +28,8 @@ export class AiRuntime {
     this.platformClients = platformClients;
     this.generationRepository = generationRepository;
     this.getCronService = getCronService;
+    this.generateTextFn = generateTextFn;
+    this.createLanguageModelFn = createLanguageModelFn;
     this.promptComposer = promptComposer ?? new PromptComposer(configManager);
     this.sequenceBuilder =
       sequenceBuilder ?? new SequenceBuilder(this.promptComposer);
@@ -71,6 +75,8 @@ export class AiRuntime {
       toolContext: this.createToolContext(platform, channelRecord),
       responseParser: this.responseParser,
       generatedImageTagPolicy: this.generatedImageTagPolicy,
+      generateTextFn: this.generateTextFn,
+      createLanguageModelFn: this.createLanguageModelFn,
     });
   }
 

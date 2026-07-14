@@ -19,6 +19,8 @@ export async function generateChatReply({
   toolContext,
   responseParser = new AIResponseParser(),
   generatedImageTagPolicy = new GeneratedImageTagPolicy(),
+  generateTextFn = generateText,
+  createLanguageModelFn = createLanguageModel,
 }) {
   if (context.length === 0) {
     return {
@@ -29,7 +31,7 @@ export async function generateChatReply({
   }
 
   const settings = getAiSettings(configManager, "chat");
-  const model = createLanguageModel(configManager, "chat");
+  const model = createLanguageModelFn(configManager, "chat");
   const messages = toModelMessages(context);
   const tools = toolRegistry?.createToolSet(platform, toolContext) ?? {};
   const request = {
@@ -51,7 +53,7 @@ export async function generateChatReply({
     ),
   ];
 
-  const result = await generateText(request);
+  const result = await generateTextFn(request);
   const toolResults = collectToolOutputs(result);
   const generatedImageTags =
     generatedImageTagPolicy.extractFromToolResults(toolResults);
