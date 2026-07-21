@@ -1,29 +1,33 @@
 import { fixWindowsEncoding } from "../../utils/system.js";
-fixWindowsEncoding();
+import { loadEnv } from "../../config/env.js";
+import { createConfigManager } from "../../config/index.js";
+import { configureLogger } from "../../core/logger.js";
 
-import "../../config/env.js";
-import { v4 as uuidv4 } from "uuid";
-import { createContainer } from "../../core/container.js";
-import { registerShutdown } from "../../core/shutdown.js";
-import { CLI_BOT_ID } from "./constants.js";
-import { createMockClient, createMockChannel } from "./mocks.js";
-import { startRepl } from "./repl.js";
-import { createLogger } from "../../core/logger.js";
+fixWindowsEncoding();
+loadEnv();
+
+const configManager = createConfigManager();
+configureLogger(configManager);
+
+const { createContainer } = await import("../../core/container.js");
+const { registerShutdown } = await import("../../core/shutdown.js");
+const { CLI_BOT_ID } = await import("./constants.js");
+const { createMockClient } = await import("./mocks.js");
+const { startRepl } = await import("./repl.js");
+const { createLogger } = await import("../../core/logger.js");
 
 const logger = createLogger("CLI");
 
 (async () => {
-  const CLI_CHANNEL_ID = uuidv4();
-
   logger.info("🔧 Initializing CLI Mode...");
-  logger.info({ channelId: CLI_CHANNEL_ID }, "📱 Channel ID");
 
-  const container = await createContainer();
+  const container = await createContainer({ configManager });
   const { messageHandler, botAccountService } = container;
 
   // Register graceful shutdown
   registerShutdown({
     conversationBuffer: container.conversationBuffer,
+    configManager,
   });
 
   logger.info("🤖 Initializing bot platform account...");
@@ -41,15 +45,5 @@ const logger = createLogger("CLI");
   }
 
   const mockClient = createMockClient({ botId: CLI_BOT_ID });
-  const mockChannel = createMockChannel({
-    channelId: CLI_CHANNEL_ID,
-    mockClient,
-  });
-
-  startRepl({
-    channelId: CLI_CHANNEL_ID,
-    mockChannel,
-    mockClient,
-    messageHandler,
-  });
+  await startRepl({ container, mockClient });
 })();

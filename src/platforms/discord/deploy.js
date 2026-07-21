@@ -1,12 +1,19 @@
 import { fixWindowsEncoding } from "../../utils/system.js";
-fixWindowsEncoding();
+import { loadEnv } from "../../config/env.js";
+import { createConfigManager } from "../../config/index.js";
+import { configureLogger } from "../../core/logger.js";
 
-import { REST, Routes } from "discord.js";
-import { readdirSync } from "fs";
-import { join, dirname } from "path";
-import { fileURLToPath } from "url";
-import { configManager } from "../../config/index.js";
-import { createLogger } from "../../core/logger.js";
+fixWindowsEncoding();
+loadEnv();
+
+const configManager = createConfigManager({ watch: false });
+configureLogger(configManager);
+
+const { REST, Routes } = await import("discord.js");
+const { readdirSync } = await import("fs");
+const { join, dirname } = await import("path");
+const { fileURLToPath } = await import("url");
+const { createLogger } = await import("../../core/logger.js");
 
 const logger = createLogger("Deploy");
 

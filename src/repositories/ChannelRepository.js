@@ -69,4 +69,24 @@ export class ChannelRepository {
       },
     });
   }
+
+  /**
+   * List channels belonging to a platform for platform-native navigation.
+   * The latest message is included so clients can build a useful label without
+   * introducing platform-specific columns in the shared Channel model.
+   */
+  async listByPlatform(platform) {
+    return await prisma.channel.findMany({
+      where: { platform },
+      orderBy: { updatedAt: "desc" },
+      include: {
+        messages: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          include: { author: true },
+        },
+        _count: { select: { messages: true } },
+      },
+    });
+  }
 }

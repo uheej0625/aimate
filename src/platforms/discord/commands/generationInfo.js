@@ -35,24 +35,13 @@ export default {
 
     const gen = dbMessage.generation;
 
-    let metadata = {};
-    if (gen.metadata) {
-      try {
-        metadata = JSON.parse(gen.metadata);
-      } catch (e) {}
-    }
-
     const responseMessages =
       gen.output && gen.type === "CHAT" ? JSON.parse(gen.output) : [];
-    const emotionDelta = metadata.emotionDelta || null;
-    const relationshipDelta = metadata.relationshipDelta || null;
-    const emotionReason = metadata.emotionReason || "";
 
-    // For chat, input is a JSON string of msg IDs. For others, just raw text.
-    let contextMessageIds = [];
+    let input = { messages: [] };
     if (gen.input && gen.type === "CHAT") {
       try {
-        contextMessageIds = JSON.parse(gen.input);
+        input = parseChatInput(gen.input);
       } catch (e) {}
     }
 
@@ -84,8 +73,8 @@ export default {
           inline: true,
         },
         {
-          name: "컨텍스트 메시지 수",
-          value: `${contextMessageIds.length}개`,
+          name: "입력 메시지 수",
+          value: `${input.messages.length}개`,
           inline: true,
         },
         {
@@ -105,45 +94,47 @@ export default {
       embed.addFields({ name: "AI 응답", value: responseText });
     }
 
-    // 감정 변화
-    if (emotionDelta) {
-      const deltaText = Object.entries(emotionDelta)
-        .filter(([, v]) => v !== 0)
-        .map(([k, v]) => `${k}: ${v > 0 ? "+" : ""}${v}`)
-        .join(", ");
-      if (deltaText) {
-        embed.addFields({
-          name: "감정 변화",
-          value: deltaText,
-          inline: true,
-        });
-      }
-    }
-
-    // 관계 변화
-    if (relationshipDelta) {
-      const relText = Object.entries(relationshipDelta)
-        .filter(([, v]) => v !== 0)
-        .map(([k, v]) => `${k}: ${v > 0 ? "+" : ""}${v}`)
-        .join(", ");
-      if (relText) {
-        embed.addFields({
-          name: "관계 변화",
-          value: relText,
-          inline: true,
-        });
-      }
-    }
-
-    // 감정 변화 이유
-    if (emotionReason) {
-      embed.addFields({
-        name: "감정 변화 이유",
-        value: emotionReason,
-        inline: true,
-      });
+    if (input.messages.length > 0) {
+      const inputText = input.messages
+        .map((message, i) => `**[${i + 1}]** ${message.content}`)
+        .join("\n")
+        .slice(0, 1024);
+      embed.addFields({ name: "입력 메시지", value: inputText });
     }
 
     await interaction.editReply({ embeds: [embed] });
   },
 };
+
+function parseChatInput(raw) {
+  const parsed = JSON.parse(raw);
+
+  if (Array.isArray(parsed)) {
+    return {
+      messages: parsed.map((content) => ({ id: null, content })),
+    };
+  }
+
+  if (
+    Array.isArray(parsed?.messageIds) &&
+    parsed.messages?.every((message) => typeof message === "string")
+  ) {
+    return {
+      messages: parsed.messages.map((content, index) => ({
+        id: parsed.messageIds[index] ?? null,
+        content,
+      })),
+    };
+  }
+
+  return {
+    messages: Array.isArray(parsed?.messages)
+      ? parsed.messages
+          .map((message) => ({
+            id: message?.id ?? null,
+            content: message?.content ?? "",
+          }))
+          .filter((message) => message.content)
+      : [],
+  };
+}

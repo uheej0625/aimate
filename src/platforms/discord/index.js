@@ -1,15 +1,20 @@
-import os from "os";
-
 import { fixWindowsEncoding } from "../../utils/system.js";
-fixWindowsEncoding();
+import { loadEnv } from "../../config/env.js";
+import { createConfigManager } from "../../config/index.js";
+import { configureLogger } from "../../core/logger.js";
 
-import { configManager } from "../../config/index.js";
-import client from "./client.js";
-import { loadEvents } from "./handlers/eventHandler.js";
-import { loadCommands } from "./handlers/commandHandler.js";
-import { createContainer } from "../../core/container.js";
-import { registerShutdown } from "../../core/shutdown.js";
-import { createLogger } from "../../core/logger.js";
+fixWindowsEncoding();
+loadEnv();
+
+const configManager = createConfigManager();
+configureLogger(configManager);
+
+const { default: client } = await import("./client.js");
+const { loadEvents } = await import("./handlers/eventHandler.js");
+const { loadCommands } = await import("./handlers/commandHandler.js");
+const { createContainer } = await import("../../core/container.js");
+const { registerShutdown } = await import("../../core/shutdown.js");
+const { createLogger } = await import("../../core/logger.js");
 
 const logger = createLogger("App");
 
@@ -18,7 +23,7 @@ const main = async () => {
     logger.info("Starting AiMate");
 
     // Initialize DI Container
-    const container = await createContainer(client);
+    const container = await createContainer({ configManager, client });
 
     // Attach services to client for access in events
     client.services = container;
@@ -27,6 +32,7 @@ const main = async () => {
     registerShutdown({
       conversationBuffer: container.conversationBuffer,
       cronService: container.cronService,
+      configManager,
       client,
     });
 

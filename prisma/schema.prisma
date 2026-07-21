@@ -8,200 +8,169 @@ datasource db {
 }
 
 model User {
-  id          String  @id @default(uuid())
-  accounts    PlatformAccount[]
-  memories    Memory[]
+  id       String            @id @default(uuid())
+  accounts PlatformAccount[]
+  memories Memory[]
 
-  affinity    Int @default(30)  // 호감도 (0-100)
-  trust       Int @default(30)  // 신뢰도 (0-100)
-  affection   Int @default(20)  // 애정도 (0-100)
-
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model PlatformAccount {
-  id            String   @id @default(cuid())
+  id String @id @default(cuid())
 
-  userId        String
-  user          User  @relation(fields: [userId], references: [id])
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
 
-  platform      String
-  platformId    String
+  platform   String
+  platformId String
 
-  handle        String
-  displayName   String?
+  handle      String
+  displayName String?
 
-  messages      Message[]
-  memories      Memory[]
+  messages Message[]
+  memories Memory[]
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([platform, platformId])
 }
 
 model Server {
-  id          String @id  @default(cuid())
+  id String @id @default(cuid())
 
-  platform    String
-  platformId  String
+  platform   String
+  platformId String
 
-  channels    Channel[]
-  messages    Message[]
-  emotionStates EmotionState[]
+  channels Channel[]
+  messages Message[]
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([platform, platformId])
 }
 
 model Channel {
-  id          String @id @default(cuid())
+  id String @id @default(cuid())
 
-  platform    String
-  platformId  String
+  platform   String
+  platformId String
 
-  scope       String?   // "global" | "server" | "channel"
+  scope String? // "global" | "server" | "channel"
 
-  serverId    String?
-  server      Server? @relation(fields: [serverId], references: [id])
+  serverId String?
+  server   Server? @relation(fields: [serverId], references: [id])
 
   messages    Message[]
   generations Generation[]
-  emotionStates EmotionState[]
   cronJobs    CronJob[]
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([platform, platformId])
 }
 
 model Message {
-  id              Int      @id @default(autoincrement())
+  id Int @id @default(autoincrement())
 
-  platform        String
-  platformId      String
+  platform   String
+  platformId String
 
-  authorId        String
-  author          PlatformAccount  @relation(fields: [authorId], references: [id])
+  authorId String
+  author   PlatformAccount @relation(fields: [authorId], references: [id])
 
-  serverId        String?
-  server          Server? @relation(fields: [serverId], references: [id])
-  
-  channelId       String
-  channel         Channel @relation(fields: [channelId], references: [id])
+  serverId String?
+  server   Server? @relation(fields: [serverId], references: [id])
+
+  channelId String
+  channel   Channel @relation(fields: [channelId], references: [id])
 
   content         String
   attachmentsJson String?
 
-  generationId    Int?
-  generation      Generation? @relation(fields: [generationId], references: [id])
+  generationId Int?
+  generation   Generation? @relation(fields: [generationId], references: [id])
 
-  memories        Memory[]
+  memories Memory[]
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([platform, platformId])
 }
 
 model Generation {
-  id                Int      @id @default(autoincrement())
-  
-  type              String   @default("CHAT") // "CHAT", "IMAGE", "VOICE", "EMBEDDING"
+  id Int @id @default(autoincrement())
 
-  channelId         String
-  channel           Channel @relation(fields: [channelId], references: [id])
-  
-  status            String @default("PENDING")  // PENDING, PROCESSING, GENERATED, COMPLETED, CANCELLED, FAILED
+  type String @default("CHAT") // "CHAT", "IMAGE", "VOICE", "EMBEDDING"
+
+  channelId String
+  channel   Channel @relation(fields: [channelId], references: [id])
+
+  status String @default("PENDING") // PENDING, PROCESSING, GENERATED, COMPLETED, CANCELLED, FAILED
 
   // API 로깅
-  apiRequest        String?
-  apiResponse       String?
+  apiRequest  String?
+  apiResponse String?
 
   // 사용된 프롬프트 이름 (content/prompts/ 하위 폴더명, e.g., "default", "experiment")
-  prompt            String?
+  prompt String?
 
   // 입력: chat → user 메시지 원문 배열 (JSON), image → 프롬프트 원문
-  input             String?
+  input String?
 
   // 출력: chat → AI 응답 메시지 원문 배열 (JSON), image → 파일명/경로
-  output            String?
+  output String?
 
-  // chat 전용 부가 데이터 (없으면 null)
-  metadata          String? // { "emotionDelta": {...}, "emotionReason": "...", "relationshipDelta": {...} }
-  
-  messages          Message[]
-  
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-}
+  // 도메인별 선택적 부가 데이터 (없으면 null)
+  metadata String?
 
-// 감정 상태 누적 테이블
-// scopeKey 형식: "global" | "server:{serverId}" | "channel:{channelId}"
-model EmotionState {
-  id              Int      @id @default(autoincrement())
+  messages Message[]
 
-  scopeKey        String   @unique  // 빠른 upsert를 위한 복합 키
-  scope           String            // "GLOBAL" | "SERVER" | "CHANNEL"
-
-  serverId        String?
-  server          Server?  @relation(fields: [serverId], references: [id])
-
-  channelId       String?
-  channel         Channel? @relation(fields: [channelId], references: [id])
-
-  // 감정 수치 (0 ~ 100, 기본값 50)
-  attachment      Int @default(50)
-  jealousy        Int @default(0)
-  trust           Int @default(50)
-  awe             Int @default(0)
-  anxiety         Int @default(20)
-  possessiveness  Int @default(0)
-  self_worth      Int @default(60)
-
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Memory {
-  id          Int      @id @default(autoincrement())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
-  
+  id     Int    @id @default(autoincrement())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
   platformAccountId String?
   platformAccount   PlatformAccount? @relation(fields: [platformAccountId], references: [id])
-  
-  content     String   // "User likes pizza"
-  category    String   // "preference", "fact", "story", etc.
-  importance  Int      @default(1) // 1-5 scale
-  
-  messageId   Int?
-  message     Message? @relation(fields: [messageId], references: [id])
-  
-  createdAt   DateTime @default(now())
+
+  content    String // "User likes pizza"
+  category   String // "preference", "fact", "story", etc.
+  importance Int    @default(1) // 1-5 scale
+
+  messageId Int?
+  message   Message? @relation(fields: [messageId], references: [id])
+
+  createdAt DateTime @default(now())
 }
 
 model CronJob {
-  id              Int      @id @default(autoincrement())
-  
-  channelId       String   // 실행할 채널
-  channel         Channel  @relation(fields: [channelId], references: [id])
-  
-  platform        String   // "discord", "cli" 등
-  scheduledAt     DateTime // 실행 예정 시각
-  
-  type            String   // "ai_scheduled" | "llm_retry"
-  message         String   // AI에게 전달할 메시지
-  
-  status          String   @default("PENDING") // PENDING, EXECUTED, CANCELLED
-  executedAt      DateTime?
-  
+  id Int @id @default(autoincrement())
+
+  channelId String // 실행할 채널
+  channel   Channel @relation(fields: [channelId], references: [id])
+
+  platform    String // "discord", "cli" 등
+  scheduledAt DateTime // 실행 예정 시각
+
+  type    String // "ai_scheduled" | "llm_retry"
+  message String // AI에게 전달할 메시지
+
+  status     String    @default("PENDING") // PENDING, EXECUTED, CANCELLED
+  executedAt DateTime?
+
   // LLM 재시도용 추가 정보
-  originalContext String?  // JSON - 원본 컨텍스트 저장용
-  retryCount      Int      @default(0)
-  
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  originalContext String? // JSON - 원본 컨텍스트 저장용
+  retryCount      Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

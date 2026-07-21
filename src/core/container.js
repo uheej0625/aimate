@@ -4,22 +4,27 @@ import { PlatformAccountRepository } from "../repositories/PlatformAccountReposi
 import { ChannelRepository } from "../repositories/ChannelRepository.js";
 import { ServerRepository } from "../repositories/ServerRepository.js";
 import { GenerationRepository } from "../repositories/GenerationRepository.js";
-import { EmotionStateRepository } from "../repositories/EmotionStateRepository.js";
 import { CronJobRepository } from "../repositories/CronJobRepository.js";
-import { AIService } from "../services/AIService.js";
-import { HistoryService } from "../services/HistoryService.js";
-import { MessageService } from "../services/MessageService.js";
-import { BotAccountService } from "../services/BotAccountService.js";
-import { CronService } from "../services/CronService.js";
-import { PromptComposer } from "../services/PromptComposer.js";
-import { configManager } from "../config/index.js";
-import { MessageHandler } from "./MessageHandler.js";
-import { ConversationBuffer } from "./ConversationBuffer.js";
-import { MessageSender } from "./MessageSender.js";
-import { ChatFlow } from "./ChatFlow.js";
+import { AiRuntime } from "../ai/AiRuntime.js";
+import { HistoryService } from "../messages/HistoryService.js";
+import { MessageService } from "../messages/MessageService.js";
+import { BotAccountService } from "../accounts/BotAccountService.js";
+import { CronService } from "../scheduling/CronService.js";
+import { CharacterContextBuilder } from "../character/CharacterContextBuilder.js";
+import { PromptComposer } from "../chat/context/PromptComposer.js";
+import { SequenceBuilder } from "../chat/context/SequenceBuilder.js";
+import { AIResponseParser } from "../chat/response/AIResponseParser.js";
+import { ChatContextPreparer } from "../chat/context/ChatContextPreparer.js";
+import { GeneratedImageTagPolicy } from "../chat/response/GeneratedImageTagPolicy.js";
+import { GeneratedImageAttachmentResolver } from "../messages/GeneratedImageAttachmentResolver.js";
+import { HistoryMessageFormatter } from "../messages/HistoryMessageFormatter.js";
+import { validateAiConfig } from "../config/index.js";
+import { MessageHandler } from "../messages/MessageHandler.js";
+import { ConversationBuffer } from "../chat/ConversationBuffer.js";
+import { MessageSender } from "../messages/MessageSender.js";
+import { ChatFlow } from "../chat/ChatFlow.js";
+import { AppEvents, EventBus } from "./EventBus.js";
 import { ToolRegistry } from "../tools/ToolRegistry.js";
-import { ToolExecutor } from "../tools/ToolExecutor.js";
-import { CharacterLoader } from "../loaders/CharacterLoader.js";
 import { createLogger } from "./logger.js";
 
 const logger = createLogger("Container");
@@ -33,16 +38,23 @@ const logger = createLogger("Container");
  * - Single source of truth for instance creation
  * - Easy testing with mock dependencies
  */
-export async function createContainer(client = null) {
+export async function createContainer({ configManager, client = null }) {
+  if (!configManager) {
+    throw new Error("createContainer requires a configManager.");
+  }
+
+  await validateAiConfig(configManager);
+
   // Repositories (data layer)
+  const historyMessageFormatter = new HistoryMessageFormatter();
   const messageRepository = new MessageRepository(configManager);
   const userRepository = new UserRepository();
   const platformAccountRepository = new PlatformAccountRepository();
   const channelRepository = new ChannelRepository();
   const serverRepository = new ServerRepository();
   const generationRepository = new GenerationRepository();
-  const emotionStateRepository = new EmotionStateRepository();
   const cronJobRepository = new CronJobRepository();
+  const eventBus = new EventBus();
 
   // Tools (function calling)
   const toolRegistry = new ToolRegistry(configManager);
@@ -55,30 +67,37 @@ export async function createContainer(client = null) {
   // CronService는 나중에 초기화 (conversationBuffer 필요)
   let cronService = null;
 
-  const toolExecutor = new ToolExecutor(
-    toolRegistry,
-    configManager,
-    platformClients,
-    null, // cronService는 나중에 설정
-    generationRepository,
-  );
-
   // Services (business logic layer)
-  const historyService = new HistoryService(messageRepository);
-  const characterLoader = new CharacterLoader();
-  const promptComposer = new PromptComposer(
-    characterLoader,
-    emotionStateRepository,
-    configManager,
+  const historyService = new HistoryService(
+    messageRepository,
+    historyMessageFormatter,
   );
-  const aiService = new AIService(
+  const characterContextBuilder = new CharacterContextBuilder();
+  const promptComposer = new PromptComposer(
+    configManager,
+    characterContextBuilder,
+  );
+  const sequenceBuilder = new SequenceBuilder(promptComposer);
+  const responseParser = new AIResponseParser();
+  const generatedImageTagPolicy = new GeneratedImageTagPolicy();
+  const chatContextPreparer = new ChatContextPreparer(
+    historyService,
+    configManager,
+    sequenceBuilder,
+  );
+  const aiRuntime = new AiRuntime({
     historyService,
     configManager,
     toolRegistry,
-    toolExecutor,
     promptComposer,
-    userRepository,
-  );
+    sequenceBuilder,
+    responseParser,
+    generatedImageTagPolicy,
+    chatContextPreparer,
+    platformClients,
+    generationRepository,
+    getCronService: () => cronService,
+  });
   const messageService = new MessageService(
     userRepository,
     platformAccountRepository,
@@ -93,45 +112,51 @@ export async function createContainer(client = null) {
     messageService,
     generationRepository,
     configManager,
+    {
+      generatedImageAttachmentResolver: new GeneratedImageAttachmentResolver(
+        generationRepository,
+      ),
+    },
+  );
+
+  eventBus.on(
+    AppEvents.GenerationServiceUnavailable,
+    async ({ channelRecord, platform }) => {
+      // Discord status update
+      if (client) {
+        const fallbackStatus =
+          configManager.get("discord.fallbackStatus") || "dnd";
+        await client.user.setStatus(fallbackStatus);
+        logger.info({ status: fallbackStatus }, "Bot status changed");
+      }
+
+      // Schedule retry cron job if cronService is available
+      if (cronService && channelRecord) {
+        try {
+          await cronService.registerRetryJob(
+            channelRecord.id,
+            platform,
+            0, // retryCount starts at 0
+          );
+          logger.info(
+            { channelId: channelRecord.id },
+            "Retry cron job scheduled",
+          );
+        } catch (cronError) {
+          logger.error({ err: cronError }, "Failed to schedule retry");
+        }
+      }
+    },
   );
 
   const chatFlow = new ChatFlow(
     generationRepository,
     channelRepository,
     messageRepository,
-    aiService,
+    aiRuntime,
     messageSender,
     configManager,
-    emotionStateRepository,
-    {
-      userRepository,
-      onServiceUnavailable: async (error, context) => {
-        // Discord status update
-        if (client) {
-          const fallbackStatus =
-            configManager.get("discord.fallbackStatus") || "dnd";
-          await client.user.setStatus(fallbackStatus);
-          logger.info({ status: fallbackStatus }, "Bot status changed");
-        }
-
-        // Schedule retry cron job if cronService is available
-        if (cronService && context?.channelRecord) {
-          try {
-            await cronService.registerRetryJob(
-              context.channelRecord.id,
-              context.platform,
-              0, // retryCount starts at 0
-            );
-            logger.info(
-              { channelId: context.channelRecord.id },
-              "Retry cron job scheduled",
-            );
-          } catch (cronError) {
-            logger.error({ err: cronError }, "Failed to schedule retry");
-          }
-        }
-      },
-    },
+    { eventBus },
   );
 
   const conversationBuffer = new ConversationBuffer(chatFlow, configManager);
@@ -142,9 +167,6 @@ export async function createContainer(client = null) {
     conversationBuffer,
     platformClients,
   );
-
-  // ToolExecutor에 cronService 설정
-  toolExecutor.cronService = cronService;
 
   const messageHandler = new MessageHandler(
     messageService,
@@ -166,18 +188,22 @@ export async function createContainer(client = null) {
     channelRepository,
     serverRepository,
     generationRepository,
-    emotionStateRepository,
     cronJobRepository,
 
     // Services & Components
-    aiService,
+    aiRuntime,
     historyService,
     messageService,
     botAccountService,
     cronService,
     configManager,
+    sequenceBuilder,
+    responseParser,
+    generatedImageTagPolicy,
+    chatContextPreparer,
 
     // Core
+    eventBus,
     messageHandler,
     conversationBuffer,
     chatFlow,
@@ -185,6 +211,5 @@ export async function createContainer(client = null) {
 
     // Tools
     toolRegistry,
-    toolExecutor,
   };
 }

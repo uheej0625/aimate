@@ -20,17 +20,29 @@ export function createMockClient({
 }
 
 /**
- * @param {{ channelId: string, mockClient: object }} options
+ * @param {{ channelId: string, mockClient: object, onSend?: (content: string) => void }} options
  */
-export function createMockChannel({ channelId, mockClient }) {
+export function createMockChannel({
+  channelId,
+  mockClient,
+  onSend = null,
+  onTyping = null,
+}) {
   const mockChannel = {
     id: channelId,
     type: 1, // DM
     platform: "cli",
-    sendTyping: async () => {},
-    send: async (content) => {
-      console.log("\n🤖 Bot:", content);
-      process.stdout.write("\n> ");
+    sendTyping: async () => onTyping?.(),
+    send: async (payload) => {
+      const content =
+        typeof payload === "string" ? payload : (payload?.content ?? "");
+
+      if (onSend) {
+        onSend(content);
+      } else {
+        console.log("\n🤖 Bot:", content);
+        process.stdout.write("\n> ");
+      }
 
       return adaptMessage({
         id: uuidv4(),

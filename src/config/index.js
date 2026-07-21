@@ -1,79 +1,104 @@
 /**
- * Configuration management using ConfigManager
+ * Configuration helpers.
  *
- * Loads config from default.json and provides hot-reload support
- * Environment variables override file values
+ * Loads config/default.json and applies environment variable overrides.
  *
  * Priority: Environment Variables > default.json
  */
-import "./env.js";
 import ConfigManager from "./ConfigManager.js";
 import path from "path";
 import { fileURLToPath } from "url";
+import { validateAiPurpose } from "../ai/config.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Initialize ConfigManager with default.json
-const configPath = path.resolve(__dirname, "../../config/default.json");
-const configManager = new ConfigManager(configPath);
+const ACTIVE_AI_PURPOSES = ["chat", "image"];
+const ENV_OVERRIDES = [
+  ["DISCORD_TOKEN", "secrets.discordToken"],
+  ["DISCORD_CLIENT_ID", "secrets.discordClientId"],
+  ["GOOGLE_GENERATIVE_AI_API_KEY", "secrets.googleApiKey"],
+  ["OPENAI_API_KEY", "secrets.openaiApiKey"],
+  ["AI_GATEWAY_API_KEY", "secrets.aiGatewayApiKey"],
+  ["OPENAI_COMPATIBLE_API_KEY", "secrets.openaiCompatibleApiKey"],
+  ["VERTEX_PROJECT_ID", "secrets.vertexProjectId"],
+  ["VERTEX_LOCATION", "secrets.vertexLocation"],
+  ["VERTEX_CLIENT_EMAIL", "secrets.vertexClientEmail"],
+  ["VERTEX_PRIVATE_KEY", "secrets.vertexPrivateKey"],
+];
 
-// Override secrets only with environment variables (in memory, not saved to file)
-if (process.env.DISCORD_TOKEN) {
-  configManager.setInMemory("secrets.discordToken", process.env.DISCORD_TOKEN);
-}
-if (process.env.DISCORD_CLIENT_ID) {
-  configManager.setInMemory(
-    "secrets.discordClientId",
-    process.env.DISCORD_CLIENT_ID,
-  );
-}
-if (process.env.GOOGLE_CLOUD_API_KEY) {
-  configManager.setInMemory(
-    "secrets.googleCloudApiKey",
-    process.env.GOOGLE_CLOUD_API_KEY,
-  );
-}
-if (process.env.OPENAI_API_KEY) {
-  configManager.setInMemory("secrets.openaiApiKey", process.env.OPENAI_API_KEY);
-}
-if (process.env.VERTEX_PROJECT_ID) {
-  configManager.setInMemory(
-    "secrets.vertexProjectId",
-    process.env.VERTEX_PROJECT_ID,
-  );
-}
-if (process.env.VERTEX_LOCATION) {
-  configManager.setInMemory(
-    "secrets.vertexLocation",
-    process.env.VERTEX_LOCATION,
-  );
-}
-if (process.env.VERTEX_CLIENT_EMAIL) {
-  configManager.setInMemory(
-    "secrets.vertexClientEmail",
-    process.env.VERTEX_CLIENT_EMAIL,
-  );
-}
-if (process.env.VERTEX_PRIVATE_KEY) {
-  configManager.setInMemory(
-    "secrets.vertexPrivateKey",
-    process.env.VERTEX_PRIVATE_KEY,
-  );
-}
-// Validate required configuration
-const requiredFields = ["secrets.googleCloudApiKey"];
-const missingFields = requiredFields.filter((field) => {
-  return !configManager.has(field) || !configManager.get(field);
-});
-
-if (missingFields.length > 0) {
-  throw new Error(
-    `Missing required configuration: ${missingFields.join(", ")}. ` +
-      `Please set them in your .env file.`,
+function isTestRuntime() {
+  return (
+    process.env.NODE_ENV === "test" ||
+    process.argv.some((arg) => arg.includes("--test")) ||
+    process.execArgv.some((arg) => arg.includes("--test")) ||
+    !!process.env.NODE_TEST_CONTEXT
   );
 }
 
-// Export the config manager instance
-export { configManager };
-export default configManager;
+export function getDefaultConfigPath() {
+  return path.resolve(__dirname, "../../config/default.json");
+}
+
+export function applyEnvOverrides(manager, env = process.env) {
+  for (const [envKey, configPath] of ENV_OVERRIDES) {
+    if (env[envKey]) {
+      manager.setInMemory(configPath, env[envKey]);
+    }
+  }
+
+  return manager;
+}
+
+export function createConfigManager({
+  configPath = getDefaultConfigPath(),
+  env = process.env,
+  watch = !isTestRuntime(),
+} = {}) {
+  const manager = new ConfigManager(configPath, { watch });
+  return applyEnvOverrides(manager, env);
+}
+
+/**
+ * @param {ConfigManager} manager
+ * @param {string[]} purposes
+ * @returns {Promise<boolean>}
+ */
+export async function validateAiConfig(
+  manager,
+  purposes = ACTIVE_AI_PURPOSES,
+) {
+  if (!manager) {
+    throw new Error("validateAiConfig requires a config manager.");
+  }
+
+  const missing = new Set();
+  const invalid = [];
+
+  for (const purpose of purposes) {
+    const result = validateAiPurpose(manager, purpose);
+    for (const field of result.missing) missing.add(field);
+    invalid.push(...result.invalid);
+  }
+
+  if (invalid.length > 0 || missing.size > 0) {
+    const messages = [];
+
+    if (invalid.length > 0) {
+      messages.push(`Invalid provider configuration: ${invalid.join(", ")}`);
+    }
+
+    if (missing.size > 0) {
+      messages.push(
+        `Missing required configuration: ${[...missing].join(", ")}. ` +
+          "Please set them in your .env file or config/default.json.",
+      );
+    }
+
+    throw new Error(messages.join(" "));
+  }
+
+  return true;
+}
+
+export { ConfigManager };

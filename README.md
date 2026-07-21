@@ -1,12 +1,12 @@
 # AiMate
 
-Discord와 CLI에서 동작하는 AI 대화 봇입니다. 단순 질의응답이 아니라 **실제 친구처럼 짧은 메시지를 여러 번 주고받는 경험**을 목표로 합니다. 대화를 거듭할수록 감정 상태가 쌓이고, 관계가 변하고, 봇이 먼저 말을 걸기도 합니다.
+Discord와 CLI에서 동작하는 AI 대화 봇입니다. 단순 질의응답이 아니라 **실제 친구처럼 짧은 메시지를 여러 번 주고받는 경험**을 목표로 합니다.
 
 ---
 
 ## 무슨 봇인가요?
 
-보통 AI 챗봇은 질문 하나에 긴 답변 하나를 돌려줍니다. AiMate는 그 방식을 바꾸려고 합니다. 메신저에서 친구와 대화할 때처럼, 짧은 메시지가 여러 번 오가는 걸 흉내냅니다. 봇은 대화 내용을 기억하고, 7가지 감정 축(애착, 질투, 신뢰, 경외감, 불안, 소유욕, 자존감)에 따라 조금씩 달라집니다. 충분히 신뢰를 쌓으면 봇이 먼저 말을 걸어오기도 하고요.
+보통 AI 챗봇은 질문 하나에 긴 답변 하나를 돌려줍니다. AiMate는 메신저에서 친구와 대화할 때처럼 짧은 메시지가 여러 번 오가는 흐름을 만듭니다. 캐릭터와 모듈식 프롬프트, 대화 히스토리, 도구 호출을 하나의 공통 파이프라인으로 처리합니다.
 
 ---
 
@@ -28,11 +28,19 @@ cp .env.example .env
 
 채워야 하는 주요 항목:
 
-| 변수                   | 설명                    |
-| ---------------------- | ----------------------- |
-| `DISCORD_TOKEN`        | Discord 봇 토큰         |
-| `DISCORD_CLIENT_ID`    | Discord 애플리케이션 ID |
-| `GOOGLE_CLOUD_API_KEY` | Google Cloud API 키     |
+| 변수                           | 설명                    |
+| ------------------------------ | ----------------------- |
+| `DISCORD_TOKEN`                | Discord 봇 토큰         |
+| `DISCORD_CLIENT_ID`            | Discord 애플리케이션 ID |
+| `AI_GATEWAY_API_KEY`           | Vercel AI Gateway 키    |
+| `OPENAI_API_KEY`               | OpenAI 직접 연동 키     |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | Google Generative AI 키 |
+| `VERTEX_PROJECT_ID`            | Vertex AI 프로젝트 ID   |
+| `VERTEX_LOCATION`              | Vertex AI 리전          |
+
+AI provider는 Vercel AI SDK provider 이름을 그대로 씁니다. `config/default.json`의 `ai.chat.provider`, `ai.image.provider`에는 `gateway`, `openai`, `google`, `vertex`, `openaiCompatible` 중 하나를 넣습니다. AI Gateway를 쓰면 `provider`를 `gateway`로 두고 `model`을 `openai/gpt-5-mini`처럼 Gateway 모델 ID로 설정합니다.
+
+`ai.chat.prompt`와 `ai.image.prompt`에는 `content/prompts/` 아래에 존재하는 프롬프트 팩 이름을 지정해야 합니다. 프로젝트에서 사용하는 프롬프트 팩은 별도 라이선스와 개발 상태 때문에 Git에서 제외될 수 있습니다.
 
 ### 3. 데이터베이스 초기화
 
@@ -44,21 +52,19 @@ Prisma가 `prisma/schema.prisma`를 읽어 로컬 SQLite 파일을 생성합니�
 
 ### 4. 실행
 
-| 명령어              | 설명                                 |
-| ------------------- | ------------------------------------ |
-| `npm run dev`       | Discord 봇 실행                      |
-| `npm run cli`       | 터미널에서 직접 대화 (개발·테스트용) |
-| `npm run deploy`    | Discord 슬래시 커맨드 등록           |
+| 명령어           | 설명                                 |
+| ---------------- | ------------------------------------ |
+| `npm run dev`    | Discord 봇 실행                      |
+| `npm run cli`    | 터미널에서 직접 대화 (개발·테스트용) |
+| `npm run deploy` | Discord 슬래시 커맨드 등록           |
 
 새 기능을 만들었다면 `npm run cli`로 먼저 빠르게 확인해보세요. Discord 재시작 없이 프롬프트와 캐릭터 설정을 테스트할 수 있습니다.
+
+CLI는 전체 화면 TUI로 실행되며 대화 채널과 히스토리가 데이터베이스에 유지됩니다. `Ctrl+N`으로 새 채팅을 만들고, `Tab`과 방향키로 채널을 전환합니다. `Enter`는 전송, `Shift+Enter` 또는 `Alt+Enter`는 줄바꿈, `PgUp`/`PgDn`은 대화 스크롤, `Ctrl+Q`는 종료입니다.
 
 ---
 
 ## 주요 기능
-
-### 감정 & 관계 엔진
-
-대화마다 7가지 감정 축이 조금씩 변합니다. 어떤 대화를 했는지에 따라 봇의 말투와 반응이 달라집니다. 감정 값은 사용자별로 저장되어 대화를 끊었다가 다시 와도 이어집니다.
 
 ### 크론 스케줄링
 
@@ -82,13 +88,15 @@ LLM이 필요하다고 판단하면 스스로 도구를 호출합니다.
 
 ```txt
 src/
-├── core/          # 메시지 처리 흐름 (ChatFlow, MessageHandler 등)
-├── engines/       # 감정(Emotion), 관계(Relationship) 엔진
+├── ai/            # Vercel AI SDK 런타임, 모델, 채팅·이미지 생성
+├── character/     # 캐릭터 컨텍스트 구성
+├── chat/          # 대화 흐름, 프롬프트 조립, 응답 파싱
+├── core/          # DI 컨테이너, 이벤트, 로깅, 종료 처리
+├── messages/      # 메시지 저장, 히스토리, 전송
 ├── platforms/     # Discord / CLI 어댑터
-├── providers/     # Google Cloud, Vertex AI 연동
-├── repositories/  # DB 접근 레이어 (Prisma)
-├── services/      # 비즈니스 로직 (AI, Context, Cron 등)
-└── tools/         # LLM이 호출하는 도구 정의 및 실행기
+├── repositories/  # Prisma 데이터 접근
+├── scheduling/    # 예약 작업과 재시도
+└── tools/         # LLM 도구 정의 및 실행
 
 content/
 ├── character/     # 캐릭터 정의 (identity.md, variables.json)
@@ -103,7 +111,7 @@ content/
 
 - **Runtime**: Node.js (ES Modules)
 - **Database**: Prisma + SQLite
-- **AI**: Google Google Cloud API, Vertex AI
+- **AI**: Vercel AI SDK
 - **Platforms**: discord.js, CLI
 - **기타**: pino (로깅), node-cron (스케줄링), jsdom + @mozilla/readability (URL 파싱)
 

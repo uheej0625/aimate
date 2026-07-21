@@ -1,0 +1,9 @@
+{
+  "name": "Fixture Character",
+  "birthday": {
+    "year": 2000,
+    "month": 1,
+    "day": 1
+  },
+  "timezone": "Asia/Seoul"
+}
