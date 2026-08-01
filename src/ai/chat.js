@@ -2,6 +2,7 @@ import { generateText, stepCountIs } from "ai";
 import { AIResponseParser } from "../chat/response/AIResponseParser.js";
 import { GeneratedImageTagPolicy } from "../chat/response/GeneratedImageTagPolicy.js";
 import { getAiSettings, getGenerationSettings } from "./config.js";
+import { composeDialectTools } from "./dialects.js";
 import { createLanguageModel } from "./models.js";
 import {
   serializeMetadata,
@@ -33,7 +34,8 @@ export async function generateChatReply({
   const settings = getAiSettings(configManager, "chat");
   const model = createLanguageModelFn(configManager, "chat");
   const messages = toModelMessages(context);
-  const tools = toolRegistry?.createToolSet(platform, toolContext) ?? {};
+  const appTools = toolRegistry?.createToolSet(platform, toolContext) ?? {};
+  const tools = composeDialectTools({ settings, appTools });
   const request = {
     model,
     system: systemInstruction || undefined,
@@ -49,6 +51,7 @@ export async function generateChatReply({
         system: request.system,
         messages,
         tools,
+        appTools,
       }),
     ),
   ];

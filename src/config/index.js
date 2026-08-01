@@ -21,6 +21,7 @@ const ENV_OVERRIDES = [
   ["OPENAI_API_KEY", "secrets.openaiApiKey"],
   ["AI_GATEWAY_API_KEY", "secrets.aiGatewayApiKey"],
   ["OPENAI_COMPATIBLE_API_KEY", "secrets.openaiCompatibleApiKey"],
+  ["XAI_API_KEY", "secrets.xaiApiKey"],
   ["VERTEX_PROJECT_ID", "secrets.vertexProjectId"],
   ["VERTEX_LOCATION", "secrets.vertexLocation"],
   ["VERTEX_CLIENT_EMAIL", "secrets.vertexClientEmail"],
@@ -64,10 +65,7 @@ export function createConfigManager({
  * @param {string[]} purposes
  * @returns {Promise<boolean>}
  */
-export async function validateAiConfig(
-  manager,
-  purposes = ACTIVE_AI_PURPOSES,
-) {
+export async function validateAiConfig(manager, purposes = ACTIVE_AI_PURPOSES) {
   if (!manager) {
     throw new Error("validateAiConfig requires a config manager.");
   }

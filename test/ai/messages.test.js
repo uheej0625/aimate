@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert";
-import { toModelMessages } from "../../src/ai/chat.js";
+import { generateChatReply, toModelMessages } from "../../src/ai/chat.js";
 
 test("toModelMessages converts app chat context to AI SDK model messages", () => {
   assert.deepStrictEqual(
@@ -15,4 +15,43 @@ test("toModelMessages converts app chat context to AI SDK model messages", () =>
       { role: "user", content: "legacy value" },
     ],
   );
+});
+
+test("generateChatReply sends xAI native and application tools together", async () => {
+  let capturedRequest;
+  const settings = {
+    provider: "gateway",
+    model: "xai/grok-4.5",
+    nativeTools: { webSearch: true },
+  };
+  const configManager = {
+    get(key) {
+      if (key === "ai.chat") return settings;
+      if (key === "tools.maxSteps") return 5;
+      return undefined;
+    },
+  };
+
+  await generateChatReply({
+    configManager,
+    context: [{ role: "user", content: "최신 소식을 알려줘" }],
+    platform: "cli",
+    toolRegistry: {
+      createToolSet: () => ({
+        get_current_time: { execute: async () => ({}) },
+      }),
+    },
+    responseParser: { parse: (text) => ({ messages: [text] }) },
+    generateTextFn: async (request) => {
+      capturedRequest = request;
+      return { text: "완료", finishReason: "stop", steps: [] };
+    },
+    createLanguageModelFn: () => ({ provider: "test" }),
+  });
+
+  assert.deepStrictEqual(Object.keys(capturedRequest.tools), [
+    "get_current_time",
+    "web_search",
+  ]);
+  assert.strictEqual(capturedRequest.tools.web_search.id, "xai.web_search");
 });

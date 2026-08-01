@@ -34,11 +34,12 @@ cp .env.example .env
 | `DISCORD_CLIENT_ID`            | Discord 애플리케이션 ID |
 | `AI_GATEWAY_API_KEY`           | Vercel AI Gateway 키    |
 | `OPENAI_API_KEY`               | OpenAI 직접 연동 키     |
+| `XAI_API_KEY`                  | xAI 직접 연동 키        |
 | `GOOGLE_GENERATIVE_AI_API_KEY` | Google Generative AI 키 |
 | `VERTEX_PROJECT_ID`            | Vertex AI 프로젝트 ID   |
 | `VERTEX_LOCATION`              | Vertex AI 리전          |
 
-AI provider는 Vercel AI SDK provider 이름을 그대로 씁니다. `config/default.json`의 `ai.chat.provider`, `ai.image.provider`에는 `gateway`, `openai`, `google`, `vertex`, `openaiCompatible` 중 하나를 넣습니다. AI Gateway를 쓰면 `provider`를 `gateway`로 두고 `model`을 `openai/gpt-5-mini`처럼 Gateway 모델 ID로 설정합니다.
+AI provider는 Vercel AI SDK provider 이름을 그대로 씁니다. `config/default.json`의 `ai.chat.provider`, `ai.image.provider`에는 `gateway`, `openai`, `google`, `vertex`, `openaiCompatible`, `xai` 중 하나를 넣습니다. AI Gateway를 쓰면 `provider`를 `gateway`로 두고 `model`을 `openai/gpt-5-mini`처럼 Gateway 모델 ID로 설정합니다.
 
 `ai.chat.prompt`와 `ai.image.prompt`에는 `content/prompts/` 아래에 존재하는 프롬프트 팩 이름을 지정해야 합니다. 프로젝트에서 사용하는 프롬프트 팩은 별도 라이선스와 개발 상태 때문에 Git에서 제외될 수 있습니다.
 
@@ -77,6 +78,31 @@ LLM이 필요하다고 판단하면 스스로 도구를 호출합니다.
 - `fetchUrl` — 웹페이지 스크래핑 및 요약
 - `getTime` — 현재 시스템 시간 조회
 - `setDiscordPresence` / `setDiscordStatus` — 봇의 Discord 상태 변경
+
+### xAI 웹 검색
+
+xAI의 서버사이드 웹 검색은 `nativeTools`를 명시해 켭니다. Gateway 모델 ID의 접두사(`xai/…`)와 직접 xAI provider는 dialect를 자동 결정합니다. 명시적 `dialect` 값은 이 자동 판단을 덮어쓰는 경우에만 사용합니다. Gateway 경로는 xAI 키 없이 Gateway 키만으로 동작합니다.
+
+```json
+{
+  "provider": "gateway",
+  "model": "xai/grok-4.5",
+  "nativeTools": { "webSearch": true }
+}
+```
+
+xAI를 직접 호출할 때는 `XAI_API_KEY`와 Responses API를 사용합니다.
+
+```json
+{
+  "provider": "xai",
+  "model": "grok-4.5",
+  "api": "responses",
+  "nativeTools": { "webSearch": true }
+}
+```
+
+xAI Responses API의 서버사이드 도구는 AiMate의 일반 도구(`getTime`, `fetchUrl` 등)와 함께 사용할 수 있습니다.
 
 ### 캐릭터 설정
 

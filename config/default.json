@@ -10,6 +10,7 @@
     "chat": {
       "provider": "vertex",
       "model": "gemini-3.5-flash",
+      "nativeTools": {},
       "prompt": "ultimate",
       "temperature": null,
       "maxOutputTokens": null,
@@ -70,6 +71,7 @@
     "googleApiKey": "",
     "aiGatewayApiKey": "",
     "openaiCompatibleApiKey": "",
+    "xaiApiKey": "",
     "vertexProjectId": "",
     "vertexLocation": "global",
     "vertexClientEmail": "",
