@@ -8,9 +8,9 @@
   },
   "ai": {
     "chat": {
-      "provider": "vertex",
-      "model": "gemini-3.5-flash",
-      "nativeTools": {},
+      "provider": "gateway",
+      "model": "xai/grok-4.5",
+      "nativeTools": { "webSearch": true },
       "prompt": "ultimate",
       "temperature": null,
       "maxOutputTokens": null,
