@@ -89,6 +89,7 @@ export class AiRuntime {
       cronService: this.getCronService(),
       generationRepository: this.generationRepository,
       channel: channelRecord,
+      requestCreatedAt: new Date(),
       ai: this,
     };
   }

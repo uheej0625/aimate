@@ -17,13 +17,13 @@ export class CronService {
    * @param {import('../chat/ConversationBuffer.js').ConversationBuffer} conversationBuffer
    * @param {Map<string, any>} platformClients - 플랫폼별 클라이언트 맵
    * @param {Object} [options]
-   * @param {number} [options.pollInterval] - 폴링 간격 (ms, 기본값 60000 = 1분)
+   * @param {number} [options.pollInterval] - 폴링 간격 (ms, 기본값 5000 = 5초)
    */
   constructor(
     cronJobRepository,
     conversationBuffer,
     platformClients = new Map(),
-    { pollInterval = 60000 } = {},
+    { pollInterval = 5000 } = {},
   ) {
     this.cronJobRepository = cronJobRepository;
     this.conversationBuffer = conversationBuffer;

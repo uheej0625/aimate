@@ -11,8 +11,8 @@ export default {
   requires: [], // 별도 자격증명 불필요
 
   description:
-    "특정 시각에 AI가 사전에 설정한 메시지를 다시 받아 응답하도록 예약한다. " +
-    "예: 사용자가 1시간 후에 알림을 요청한 경우, 1시간 후에 AI가 메시지를 보내도록 예약할 수 있다.",
+    "사용자가 미래의 특정 시각이나 일정 시간 후에 메시지, 알림, 리마인더를 보내 달라고 하면 반드시 호출한다. " +
+    "이 도구는 예약된 시각에 AI가 사전에 설정한 메시지를 다시 받아 사용자에게 응답하도록 예약한다.",
   inputSchema: jsonSchema({
     type: "object",
     properties: {
@@ -39,6 +39,7 @@ export default {
    * @param {Object} ctx
    * @param {Object} ctx.cronService - CronService 인스턴스
    * @param {Object} ctx.channel - 채널 객체 (내부 Channel 레코드)
+   * @param {Date} ctx.requestCreatedAt - 사용자 요청이 생성된 시각
    */
   execute: async (args, ctx) => {
     if (!ctx.cronService) {
@@ -51,7 +52,10 @@ export default {
 
     try {
       // 시간 파싱
-      const scheduledAt = parseScheduledTime(args.scheduledTime);
+      const scheduledAt = parseScheduledTime(
+        args.scheduledTime,
+        ctx.requestCreatedAt,
+      );
 
       // Cron job 등록
       const job = await ctx.cronService.registerJob({
@@ -77,7 +81,7 @@ export default {
         jobId: job.id,
         scheduledAt: job.scheduledAt.toISOString(),
         scheduledAtLocal: formattedTime,
-        message: `Cron job이 성공적으로 등록되었습니다. 실행 예정 시각: ${formattedTime}`,
+        message: `${formattedTime}에 메시지를 보내도록 예약했어.`,
       };
     } catch (error) {
       logger.error({ err: error }, "Error registering cron job");
@@ -91,9 +95,10 @@ export default {
 /**
  * 시간 문자열을 Date 객체로 파싱한다.
  * @param {string} timeStr - ISO 8601 또는 상대 시간 (예: "1h", "30m", "2h30m")
+ * @param {Date|string|number} [baseTime] - 상대 시간의 기준 시각
  * @returns {Date}
  */
-function parseScheduledTime(timeStr) {
+function parseScheduledTime(timeStr, baseTime = new Date()) {
   // ISO 8601 형식 시도
   const isoDate = new Date(timeStr);
   if (!isNaN(isoDate.getTime())) {
@@ -117,7 +122,10 @@ function parseScheduledTime(timeStr) {
     throw new Error("Time must be greater than 0");
   }
 
-  const now = new Date();
+  const now = baseTime == null ? new Date() : new Date(baseTime);
+  if (isNaN(now.getTime())) {
+    throw new Error("Invalid relative time base");
+  }
   const scheduledAt = new Date(
     now.getTime() + hours * 60 * 60 * 1000 + minutes * 60 * 1000,
   );
