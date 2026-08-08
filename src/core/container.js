@@ -52,7 +52,7 @@ export async function createContainer({ configManager, client = null }) {
   const platformAccountRepository = new PlatformAccountRepository();
   const channelRepository = new ChannelRepository();
   const serverRepository = new ServerRepository();
-  const generationRepository = new GenerationRepository();
+  const generationRepository = new GenerationRepository(configManager);
   const cronJobRepository = new CronJobRepository();
   const eventBus = new EventBus();
 
@@ -72,7 +72,7 @@ export async function createContainer({ configManager, client = null }) {
     messageRepository,
     historyMessageFormatter,
   );
-  const characterContextBuilder = new CharacterContextBuilder();
+  const characterContextBuilder = new CharacterContextBuilder({ configManager });
   const promptComposer = new PromptComposer(
     configManager,
     characterContextBuilder,

@@ -5,6 +5,7 @@ import { ChatContextPreparer } from "../chat/context/ChatContextPreparer.js";
 import { GeneratedImageTagPolicy } from "../chat/response/GeneratedImageTagPolicy.js";
 import { generateChatReply } from "./chat.js";
 import { generateImageFile } from "./images.js";
+import { getRequiredCharacterId } from "../character/config.js";
 
 export class AiRuntime {
   constructor({
@@ -23,6 +24,7 @@ export class AiRuntime {
     createLanguageModelFn = undefined,
   }) {
     this.configManager = configManager;
+    this.characterId = getRequiredCharacterId(configManager);
     this.historyService = historyService;
     this.toolRegistry = toolRegistry;
     this.platformClients = platformClients;
@@ -91,6 +93,7 @@ export class AiRuntime {
       channel: channelRecord,
       requestCreatedAt: new Date(),
       ai: this,
+      characterId: this.characterId,
     };
   }
 

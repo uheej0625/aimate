@@ -28,20 +28,19 @@ cp .env.example .env
 
 채워야 하는 주요 항목:
 
-| 변수                           | 설명                    |
-| ------------------------------ | ----------------------- |
-| `DISCORD_TOKEN`                | Discord 봇 토큰         |
-| `DISCORD_CLIENT_ID`            | Discord 애플리케이션 ID |
-| `AI_GATEWAY_API_KEY`           | Vercel AI Gateway 키    |
-| `OPENAI_API_KEY`               | OpenAI 직접 연동 키     |
-| `XAI_API_KEY`                  | xAI 직접 연동 키        |
-| `GOOGLE_GENERATIVE_AI_API_KEY` | Google Generative AI 키 |
-| `VERTEX_PROJECT_ID`            | Vertex AI 프로젝트 ID   |
-| `VERTEX_LOCATION`              | Vertex AI 리전          |
+| 변수                                    | 설명                              |
+| --------------------------------------- | --------------------------------- |
+| `AIMATE_DISCORD_<CHARACTER_ID>_TOKEN`   | 캐릭터별 Discord 봇 토큰          |
+| `AI_GATEWAY_API_KEY`                    | Vercel AI Gateway 키              |
+| `OPENAI_API_KEY`                        | OpenAI 직접 연동 키               |
+| `XAI_API_KEY`                           | xAI 직접 연동 키                  |
+| `GOOGLE_GENERATIVE_AI_API_KEY`          | Google Generative AI 키           |
+| `VERTEX_PROJECT_ID`                     | Vertex AI 프로젝트 ID             |
+| `VERTEX_LOCATION`                       | Vertex AI 리전                    |
 
 AI provider는 Vercel AI SDK provider 이름을 그대로 씁니다. `config/default.json`의 `ai.chat.provider`, `ai.image.provider`에는 `gateway`, `openai`, `google`, `vertex`, `openaiCompatible`, `xai` 중 하나를 넣습니다. AI Gateway를 쓰면 `provider`를 `gateway`로 두고 `model`을 `openai/gpt-5-mini`처럼 Gateway 모델 ID로 설정합니다.
 
-`ai.chat.prompt`와 `ai.image.prompt`에는 `content/prompts/` 아래에 존재하는 프롬프트 팩 이름을 지정해야 합니다. 프로젝트에서 사용하는 프롬프트 팩은 별도 라이선스와 개발 상태 때문에 Git에서 제외될 수 있습니다.
+`ai.chat.prompt`와 `ai.image.prompt`에는 `content/prompts/` 아래에 존재하는 프롬프트 팩 이름을 지정해야 합니다. `character`에는 `content/characters/` 아래에 존재하는 캐릭터 ID를 지정하며, 해당 ID의 대문자·하이픈 치환 값으로 Discord 토큰 환경변수 이름을 만듭니다. 예를 들어 `character: "alice-v2"`는 `AIMATE_DISCORD_ALICE_V2_TOKEN`을 사용합니다. 프로젝트에서 사용하는 프롬프트 팩은 별도 라이선스와 개발 상태 때문에 Git에서 제외될 수 있습니다.
 
 ### 3. 데이터베이스 초기화
 
@@ -106,7 +105,7 @@ xAI Responses API의 서버사이드 도구는 AiMate의 일반 도구(`getTime`
 
 ### 캐릭터 설정
 
-`content/character/` 안의 파일로 봇의 이름, 나이, 말투, 성격 등을 정의합니다. 프롬프트를 고치지 않아도 `variables.json`과 `identity.md`만 수정하면 캐릭터가 바뀝니다.
+`config/default.json`의 `character`로 활성 캐릭터를 고릅니다. `content/characters/<character>/` 안의 `variables.json`, `identity.md`, `reference.png`으로 이름, 나이, 말투, 성격과 셀피 기준 이미지를 정의합니다. 변경은 다음 실행부터 적용됩니다.
 
 ---
 
@@ -125,7 +124,7 @@ src/
 └── tools/         # LLM 도구 정의 및 실행
 
 content/
-├── character/     # 캐릭터 정의 (identity.md, variables.json)
+├── characters/    # 캐릭터별 정의 (<character>/identity.md 등)
 └── prompts/       # 시스템 프롬프트 템플릿
 ```
 

@@ -1,10 +1,20 @@
 import { prisma } from "../database/client.js";
+import { getRequiredCharacterId } from "../character/config.js";
 
 /**
  * Repository for Generation database operations.
  * Handles AI generation tracking and status management.
  */
 export class GenerationRepository {
+  /**
+   * @param {import('../config/ConfigManager.js').default} [configManager]
+   */
+  constructor(configManager = null) {
+    this.characterId = configManager
+      ? getRequiredCharacterId(configManager)
+      : null;
+  }
+
   /**
    * Create a new generation record.
    * @param {Object} generationData - Generation data
@@ -17,6 +27,7 @@ export class GenerationRepository {
       prompt,
       input,
       status = "PENDING",
+      characterId = this.characterId,
     } = generationData;
 
     return await prisma.generation.create({
@@ -26,6 +37,7 @@ export class GenerationRepository {
         prompt,
         input,
         status,
+        characterId,
       },
     });
   }

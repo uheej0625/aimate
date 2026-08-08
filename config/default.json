@@ -6,6 +6,7 @@
     "timezone": "Asia/Seoul",
     "language": "ko-KR"
   },
+  "character": "ai-chan",
   "ai": {
     "chat": {
       "provider": "gateway",
@@ -65,8 +66,6 @@
     "enableChannelMention": true
   },
   "secrets": {
-    "discordToken": "",
-    "discordClientId": "",
     "openaiApiKey": "",
     "googleApiKey": "",
     "aiGatewayApiKey": "",

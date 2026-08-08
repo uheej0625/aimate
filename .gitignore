@@ -5,7 +5,7 @@ prisma/dev.db-*
 tests/
 test/.tmp/
 prisma/migrations/
-content/character
+content/characters
 content/image
 content/prompts/ultimate
 content/prompts/experimental

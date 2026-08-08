@@ -157,6 +157,7 @@ test("chat pipeline persists history and multiple model-free replies", async () 
   });
 
   assert.strictEqual(generations.length, 2);
+  assert.ok(generations.every(({ characterId }) => characterId === "fixture"));
   assert.ok(generations.every(({ status }) => status === "COMPLETED"));
   assert.ok(
     generations.every(
@@ -260,6 +261,7 @@ function createHarness({ generateTextFn }) {
   });
   const config = {
     app: { language: "ko-KR" },
+    character: "fixture",
     ai: {
       chat: {
         provider: "openai",
@@ -284,7 +286,7 @@ function createHarness({ generateTextFn }) {
   const channelRepository = new ChannelRepository();
   const serverRepository = new ServerRepository();
   const messageRepository = new MessageRepository(configManager);
-  const generationRepository = new GenerationRepository();
+  const generationRepository = new GenerationRepository(configManager);
   const eventBus = new EventBus();
   const messageService = new MessageService(
     userRepository,

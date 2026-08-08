@@ -5,7 +5,9 @@ import { AiRuntime } from "../../src/ai/AiRuntime.js";
 test("AiRuntime keeps parsing helpers and context preparation focused", async () => {
   const runtime = new AiRuntime({
     historyService: {},
-    configManager: { get: () => null },
+    configManager: {
+      get: (key) => (key === "character" ? "test" : null),
+    },
     chatContextPreparer: {
       prepare: async () => ({
         context: ["assembled-context"],
@@ -30,7 +32,9 @@ Hello [BREAK] Again
 test("AiRuntime returns an ellipsis for empty chat context without model calls", async () => {
   const runtime = new AiRuntime({
     historyService: {},
-    configManager: { get: () => null },
+    configManager: {
+      get: (key) => (key === "character" ? "test" : null),
+    },
   });
 
   const result = await runtime.generateChat([], "system");

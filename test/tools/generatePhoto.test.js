@@ -14,7 +14,7 @@ test("generate_photo uses the selfie template and character reference only for s
     await fs.mkdir(path.join(tmpDir, "content", "prompts", "test", "image"), {
       recursive: true,
     });
-    await fs.mkdir(path.join(tmpDir, "content", "character"), {
+    await fs.mkdir(path.join(tmpDir, "content", "characters", "test"), {
       recursive: true,
     });
     await fs.writeFile(
@@ -26,7 +26,7 @@ test("generate_photo uses the selfie template and character reference only for s
       "PHOTO {{data.scene}} {{data.framing}}",
     );
     await fs.writeFile(
-      path.join(tmpDir, "content", "character", "reference.png"),
+      path.join(tmpDir, "content", "characters", "test", "reference.png"),
       "reference",
     );
 
@@ -51,7 +51,7 @@ test("generate_photo uses the selfie template and character reference only for s
 
     assert.match(receivedPrompt, /^SELFIE/);
     assert.deepStrictEqual(receivedOptions.image, [
-      path.join(tmpDir, "content", "character", "reference.png"),
+      path.join(tmpDir, "content", "characters", "test", "reference.png"),
     ]);
     assert.strictEqual(receivedOptions.size, "1024x1536");
   } finally {
@@ -106,8 +106,13 @@ test("generate_photo uses plain photo generation for body-detail follow-ups", as
 function buildContext({ generateImage }) {
   return {
     ai: { generateImage },
+    characterId: "test",
     configManager: {
-      get: (key) => (key === "ai.image.prompt" ? "test" : null),
+      get: (key) => {
+        if (key === "ai.image.prompt") return "test";
+        if (key === "character") return "test";
+        return null;
+      },
     },
     generationRepository: {
       create: async () => ({ id: "generation-id" }),

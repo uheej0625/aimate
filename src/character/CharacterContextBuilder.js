@@ -2,24 +2,31 @@ import fs from "fs/promises";
 import path from "path";
 import { createLogger } from "../core/logger.js";
 import { buildSystemContext, renderTemplate } from "../utils/renderTemplate.js";
+import { resolveCharacterFile } from "./config.js";
 
 const logger = createLogger("CharacterContextBuilder");
 
 export class CharacterContextBuilder {
   /**
    * @param {Object} [options]
+   * @param {import('../config/ConfigManager.js').default} [options.configManager]
    * @param {string} [options.identityPath]
    * @param {string} [options.variablesPath]
    */
   constructor(options = {}) {
-    this.identityPath = path.join(
-      process.cwd(),
-      options.identityPath ?? "content/character/identity.md",
-    );
-    this.variablesPath = path.join(
-      process.cwd(),
-      options.variablesPath ?? "content/character/variables.json",
-    );
+    const identityPath =
+      options.identityPath ??
+      (options.configManager
+        ? resolveCharacterFile(options.configManager, "identity.md")
+        : "content/characters/default/identity.md");
+    const variablesPath =
+      options.variablesPath ??
+      (options.configManager
+        ? resolveCharacterFile(options.configManager, "variables.json")
+        : "content/characters/default/variables.json");
+
+    this.identityPath = path.resolve(process.cwd(), identityPath);
+    this.variablesPath = path.resolve(process.cwd(), variablesPath);
   }
 
   /**

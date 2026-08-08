@@ -10,6 +10,7 @@ const configManager = createConfigManager();
 configureLogger(configManager);
 
 const { default: client } = await import("./client.js");
+const { getRequiredDiscordToken } = await import("./credentials.js");
 const { loadEvents } = await import("./handlers/eventHandler.js");
 const { loadCommands } = await import("./handlers/commandHandler.js");
 const { createContainer } = await import("../../core/container.js");
@@ -48,7 +49,7 @@ const main = async () => {
     }
 
     // Login
-    await client.login(configManager.get("secrets.discordToken"));
+    await client.login(getRequiredDiscordToken(configManager));
   } catch (error) {
     logger.fatal({ err: error }, "Failed to start bot");
     process.exit(1);

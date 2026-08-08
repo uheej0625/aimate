@@ -15,8 +15,6 @@ const __dirname = path.dirname(__filename);
 
 const ACTIVE_AI_PURPOSES = ["chat", "image"];
 const ENV_OVERRIDES = [
-  ["DISCORD_TOKEN", "secrets.discordToken"],
-  ["DISCORD_CLIENT_ID", "secrets.discordClientId"],
   ["GOOGLE_GENERATIVE_AI_API_KEY", "secrets.googleApiKey"],
   ["OPENAI_API_KEY", "secrets.openaiApiKey"],
   ["AI_GATEWAY_API_KEY", "secrets.aiGatewayApiKey"],
