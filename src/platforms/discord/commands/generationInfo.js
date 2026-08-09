@@ -9,40 +9,29 @@ export default {
    * 메시지 생성 정보를 확인합니다
    * @param {import("discord.js").MessageContextMenuCommandInteraction} interaction
    */
-  async execute(interaction, { messageRepository }) {
+  async execute(interaction, { getGenerationInfo }) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     const target = interaction.targetMessage;
 
-    // DB에서 메시지 조회 (generation 포함)
-    const dbMessage = await messageRepository.findByPlatformId(
-      "discord",
-      target.id,
-    );
+    const info = await getGenerationInfo.execute({
+      platform: "discord",
+      platformMessageId: target.id,
+    });
 
-    if (!dbMessage) {
+    if (!info) {
       return interaction.editReply({
         content: "❌ 이 메시지는 데이터베이스에 저장되어 있지 않습니다.",
       });
     }
 
-    if (!dbMessage.generation) {
+    if (!info.generation) {
       return interaction.editReply({
         content: "ℹ️ 이 메시지는 어떤 Generation에도 연결되어 있지 않습니다.",
       });
     }
 
-    const gen = dbMessage.generation;
-
-    const responseMessages =
-      gen.output && gen.type === "CHAT" ? JSON.parse(gen.output) : [];
-
-    let input = { messages: [] };
-    if (gen.input && gen.type === "CHAT") {
-      try {
-        input = parseChatInput(gen.input);
-      } catch (e) {}
-    }
+    const gen = info.generation;
 
     // 상태 이모지
     const statusEmoji = {
@@ -73,7 +62,7 @@ export default {
         },
         {
           name: "입력 메시지 수",
-          value: `${input.messages.length}개`,
+          value: `${gen.inputMessages.length}개`,
           inline: true,
         },
         {
@@ -85,16 +74,16 @@ export default {
       .setTimestamp(new Date(gen.updatedAt));
 
     // AI 응답 메시지
-    if (responseMessages.length > 0) {
-      const responseText = responseMessages
+    if (gen.outputMessages.length > 0) {
+      const responseText = gen.outputMessages
         .map((msg, i) => `**[${i + 1}]** ${msg}`)
         .join("\n")
         .slice(0, 1024);
       embed.addFields({ name: "AI 응답", value: responseText });
     }
 
-    if (input.messages.length > 0) {
-      const inputText = input.messages
+    if (gen.inputMessages.length > 0) {
+      const inputText = gen.inputMessages
         .map((message, i) => `**[${i + 1}]** ${message.content}`)
         .join("\n")
         .slice(0, 1024);
@@ -104,36 +93,3 @@ export default {
     await interaction.editReply({ embeds: [embed] });
   },
 };
-
-function parseChatInput(raw) {
-  const parsed = JSON.parse(raw);
-
-  if (Array.isArray(parsed)) {
-    return {
-      messages: parsed.map((content) => ({ id: null, content })),
-    };
-  }
-
-  if (
-    Array.isArray(parsed?.messageIds) &&
-    parsed.messages?.every((message) => typeof message === "string")
-  ) {
-    return {
-      messages: parsed.messages.map((content, index) => ({
-        id: parsed.messageIds[index] ?? null,
-        content,
-      })),
-    };
-  }
-
-  return {
-    messages: Array.isArray(parsed?.messages)
-      ? parsed.messages
-          .map((message) => ({
-            id: message?.id ?? null,
-            content: message?.content ?? "",
-          }))
-          .filter((message) => message.content)
-      : [],
-  };
-}

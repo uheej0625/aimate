@@ -27,8 +27,7 @@ const logger = createLogger("CLI");
   const {
     messageHandler,
     botAccountService,
-    channelRepository,
-    messageRepository,
+    conversationCatalog,
   } = container;
 
   // Register graceful shutdown
@@ -52,8 +51,7 @@ const logger = createLogger("CLI");
   }
 
   await startRepl({
-    channelRepository,
-    messageRepository,
+    conversationCatalog,
     messageHandler,
     mockClient,
   });

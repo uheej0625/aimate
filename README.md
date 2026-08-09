@@ -113,6 +113,7 @@ xAI Responses API의 서버사이드 도구는 AiMate의 일반 도구(`getTime`
 
 ```txt
 src/
+├── application/   # 플랫폼 진입점에서 사용하는 애플리케이션 유스케이스
 ├── ai/            # Vercel AI SDK 런타임, 모델, 채팅·이미지 생성
 ├── character/     # 캐릭터 컨텍스트 구성
 ├── chat/          # 대화 흐름, 프롬프트 조립, 응답 파싱

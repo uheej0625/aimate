@@ -14,15 +14,17 @@ test("createContainer exposes only application entrypoint dependencies", async (
   const container = await createContainer({ configManager });
 
   assert.deepStrictEqual(Object.keys(container).sort(), [
+    "activateChannel",
     "botAccountService",
-    "channelRepository",
     "chatFlow",
     "conversationBuffer",
+    "conversationCatalog",
     "cronJobWorker",
     "eventBus",
+    "getGenerationInfo",
     "messageHandler",
-    "messageRepository",
-    "serverRepository",
+    "rerollConversation",
+    "storedMessageService",
   ]);
   assert.strictEqual(
     container.eventBus.listenerCount(AppEvents.GenerationServiceUnavailable),

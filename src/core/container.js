@@ -31,6 +31,11 @@ import { ChatGenerationFailureHandler } from "../chat/ChatGenerationFailureHandl
 import { EventBus } from "./EventBus.js";
 import { ToolRegistry } from "../tools/ToolRegistry.js";
 import { ToolExecutionContextFactory } from "../tools/ToolExecutionContextFactory.js";
+import { ActivateChannel } from "../application/ActivateChannel.js";
+import { StoredMessageService } from "../application/StoredMessageService.js";
+import { GetGenerationInfo } from "../application/GetGenerationInfo.js";
+import { RerollConversation } from "../application/RerollConversation.js";
+import { ConversationCatalog } from "../application/ConversationCatalog.js";
 
 /**
  * Application composition root.
@@ -140,6 +145,21 @@ export async function createContainer({
     eventBus,
   });
 
+  const activateChannel = new ActivateChannel(
+    channelRepository,
+    serverRepository,
+  );
+  const storedMessageService = new StoredMessageService(messageRepository);
+  const getGenerationInfo = new GetGenerationInfo(messageRepository);
+  const rerollConversation = new RerollConversation(
+    messageRepository,
+    chatFlow,
+  );
+  const conversationCatalog = new ConversationCatalog(
+    channelRepository,
+    messageRepository,
+  );
+
   const conversationBuffer = new ConversationBuffer(chatFlow, configManager);
 
   const cronJobWorker = new CronJobWorker(
@@ -161,9 +181,11 @@ export async function createContainer({
   );
 
   return {
-    messageRepository,
-    channelRepository,
-    serverRepository,
+    activateChannel,
+    storedMessageService,
+    getGenerationInfo,
+    rerollConversation,
+    conversationCatalog,
     botAccountService,
     cronJobWorker,
     eventBus,

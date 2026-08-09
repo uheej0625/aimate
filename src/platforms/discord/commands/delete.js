@@ -12,7 +12,7 @@ export default {
    * 메시지를 삭제합니다
    * @param {import("discord.js").MessageContextMenuCommandInteraction} interaction
    */
-  async execute(interaction, { messageRepository }) {
+  async execute(interaction, { storedMessageService }) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     const targetMessage = interaction.targetMessage;
@@ -28,10 +28,10 @@ export default {
     }
 
     // DB에서 메시지 삭제
-    const deleted = await messageRepository.deleteByPlatformId(
-      "discord",
-      targetMessage.id,
-    );
+    const deleted = await storedMessageService.deleteOne({
+      platform: "discord",
+      platformMessageId: targetMessage.id,
+    });
 
     if (deleted) {
       await interaction.editReply({ content: "메시지를 삭제했습니다." });

@@ -38,10 +38,10 @@ export async function createDiscordApplication({ configManager, client }) {
     botAccountService: app.botAccountService,
   });
   await loadCommands(client, {
-    messageRepository: app.messageRepository,
-    channelRepository: app.channelRepository,
-    serverRepository: app.serverRepository,
-    chatFlow: app.chatFlow,
+    activateChannel: app.activateChannel,
+    storedMessageService: app.storedMessageService,
+    getGenerationInfo: app.getGenerationInfo,
+    rerollConversation: app.rerollConversation,
   });
 
   return app;
