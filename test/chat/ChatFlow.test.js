@@ -21,8 +21,8 @@ test("ChatFlow tests", async (t) => {
     }),
     startChatGeneration: async () => ({ id: "gen-123" }),
     recordInput: async () => {},
-    markReadyToGenerate: async () => ({ shouldProceed: true }),
-    recordOutput: async () => {},
+    canGenerate: async () => true,
+    recordGeneratedOutput: async () => ({ shouldProceed: true }),
     complete: async () => {},
     fail: async () => {},
   };
@@ -87,7 +87,7 @@ test("ChatFlow tests", async (t) => {
   await t.test("execute should handle generation cancellation", async () => {
     const generationLifecycle = {
       ...baseGenerationLifecycle,
-      markReadyToGenerate: async () => ({ shouldProceed: false }),
+      canGenerate: async () => false,
     };
 
     let sendChunkCalled = false;
@@ -108,6 +108,41 @@ test("ChatFlow tests", async (t) => {
       "Should not call messageSender if cancelled",
     );
   });
+
+  await t.test(
+    "execute should stop when cancelled during model generation",
+    async () => {
+      let generated = false;
+      const generationLifecycle = {
+        ...baseGenerationLifecycle,
+        recordGeneratedOutput: async () => ({ shouldProceed: false }),
+      };
+      const chatGenerator = {
+        generate: async () => {
+          generated = true;
+          return { messages: ["late response"] };
+        },
+      };
+      let sendChunkCalled = false;
+      const messageSender = {
+        sendChunk: async () => {
+          sendChunkCalled = true;
+          return true;
+        },
+      };
+
+      const chatFlow = createChatFlow({
+        generationLifecycle,
+        chatGenerator,
+        messageSender,
+      });
+
+      await chatFlow.execute(createRequest());
+
+      assert.strictEqual(generated, true);
+      assert.strictEqual(sendChunkCalled, false);
+    },
+  );
 
   await t.test(
     "execute should handle AI generation failure gracefully",

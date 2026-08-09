@@ -56,6 +56,28 @@ export class GenerationRepository {
   }
 
   /**
+   * Update a generation status only when it is still in an expected state.
+   * @param {string} generationId
+   * @param {string|string[]} expectedStatuses
+   * @param {string} status
+   * @returns {Promise<boolean>}
+   */
+  async updateStatusIfCurrent(generationId, expectedStatuses, status) {
+    const statuses = Array.isArray(expectedStatuses)
+      ? expectedStatuses
+      : [expectedStatuses];
+    const result = await prisma.generation.updateMany({
+      where: {
+        id: generationId,
+        status: { in: statuses },
+      },
+      data: { status },
+    });
+
+    return result.count === 1;
+  }
+
+  /**
    * Cancel all processing/generated generations for a channel.
    * @param {string} channelId - Channel ID
    * @param {string} [type="CHAT"] - Generation type to cancel
@@ -103,31 +125,6 @@ export class GenerationRepository {
   }
 
   /**
-   * Execute a transaction to check and update generation status.
-   * @param {string} generationId - Generation ID
-   * @param {string} newStatus - New status to set
-   * @returns {Promise<{shouldProceed: boolean}>}
-   */
-  async checkAndUpdateStatus(generationId, newStatus) {
-    return await prisma.$transaction(async (tx) => {
-      const generation = await tx.generation.findUnique({
-        where: { id: generationId },
-      });
-
-      if (!generation || generation.status === "CANCELLED") {
-        return { shouldProceed: false };
-      }
-
-      await tx.generation.update({
-        where: { id: generationId },
-        data: { status: newStatus },
-      });
-
-      return { shouldProceed: true };
-    });
-  }
-
-  /**
    * Update generation with API details and parsed response.
    * @param {string} generationId - Generation ID
    * @param {Object} details - Generation details
@@ -139,17 +136,52 @@ export class GenerationRepository {
    * @returns {Promise<Object>}
    */
   async updateDetails(generationId, details) {
-    const { apiRequest, apiResponse, input, output, metadata } = details;
-
     return await prisma.generation.update({
       where: { id: generationId },
-      data: {
-        apiRequest: apiRequest ? JSON.stringify(apiRequest) : undefined,
-        apiResponse: apiResponse ? JSON.stringify(apiResponse) : undefined,
-        input,
-        output,
-        metadata: metadata ? JSON.stringify(metadata) : undefined,
-      },
+      data: prepareDetails(details),
     });
   }
+
+  /**
+   * Save generation details and advance its status only if it has not changed.
+   * @param {string} generationId
+   * @param {string|string[]} expectedStatuses
+   * @param {string} status
+   * @param {Object} details
+   * @returns {Promise<boolean>}
+   */
+  async updateDetailsAndStatusIfCurrent(
+    generationId,
+    expectedStatuses,
+    status,
+    details,
+  ) {
+    const statuses = Array.isArray(expectedStatuses)
+      ? expectedStatuses
+      : [expectedStatuses];
+    const result = await prisma.generation.updateMany({
+      where: {
+        id: generationId,
+        status: { in: statuses },
+      },
+      data: {
+        ...prepareDetails(details),
+        status,
+      },
+    });
+
+    return result.count === 1;
+  }
+}
+
+function prepareDetails(details) {
+  const { apiRequest, apiResponse, input, output, metadata } = details;
+
+  return {
+    apiRequest: apiRequest ? JSON.stringify(apiRequest) : undefined,
+    apiResponse: apiResponse ? JSON.stringify(apiResponse) : undefined,
+    input,
+    output,
+    metadata: metadata ? JSON.stringify(metadata) : undefined,
+  };
 }

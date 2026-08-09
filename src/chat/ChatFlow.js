@@ -74,11 +74,11 @@ export class ChatFlow {
       });
 
       // 4. Check Cancellation before generating
-      const result = await this.generationLifecycle.markReadyToGenerate(
+      const canGenerate = await this.generationLifecycle.canGenerate(
         generation.id,
       );
 
-      if (!result.shouldProceed) {
+      if (!canGenerate) {
         logger.info({ generationId: generation.id }, "Generation cancelled");
         await this.eventBus.emitAsync(AppEvents.GenerationCancelled, {
           generation,
@@ -98,7 +98,24 @@ export class ChatFlow {
       );
 
       // 6. Save AI response details (including raw API req/res)
-      await this.generationLifecycle.recordOutput(generation.id, aiResult);
+      const recorded =
+        await this.generationLifecycle.recordGeneratedOutput(
+          generation.id,
+          aiResult,
+        );
+      if (!recorded.shouldProceed) {
+        logger.info(
+          { generationId: generation.id },
+          "Generation cancelled during model execution",
+        );
+        await this.eventBus.emitAsync(AppEvents.GenerationCancelled, {
+          generation,
+          channelRecord,
+          platform,
+          reason: "cancelled_during_generation",
+        });
+        return;
+      }
 
       // 7. Send each message chunk
       for (const message of aiResult.messages) {
