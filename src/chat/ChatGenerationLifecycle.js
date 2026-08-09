@@ -16,7 +16,7 @@ export class ChatGenerationLifecycle {
 
   async findOrCreateChannel(channel) {
     const platform = channel.platform;
-    const platformChannelId = channel.id;
+    const platformChannelId = channel.platformChannelId;
 
     let channelRecord = await this.channelRepository.findByPlatformId(
       platform,

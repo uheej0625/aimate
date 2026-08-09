@@ -104,7 +104,6 @@ export async function createContainer({
     channelRepository,
     serverRepository,
     messageRepository,
-    generationRepository,
   );
 
   // Message delivery

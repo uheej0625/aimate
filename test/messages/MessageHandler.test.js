@@ -41,23 +41,28 @@ test("MessageHandler tests", async (t) => {
       mockChannelRepository
     );
 
-    const mockMessage = {
-      author: { id: "user-1" },
-      client: { user: { id: "bot-1" } },
-      channelId: "chan-123",
-      channel: { id: "chan-123" },
-      content: "Hello",
-      platform: "discord"
-    };
+    const mockMessage = createMessage();
 
-    await handler.handle(mockMessage);
+    await handler.handle({
+      message: mockMessage,
+      channel: { platform: "discord", platformChannelId: "chan-123" },
+      botId: "bot-1",
+    });
 
     assert.strictEqual(bufferAdded, true, "Should add message to buffer");
   });
 
   await t.test("shouldHandle should filter bot messages", async () => {
     const result = await messageHandler.shouldHandle(
-      { author: { id: "bot-1" }, content: "ping" },
+      createMessage({
+        author: {
+          platformUserId: "bot-1",
+          handle: "bot",
+          displayName: null,
+          isBot: true,
+        },
+        content: "ping",
+      }),
       "bot-1"
     );
     assert.strictEqual(result, false);
@@ -65,9 +70,26 @@ test("MessageHandler tests", async (t) => {
 
   await t.test("shouldHandle should filter empty messages", async () => {
     const result = await messageHandler.shouldHandle(
-      { author: { id: "user-1" }, content: "  " },
+      createMessage({ content: "  " }),
       "bot-1"
     );
     assert.strictEqual(result, false);
   });
 });
+
+function createMessage(overrides = {}) {
+  return {
+    platform: "discord",
+    platformMessageId: "message-1",
+    platformChannelId: "chan-123",
+    platformServerId: null,
+    content: "Hello",
+    author: {
+      platformUserId: "user-1",
+      handle: "user",
+      displayName: "User",
+      isBot: false,
+    },
+    ...overrides,
+  };
+}

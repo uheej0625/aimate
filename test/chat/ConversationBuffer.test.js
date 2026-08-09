@@ -16,7 +16,11 @@ test("ConversationBuffer tests", async (t) => {
     };
 
     const buffer = new ConversationBuffer(mockChatFlow, mockConfigManager);
-    buffer.add("chan-1", { id: "chan-1" }, "bot-1");
+    buffer.add(
+      "chan-1",
+      { platform: "cli", platformChannelId: "chan-1" },
+      "bot-1",
+    );
 
     assert.strictEqual(executed, false, "Should not execute immediately");
 
@@ -34,10 +38,18 @@ test("ConversationBuffer tests", async (t) => {
     };
 
     const buffer = new ConversationBuffer(mockChatFlow, mockConfigManager);
-    buffer.add("chan-2", { id: "chan-2" }, "bot-1");
+    buffer.add(
+      "chan-2",
+      { platform: "cli", platformChannelId: "chan-2" },
+      "bot-1",
+    );
     
     await new Promise((resolve) => setTimeout(resolve, 5));
-    buffer.add("chan-2", { id: "chan-2" }, "bot-1"); // reset timer
+    buffer.add(
+      "chan-2",
+      { platform: "cli", platformChannelId: "chan-2" },
+      "bot-1",
+    ); // reset timer
 
     await new Promise((resolve) => setTimeout(resolve, 30));
 
@@ -53,7 +65,11 @@ test("ConversationBuffer tests", async (t) => {
     };
 
     const buffer = new ConversationBuffer(mockChatFlow, mockConfigManager);
-    buffer.add("chan-3", { id: "chan-3" }, "bot-1");
+    buffer.add(
+      "chan-3",
+      { platform: "cli", platformChannelId: "chan-3" },
+      "bot-1",
+    );
     buffer.clear("chan-3");
 
     await new Promise((resolve) => setTimeout(resolve, 30));

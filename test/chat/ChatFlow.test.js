@@ -91,7 +91,10 @@ test("ChatFlow tests", async (t) => {
       };
       const chatFlow = createChatFlow({ messageSender });
 
-      await chatFlow.execute({ platform: "discord", id: "12345" }, "bot-123");
+      await chatFlow.execute(
+        { platform: "discord", platformChannelId: "12345" },
+        "bot-123",
+      );
 
       assert.strictEqual(sentMessage, "Hello explorer!");
     },
@@ -113,7 +116,10 @@ test("ChatFlow tests", async (t) => {
 
     const chatFlow = createChatFlow({ generationRepository, messageSender });
 
-    await chatFlow.execute({ platform: "discord", id: "12345" }, "bot-1");
+    await chatFlow.execute(
+      { platform: "discord", platformChannelId: "12345" },
+      "bot-1",
+    );
 
     assert.strictEqual(
       sendChunkCalled,
@@ -135,7 +141,10 @@ test("ChatFlow tests", async (t) => {
       const chatFlow = createChatFlow({ chatGenerator });
 
       await assert.doesNotReject(
-        chatFlow.execute({ platform: "discord", id: "12345" }, "bot-1"),
+        chatFlow.execute(
+          { platform: "discord", platformChannelId: "12345" },
+          "bot-1",
+        ),
       );
     },
   );
@@ -171,7 +180,10 @@ test("ChatFlow tests", async (t) => {
       eventBus,
     });
 
-    await chatFlow.execute({ platform: "discord", id: "12345" }, "bot-1");
+    await chatFlow.execute(
+      { platform: "discord", platformChannelId: "12345" },
+      "bot-1",
+    );
 
     assert.strictEqual(serviceUnavailablePayload.platform, "discord");
     assert.strictEqual(

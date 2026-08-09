@@ -81,7 +81,9 @@ const { AppEvents, EventBus } = await import("../../src/core/EventBus.js");
 const { createMockChannel, createMockClient } = await import(
   "../../src/platforms/cli/mocks.js"
 );
-const { adaptMessage } = await import("../../src/platforms/cli/adapter.js");
+const { adaptMessageData } = await import(
+  "../../src/platforms/cli/adapter.js"
+);
 
 test.after(async () => {
   await prisma.$disconnect();
@@ -143,7 +145,7 @@ test("chat pipeline persists history and multiple model-free replies", async () 
     where: {
       platform_platformId: {
         platform: "cli",
-        platformId: harness.channel.id,
+        platformId: harness.channel.platformChannelId,
       },
     },
   });
@@ -173,7 +175,9 @@ test("chat pipeline persists history and multiple model-free replies", async () 
   ]);
   assert.strictEqual(messages.length, 5);
   assert.strictEqual(
-    messages.filter(({ platformId }) => platformId === firstInput.id).length,
+    messages.filter(
+      ({ platformId }) => platformId === firstInput.platformMessageId,
+    ).length,
     1,
   );
   assert.ok(messages.every(({ generationId }) => generationId !== null));
@@ -197,7 +201,7 @@ test("chat pipeline marks a failed model call and sends a fallback", async () =>
     where: {
       platform_platformId: {
         platform: "cli",
-        platformId: harness.channel.id,
+        platformId: harness.channel.platformChannelId,
       },
     },
   });
@@ -235,7 +239,7 @@ test("chat pipeline preserves cancellation before the model call", async () => {
     where: {
       platform_platformId: {
         platform: "cli",
-        platformId: harness.channel.id,
+        platformId: harness.channel.platformChannelId,
       },
     },
   });
@@ -294,7 +298,6 @@ function createHarness({ generateTextFn }) {
     channelRepository,
     serverRepository,
     messageRepository,
-    generationRepository,
   );
   const historyService = new HistoryService(
     messageRepository,
@@ -350,13 +353,13 @@ function createHarness({ generateTextFn }) {
 }
 
 function createUserMessage(harness, { id, content }) {
-  return adaptMessage({
+  return adaptMessageData({
     id,
     content,
-    channelId: harness.channel.id,
+    channelId: harness.channel.platformChannelId,
     guildId: null,
     author: {
-      id: `user-${harness.channel.id}`,
+      id: `user-${harness.channel.platformChannelId}`,
       username: "integration-user",
       globalName: "Integration User",
       bot: false,

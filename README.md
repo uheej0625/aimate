@@ -128,7 +128,7 @@ content/
 └── prompts/       # 시스템 프롬프트 템플릿
 ```
 
-각 플랫폼(Discord, CLI)은 들어오는 메시지를 동일한 내부 포맷으로 변환한 뒤 동일한 처리 흐름을 탑니다. 내부 메시지 포맷은 `docs/message-format.md`를 참조하세요.
+각 플랫폼(Discord, CLI)은 들어오는 메시지를 동일한 내부 포맷으로 변환한 뒤 동일한 처리 흐름을 탑니다. 내부 메시지와 채널 계약은 [`src/platforms/contracts.js`](src/platforms/contracts.js)를 참조하세요.
 
 ---
 

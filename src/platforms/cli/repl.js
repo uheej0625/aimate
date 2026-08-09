@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from "uuid";
 import { CLI_BOT_ID, CLI_USER_ID } from "./constants.js";
-import { adaptMessage } from "./adapter.js";
+import { adaptIncomingMessage } from "./adapter.js";
 import { createMockChannel } from "./mocks.js";
 import { ChatTui } from "./tui.js";
 
@@ -127,7 +127,7 @@ export async function startRepl({
       });
       tui.setBusy(channelId, true);
       try {
-        await messageHandler.handle(adaptMessage(message));
+        await messageHandler.handle(adaptIncomingMessage(message));
       } catch {
         tui.setBusy(channelId, false);
         tui.setNotice("메시지를 처리하지 못했습니다", "error");

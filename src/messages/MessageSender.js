@@ -4,7 +4,7 @@ import { GeneratedImageAttachmentResolver } from "./GeneratedImageAttachmentReso
 const logger = createLogger("MessageSender");
 
 /**
- * Handles sending messages to Discord.
+ * Handles sending messages through a platform channel.
  * Responsible for splitting long messages and managing typing indicators.
  */
 export class MessageSender {
@@ -30,9 +30,9 @@ export class MessageSender {
   }
 
   /**
-   * Send a single text chunk to Discord with typing indicator and delay.
+   * Send a single text chunk with typing indicator and delay.
    * Returns true if sent successfully, false if the generation was cancelled.
-   * @param {import('discord.js').TextBasedChannel} channel
+   * @param {import('../platforms/contracts.js').ChannelPort} channel
    * @param {string} text
    * @param {string} generationId - Generation ID to check for cancellation
    * @returns {Promise<boolean>}
@@ -46,10 +46,7 @@ export class MessageSender {
     // 텍스트도 없고 파일도 없으면 스킵
     if (!cleanText && files.length === 0) return true;
 
-    // Discord.js 채널이 아닐 경우(cli 등)를 위한 fallback
-    if (typeof channel.sendTyping === "function") {
-      await channel.sendTyping();
-    }
+    await channel.sendTyping();
 
     const delay = this._calculateDelay(cleanText);
     await new Promise((resolve) => setTimeout(resolve, delay));
@@ -63,12 +60,6 @@ export class MessageSender {
         );
         return false;
       }
-    }
-
-    // CLI 등 send 메서드 없는 채널에 대한 fallback
-    if (typeof channel.send !== "function") {
-      logger.debug({ cleanText }, "Channel has no send method, skipping");
-      return true;
     }
 
     // 전송 옵션 구성
@@ -91,7 +82,7 @@ export class MessageSender {
   /**
    * Send a full response, splitting by the configured break tag.
    * Convenience wrapper that delegates each chunk to sendChunk.
-   * @param {import('discord.js').TextBasedChannel} channel
+   * @param {import('../platforms/contracts.js').ChannelPort} channel
    * @param {string} responseText
    * @param {string} generationId - Generation ID to check for cancellation
    */

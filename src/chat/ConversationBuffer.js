@@ -21,7 +21,7 @@ export class ConversationBuffer {
   /**
    * Add a request to the buffer.
    * @param {string} platformChannelId
-   * @param {import('discord.js').TextBasedChannel} channel
+   * @param {import('../platforms/contracts.js').ChannelPort} channel
    * @param {string} botId
    * @param {string} [cronMessage] - Cron job에서 전달되는 시스템 메시지 (선택)
    */

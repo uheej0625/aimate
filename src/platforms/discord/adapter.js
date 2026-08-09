@@ -1,32 +1,29 @@
 /**
  * Discord 플랫폼 어댑터
- * Discord.js 객체를 내부 표준 형식(AdaptedMessage / AdaptedChannel)으로 변환한다.
+ * Discord.js 객체를 플랫폼 독립적인 메시지와 채널 계약으로 변환한다.
  *
- * @see docs/message-format.md
+ * @see ../contracts.js
  */
 
 /**
- * Discord.js Message를 내부 표준 메시지 형식으로 변환한다.
+ * Discord.js Message에서 저장·처리에 필요한 순수 데이터만 추출한다.
  *
  * @param {import('discord.js').Message} discordMessage
- * @returns {import('../../../docs/message-format').AdaptedMessage}
+ * @returns {import('../contracts.js').NormalizedMessage}
  */
-export function adaptMessage(discordMessage) {
+export function adaptMessageData(discordMessage) {
   return {
-    id: discordMessage.id,
-    content: discordMessage.content,
     platform: "discord",
+    platformMessageId: discordMessage.id,
     platformChannelId: discordMessage.channelId,
-    channelId: discordMessage.channelId,
-    guildId: discordMessage.guildId ?? null,
+    platformServerId: discordMessage.guildId ?? null,
+    content: discordMessage.content,
     author: {
-      id: discordMessage.author.id,
-      username: discordMessage.author.username,
-      globalName: discordMessage.author.globalName ?? null,
-      bot: discordMessage.author.bot,
+      platformUserId: discordMessage.author.id,
+      handle: discordMessage.author.username,
+      displayName: discordMessage.author.globalName ?? null,
+      isBot: discordMessage.author.bot,
     },
-    channel: adaptChannel(discordMessage.channel),
-    client: { user: { id: discordMessage.client.user.id } },
   };
 }
 
@@ -35,17 +32,30 @@ export function adaptMessage(discordMessage) {
  * send()가 반환하는 메시지도 자동으로 표준 형식으로 래핑된다.
  *
  * @param {import('discord.js').TextBasedChannel} discordChannel
- * @returns {import('../../../docs/message-format').AdaptedChannel}
+ * @returns {import('../contracts.js').ChannelPort}
  */
 export function adaptChannel(discordChannel) {
   return {
-    id: discordChannel.id,
-    type: discordChannel.type,
     platform: "discord",
-    send: async (content) => {
-      const msg = await discordChannel.send(content);
-      return adaptMessage(msg);
+    platformChannelId: discordChannel.id,
+    send: async (message) => {
+      const sentMessage = await discordChannel.send(message);
+      return adaptMessageData(sentMessage);
     },
     sendTyping: () => discordChannel.sendTyping(),
+  };
+}
+
+/**
+ * Discord.js Message를 MessageHandler 입력으로 변환한다.
+ *
+ * @param {import('discord.js').Message} discordMessage
+ * @returns {import('../contracts.js').IncomingMessageRequest}
+ */
+export function adaptIncomingMessage(discordMessage) {
+  return {
+    message: adaptMessageData(discordMessage),
+    channel: adaptChannel(discordMessage.channel),
+    botId: discordMessage.client.user.id,
   };
 }

@@ -4,9 +4,9 @@ const logger = createLogger("MessageHandler");
 
 /**
  * Entry point for handling incoming messages.
- * Orchestrates flow: Save -> Filter -> Buffer
+ * Orchestrates flow: Filter -> Save -> Buffer
  *
- * @see docs/message-format.md for the expected message shape
+ * @see ../platforms/contracts.js for the expected message shape
  */
 export class MessageHandler {
   /**
@@ -28,26 +28,27 @@ export class MessageHandler {
   }
 
   /**
-   * Handle an incoming Discord message.
-   * @param {import('discord.js').Message} message
+   * Handle a platform-neutral incoming message request.
+   * @param {import('../platforms/contracts.js').IncomingMessageRequest} request
    */
-  async handle(message) {
+  async handle({ message, channel, botId }) {
     try {
-      const botId = message.client.user.id;
-      const platformChannelId = message.platformChannelId ?? message.channelId;
-
       // 1. Filter (봇 자신 / 빈 메시지 / 미활성화 채널 제외)
       if (!(await this.shouldHandle(message, botId))) return;
 
-      // 3. Save user message immediately and get channel record
+      // 2. Save user message immediately and get channel record
       const channelRecord = await this.saveMessage(message);
 
-      // 4. Cancel any processing generation for this channel
+      // 3. Cancel any processing generation for this channel
       // (New message interrupts previous generation context conceptually)
       await this.generationRepository.cancelProcessing(channelRecord.id);
 
-      // 5. Add to Buffer
-      this.conversationBuffer.add(platformChannelId, message.channel, botId);
+      // 4. Add to Buffer
+      this.conversationBuffer.add(
+        message.platformChannelId,
+        channel,
+        botId,
+      );
     } catch (error) {
       logger.error({ err: error }, "MessageHandler error");
     }
@@ -61,15 +62,15 @@ export class MessageHandler {
    * @returns {Promise<boolean>}
    */
   async shouldHandle(message, botId) {
-    if (message.author.id === botId) return false;
+    if (message.author.isBot) return false;
+    if (message.author.platformUserId === botId) return false;
     if (!message.content.trim()) return false;
 
     // 채널 레코드가 DB에 없으면 미활성화 채널로 간주
     if (this.channelRepository) {
-      const platformChannelId = message.platformChannelId ?? message.channelId;
       const channel = await this.channelRepository.findByPlatformId(
         message.platform,
-        platformChannelId,
+        message.platformChannelId,
       );
       if (!channel) return false;
     }
@@ -79,7 +80,7 @@ export class MessageHandler {
 
   /**
    * Save a message to the database.
-   * @param {import('discord.js').Message} message
+   * @param {import('../platforms/contracts.js').NormalizedMessage} message
    * @returns {Promise<Object>} The channel record
    */
   async saveMessage(message) {
