@@ -75,7 +75,7 @@ const { SequenceBuilder } = await import(
 const { ChatContextPreparer } = await import(
   "../../src/chat/context/ChatContextPreparer.js"
 );
-const { AiRuntime } = await import("../../src/ai/AiRuntime.js");
+const { ChatGenerator } = await import("../../src/ai/ChatGenerator.js");
 const { ChatFlow } = await import("../../src/chat/ChatFlow.js");
 const { AppEvents, EventBus } = await import("../../src/core/EventBus.js");
 const { createMockChannel, createMockClient } = await import(
@@ -316,13 +316,8 @@ function createHarness({ generateTextFn }) {
     configManager,
     sequenceBuilder,
   );
-  const aiRuntime = new AiRuntime({
-    historyService,
+  const chatGenerator = new ChatGenerator({
     configManager,
-    promptComposer,
-    sequenceBuilder,
-    chatContextPreparer,
-    generationRepository,
     generateTextFn,
     createLanguageModelFn: () => ({ modelId: "fake-model" }),
   });
@@ -335,7 +330,8 @@ function createHarness({ generateTextFn }) {
     generationRepository,
     channelRepository,
     messageRepository,
-    aiRuntime,
+    chatContextPreparer,
+    chatGenerator,
     messageSender,
     configManager,
     { eventBus },

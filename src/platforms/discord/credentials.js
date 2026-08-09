@@ -5,7 +5,7 @@ import { getRequiredCharacterId } from "../../character/config.js";
  * @returns {string}
  */
 export function getDiscordTokenEnvKey(characterId) {
-  return `DISCORD_${characterId.toUpperCase().replaceAll("-", "_")}_TOKEN`;
+  return `AIMATE_DISCORD_${characterId.toUpperCase().replaceAll("-", "_")}_TOKEN`;
 }
 
 /**

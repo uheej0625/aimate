@@ -5,7 +5,8 @@ import { ChannelRepository } from "../repositories/ChannelRepository.js";
 import { ServerRepository } from "../repositories/ServerRepository.js";
 import { GenerationRepository } from "../repositories/GenerationRepository.js";
 import { CronJobRepository } from "../repositories/CronJobRepository.js";
-import { AiRuntime } from "../ai/AiRuntime.js";
+import { ChatGenerator } from "../ai/ChatGenerator.js";
+import { ImageGenerator } from "../ai/ImageGenerator.js";
 import { HistoryService } from "../messages/HistoryService.js";
 import { MessageService } from "../messages/MessageService.js";
 import { BotAccountService } from "../accounts/BotAccountService.js";
@@ -26,6 +27,7 @@ import { MessageSender } from "../messages/MessageSender.js";
 import { ChatFlow } from "../chat/ChatFlow.js";
 import { AppEvents, EventBus } from "./EventBus.js";
 import { ToolRegistry } from "../tools/ToolRegistry.js";
+import { ToolExecutionContextFactory } from "../tools/ToolExecutionContextFactory.js";
 import { createLogger } from "./logger.js";
 
 const logger = createLogger("Container");
@@ -66,6 +68,15 @@ export async function createContainer({ configManager, client = null }) {
   const platformClients = new Map();
   if (client) platformClients.set("discord", client);
 
+  const imageGenerator = new ImageGenerator(configManager);
+  const toolContextFactory = new ToolExecutionContextFactory({
+    configManager,
+    cronJobScheduler,
+    imageGenerator,
+    generationRepository,
+    platformClients,
+  });
+
   // Services (business logic layer)
   const historyService = new HistoryService(
     messageRepository,
@@ -86,18 +97,12 @@ export async function createContainer({ configManager, client = null }) {
     configManager,
     sequenceBuilder,
   );
-  const aiRuntime = new AiRuntime({
-    historyService,
+  const chatGenerator = new ChatGenerator({
     configManager,
     toolRegistry,
-    promptComposer,
-    sequenceBuilder,
     responseParser,
     generatedImageTagPolicy,
-    chatContextPreparer,
-    platformClients,
-    generationRepository,
-    cronJobScheduler,
+    toolContextFactory,
   });
   const messageService = new MessageService(
     userRepository,
@@ -154,7 +159,8 @@ export async function createContainer({ configManager, client = null }) {
     generationRepository,
     channelRepository,
     messageRepository,
-    aiRuntime,
+    chatContextPreparer,
+    chatGenerator,
     messageSender,
     configManager,
     { eventBus },
@@ -191,7 +197,7 @@ export async function createContainer({ configManager, client = null }) {
     cronJobRepository,
 
     // Services & Components
-    aiRuntime,
+    chatGenerator,
     historyService,
     messageService,
     botAccountService,
@@ -202,6 +208,8 @@ export async function createContainer({ configManager, client = null }) {
     responseParser,
     generatedImageTagPolicy,
     chatContextPreparer,
+    imageGenerator,
+    toolContextFactory,
 
     // Core
     eventBus,

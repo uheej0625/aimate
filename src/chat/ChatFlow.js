@@ -15,7 +15,8 @@ export class ChatFlow {
    * @param {import('../repositories/GenerationRepository.js').GenerationRepository} generationRepository
    * @param {import('../repositories/ChannelRepository.js').ChannelRepository} channelRepository
    * @param {import('../repositories/MessageRepository.js').MessageRepository} messageRepository
-   * @param {import('../ai/AiRuntime.js').AiRuntime} aiRuntime
+   * @param {import('./context/ChatContextPreparer.js').ChatContextPreparer} chatContextPreparer
+   * @param {import('../ai/ChatGenerator.js').ChatGenerator} chatGenerator
    * @param {import('../messages/MessageSender.js').MessageSender} messageSender
    * @param {import('../config/ConfigManager.js').default} configManager
    * @param {Object} [options]
@@ -27,12 +28,14 @@ export class ChatFlow {
     generationRepository,
     channelRepository,
     messageRepository,
-    aiRuntime,
+    chatContextPreparer,
+    chatGenerator,
     messageSender,
     configManager,
     { eventBus, generationLifecycle, failureHandler } = {},
   ) {
-    this.aiRuntime = aiRuntime;
+    this.chatContextPreparer = chatContextPreparer;
+    this.chatGenerator = chatGenerator;
     this.messageSender = messageSender;
     this.eventBus = eventBus ?? new EventBus();
     this.generationLifecycle =
@@ -80,7 +83,7 @@ export class ChatFlow {
 
       // 2. Prepare Context
       const { context, systemInstruction, messageIds, inputMessages } =
-        await this.aiRuntime.prepareContext(
+        await this.chatContextPreparer.prepare(
           channelRecord.id,
           botId,
           channelRecord,
@@ -110,7 +113,7 @@ export class ChatFlow {
       }
 
       // 5. Generate and parse the response
-      const aiResult = await this.aiRuntime.generateChat(
+      const aiResult = await this.chatGenerator.generate(
         context,
         systemInstruction,
         channel.platform,

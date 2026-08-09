@@ -28,14 +28,17 @@ test("ChatFlow tests", async (t) => {
     upsert: async () => ({ id: "channel-123" }),
   };
 
-  const baseAiRuntime = {
-    prepareContext: async () => ({
+  const baseChatContextPreparer = {
+    prepare: async () => ({
       context: [],
       systemInstruction: "You are a bot",
       messageIds: ["msg-1"],
       inputMessages: ["hello"],
     }),
-    generateChat: async () => ({ messages: ["Hello explorer!"] }),
+  };
+
+  const baseChatGenerator = {
+    generate: async () => ({ messages: ["Hello explorer!"] }),
   };
 
   const baseMessageRepository = {
@@ -58,7 +61,8 @@ test("ChatFlow tests", async (t) => {
     generationRepository = baseGenerationRepository,
     channelRepository = baseChannelRepository,
     messageRepository = baseMessageRepository,
-    aiRuntime = baseAiRuntime,
+    chatContextPreparer = baseChatContextPreparer,
+    chatGenerator = baseChatGenerator,
     messageSender = baseMessageSender,
     configManager = baseConfigManager,
     eventBus = new EventBus(),
@@ -67,7 +71,8 @@ test("ChatFlow tests", async (t) => {
       generationRepository,
       channelRepository,
       messageRepository,
-      aiRuntime,
+      chatContextPreparer,
+      chatGenerator,
       messageSender,
       configManager,
       { eventBus },
@@ -120,14 +125,14 @@ test("ChatFlow tests", async (t) => {
   await t.test(
     "execute should handle AI generation failure gracefully",
     async () => {
-      const aiRuntime = {
-        ...baseAiRuntime,
-        generateChat: async () => {
+      const chatGenerator = {
+        ...baseChatGenerator,
+        generate: async () => {
           throw new Error("AI Timeout or failure");
         },
       };
 
-      const chatFlow = createChatFlow({ aiRuntime });
+      const chatFlow = createChatFlow({ chatGenerator });
 
       await assert.doesNotReject(
         chatFlow.execute({ platform: "discord", id: "12345" }, "bot-1"),
@@ -144,9 +149,9 @@ test("ChatFlow tests", async (t) => {
       serviceUnavailablePayload = payload;
     });
 
-    const aiRuntime = {
-      ...baseAiRuntime,
-      generateChat: async () => {
+    const chatGenerator = {
+      ...baseChatGenerator,
+      generate: async () => {
         const error = new Error("overloaded");
         error.status = 503;
         throw error;
@@ -161,7 +166,7 @@ test("ChatFlow tests", async (t) => {
     };
 
     const chatFlow = createChatFlow({
-      aiRuntime,
+      chatGenerator,
       messageSender,
       eventBus,
     });

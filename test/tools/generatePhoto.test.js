@@ -105,7 +105,7 @@ test("generate_photo uses plain photo generation for body-detail follow-ups", as
 
 function buildContext({ generateImage }) {
   return {
-    ai: { generateImage },
+    imageGenerator: { generate: generateImage },
     characterId: "test",
     configManager: {
       get: (key) => {
