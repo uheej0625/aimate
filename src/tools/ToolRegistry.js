@@ -9,6 +9,17 @@ const __dirname = path.dirname(__filename);
 const logger = createLogger("ToolRegistry");
 
 /**
+ * @typedef {Object} ToolDef
+ * @property {string} name
+ * @property {boolean} [enabled]
+ * @property {string[]} [platforms]
+ * @property {string[]} [requires]
+ * @property {string} description
+ * @property {Object} inputSchema
+ * @property {(input: Object, context: Object) => Promise<unknown>} execute
+ */
+
+/**
  * ToolRegistry
  *
  * 모든 툴 정의를 관리하고, 실행 컨텍스트(platform, 자격증명)에 따라

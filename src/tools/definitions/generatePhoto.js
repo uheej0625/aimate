@@ -2,7 +2,7 @@ import { jsonSchema } from "ai";
 import { executeImageGenerationTool } from "../ImageGenerationToolRunner.js";
 import { resolveCharacterFileById } from "../../character/config.js";
 
-/** @type {import('../ActionRegistry.js').ToolDef} */
+/** @type {import('../ToolRegistry.js').ToolDef} */
 export default {
   name: "generate_photo",
   enabled: true,

@@ -20,7 +20,7 @@ export class ConversationBuffer {
 
   /**
    * Add a request to the buffer.
-   * @param {import('./contracts.js').ConversationRequest} request
+   * @param {import('../application/contracts.js').ConversationRequest} request
    */
   add(request) {
     const key = this.getKey(request.channel);
@@ -50,7 +50,7 @@ export class ConversationBuffer {
 
   /**
    * Clear buffer for a channel immediately (e.g. on manual trigger or command)
-   * @param {import('../platforms/contracts.js').ChannelPort} channel
+   * @param {import('../application/contracts.js').ChannelPort} channel
    */
   clear(channel) {
     const key = this.getKey(channel);

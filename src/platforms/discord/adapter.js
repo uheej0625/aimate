@@ -2,14 +2,14 @@
  * Discord 플랫폼 어댑터
  * Discord.js 객체를 플랫폼 독립적인 메시지와 채널 계약으로 변환한다.
  *
- * @see ../contracts.js
+ * @see ../../application/contracts.js
  */
 
 /**
  * Discord.js Message에서 저장·처리에 필요한 순수 데이터만 추출한다.
  *
  * @param {import('discord.js').Message} discordMessage
- * @returns {import('../contracts.js').NormalizedMessage}
+ * @returns {import('../../application/contracts.js').NormalizedMessage}
  */
 export function adaptMessageData(discordMessage) {
   return {
@@ -32,7 +32,7 @@ export function adaptMessageData(discordMessage) {
  * send()가 반환하는 메시지도 자동으로 표준 형식으로 래핑된다.
  *
  * @param {import('discord.js').TextBasedChannel} discordChannel
- * @returns {import('../contracts.js').ChannelPort}
+ * @returns {import('../../application/contracts.js').ChannelPort}
  */
 export function adaptChannel(discordChannel) {
   return {
@@ -50,7 +50,7 @@ export function adaptChannel(discordChannel) {
  * Discord.js Message를 MessageHandler 입력으로 변환한다.
  *
  * @param {import('discord.js').Message} discordMessage
- * @returns {import('../contracts.js').IncomingMessageRequest}
+ * @returns {import('../../application/contracts.js').IncomingMessageRequest}
  */
 export function adaptIncomingMessage(discordMessage) {
   return {

@@ -1,5 +1,5 @@
 /**
- * Platform-neutral message data used by the application layer.
+ * Platform-neutral message data used by application services.
  *
  * @typedef {Object} NormalizedMessage
  * @property {string} platform
@@ -41,6 +41,15 @@
  * @property {NormalizedMessage} message
  * @property {ChannelPort} channel
  * @property {string} botId
+ */
+
+/**
+ * A request to generate a response for one conversation.
+ *
+ * @typedef {Object} ConversationRequest
+ * @property {ChannelPort} channel
+ * @property {string} botId
+ * @property {string|null} [cronMessage]
  */
 
 export {};

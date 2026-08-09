@@ -28,7 +28,7 @@ export class MessageService {
    * Save a message to the database with all related entities.
    * Automatically creates/updates server, channel, and platform account as needed.
    *
-   * @param {import('../platforms/contracts.js').NormalizedMessage} message
+   * @param {import('../application/contracts.js').NormalizedMessage} message
    * @param {number} [generationId] - Optional generation ID to link message to
    * @param {Array} [attachments] - Optional structured attachment metadata
    * @returns {Promise<{message: Object, channel: Object, platformAccount: Object}>}

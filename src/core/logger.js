@@ -40,7 +40,7 @@ export function configureLogger(configManager) {
 
 /**
  * 모듈별 child logger를 생성한다.
- * @param {string} module - 모듈 이름 (e.g. "ChatFlow", "CronService")
+ * @param {string} module - 모듈 이름 (e.g. "ChatFlow", "CronJobWorker")
  * @returns {import('pino').Logger}
  */
 export function createLogger(module) {

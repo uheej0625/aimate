@@ -10,5 +10,7 @@ content/image
 content/prompts/ultimate
 content/prompts/experimental
 content/prompts/legacy
-docs/
+docs/*
+!docs/architecture.md
+!docs/cron-guide.md
 AGENTS.md

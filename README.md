@@ -68,7 +68,7 @@ CLI는 전체 화면 TUI로 실행되며 대화 채널과 히스토리가 데이
 
 ### 크론 스케줄링
 
-봇이 스스로 특정 시간에 메시지를 보내거나 작업을 예약할 수 있습니다. LLM이 대화 중에 직접 `registerCron` 도구를 호출해서 일정을 잡습니다.
+봇이 스스로 특정 시간에 메시지를 보내거나 작업을 예약할 수 있습니다. LLM이 대화 중에 `register_cron_job` 도구를 호출해서 일정을 잡습니다.
 
 ### 도구 (Tools)
 
@@ -113,23 +113,32 @@ xAI Responses API의 서버사이드 도구는 AiMate의 일반 도구(`getTime`
 
 ```txt
 src/
-├── application/   # 플랫폼 진입점에서 사용하는 애플리케이션 유스케이스
+├── application/   # 플랫폼 독립 계약과 애플리케이션 유스케이스
 ├── ai/            # Vercel AI SDK 런타임, 모델, 채팅·이미지 생성
+├── accounts/      # 봇 계정 초기화
 ├── character/     # 캐릭터 컨텍스트 구성
 ├── chat/          # 대화 흐름, 프롬프트 조립, 응답 파싱
+├── config/        # 설정 로드와 검증
 ├── core/          # DI 컨테이너, 이벤트, 로깅, 종료 처리
+├── database/      # Prisma 클라이언트
 ├── messages/      # 메시지 저장, 히스토리, 전송
 ├── platforms/     # Discord / CLI 어댑터
 ├── repositories/  # Prisma 데이터 접근
 ├── scheduling/    # 예약 작업과 재시도
-└── tools/         # LLM 도구 정의 및 실행
+├── tools/         # LLM 도구 정의 및 실행
+└── utils/         # 템플릿과 런타임 유틸리티
 
 content/
 ├── characters/    # 캐릭터별 정의 (<character>/identity.md 등)
 └── prompts/       # 시스템 프롬프트 템플릿
 ```
 
-각 플랫폼(Discord, CLI)은 들어오는 메시지를 동일한 내부 포맷으로 변환한 뒤 동일한 처리 흐름을 탑니다. 내부 메시지와 채널 계약은 [`src/platforms/contracts.js`](src/platforms/contracts.js)를 참조하세요.
+각 플랫폼은 외부 객체를
+[`src/application/contracts.js`](src/application/contracts.js)의 내부 계약으로
+변환한 뒤 동일한 처리 흐름을 탑니다. 플랫폼 진입점은 애플리케이션
+유스케이스만 호출하며 Repository에 직접 접근하지 않습니다. 자세한 의존
+방향과 메시지 처리 흐름은 [`docs/architecture.md`](docs/architecture.md), 예약
+작업은 [`docs/cron-guide.md`](docs/cron-guide.md)를 참조하세요.
 
 ---
 
@@ -139,7 +148,7 @@ content/
 - **Database**: Prisma + SQLite
 - **AI**: Vercel AI SDK
 - **Platforms**: discord.js, CLI
-- **기타**: pino (로깅), node-cron (스케줄링), jsdom + @mozilla/readability (URL 파싱)
+- **기타**: pino (로깅), Node.js 타이머 (예약 작업 폴링), jsdom + @mozilla/readability (URL 파싱)
 
 ---
 

@@ -6,7 +6,7 @@ const logger = createLogger("MessageHandler");
  * Entry point for handling incoming messages.
  * Orchestrates flow: Filter -> Save -> Buffer
  *
- * @see ../platforms/contracts.js for the expected message shape
+ * @see ../application/contracts.js for the expected message shape
  */
 export class MessageHandler {
   /**
@@ -29,7 +29,7 @@ export class MessageHandler {
 
   /**
    * Handle a platform-neutral incoming message request.
-   * @param {import('../platforms/contracts.js').IncomingMessageRequest} request
+   * @param {import('../application/contracts.js').IncomingMessageRequest} request
    */
   async handle({ message, channel, botId }) {
     try {
@@ -76,7 +76,7 @@ export class MessageHandler {
 
   /**
    * Save a message to the database.
-   * @param {import('../platforms/contracts.js').NormalizedMessage} message
+   * @param {import('../application/contracts.js').NormalizedMessage} message
    * @returns {Promise<Object>} The channel record
    */
   async saveMessage(message) {

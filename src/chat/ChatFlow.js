@@ -36,7 +36,7 @@ export class ChatFlow {
 
   /**
    * Execute the conversation logic.
-   * @param {import('./contracts.js').ConversationRequest} request
+   * @param {import('../application/contracts.js').ConversationRequest} request
    */
   async execute({ channel, botId, cronMessage = null }) {
     let generation;

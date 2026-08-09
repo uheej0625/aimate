@@ -32,7 +32,7 @@ export class MessageSender {
   /**
    * Send a single text chunk with typing indicator and delay.
    * Returns true if sent successfully, false if the generation was cancelled.
-   * @param {import('../platforms/contracts.js').ChannelPort} channel
+   * @param {import('../application/contracts.js').ChannelPort} channel
    * @param {string} text
    * @param {string} generationId - Generation ID to check for cancellation
    * @returns {Promise<boolean>}
@@ -82,7 +82,7 @@ export class MessageSender {
   /**
    * Send a full response, splitting by the configured break tag.
    * Convenience wrapper that delegates each chunk to sendChunk.
-   * @param {import('../platforms/contracts.js').ChannelPort} channel
+   * @param {import('../application/contracts.js').ChannelPort} channel
    * @param {string} responseText
    * @param {string} generationId - Generation ID to check for cancellation
    */

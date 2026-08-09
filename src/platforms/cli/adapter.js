@@ -2,7 +2,7 @@
  * CLI 플랫폼 어댑터
  * CLI에서 생성된 원시 데이터를 플랫폼 독립적인 계약으로 변환한다.
  *
- * @see ../contracts.js
+ * @see ../../application/contracts.js
  */
 
 /**
@@ -18,7 +18,7 @@
  * @param {string} raw.author.username
  * @param {string|null} [raw.author.globalName]
  * @param {boolean} [raw.author.bot]
- * @returns {import('../contracts.js').NormalizedMessage}
+ * @returns {import('../../application/contracts.js').NormalizedMessage}
  */
 export function adaptMessageData(raw) {
   return {
@@ -40,9 +40,9 @@ export function adaptMessageData(raw) {
  * CLI 원시 메시지를 MessageHandler 입력으로 변환한다.
  *
  * @param {Object} raw
- * @param {import('../contracts.js').ChannelPort} raw.channel
+ * @param {import('../../application/contracts.js').ChannelPort} raw.channel
  * @param {{user: {id: string}}} raw.client
- * @returns {import('../contracts.js').IncomingMessageRequest}
+ * @returns {import('../../application/contracts.js').IncomingMessageRequest}
  */
 export function adaptIncomingMessage(raw) {
   return {
