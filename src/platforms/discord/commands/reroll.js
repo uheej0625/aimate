@@ -13,13 +13,10 @@ export default {
    * 해당 Generation에 속한 봇의 메시지를 모두 삭제하고 재생성합니다.
    * @param {import("discord.js").MessageContextMenuCommandInteraction} interaction
    */
-  async execute(interaction) {
+  async execute(interaction, { messageRepository, chatFlow }) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     const targetMessage = interaction.targetMessage;
-    const messageRepository = interaction.client.services.messageRepository;
-    const chatFlow = interaction.client.services.chatFlow;
-
     // DB에서 대상 메시지 조회
     const dbMessage = await messageRepository.findByPlatformId(
       "discord",

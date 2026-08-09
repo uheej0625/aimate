@@ -11,9 +11,9 @@ configureLogger(configManager);
 
 const { default: client } = await import("./client.js");
 const { getRequiredDiscordToken } = await import("./credentials.js");
-const { loadEvents } = await import("./handlers/eventHandler.js");
-const { loadCommands } = await import("./handlers/commandHandler.js");
-const { createContainer } = await import("../../core/container.js");
+const { createDiscordApplication } = await import(
+  "./createDiscordApplication.js"
+);
 const { registerShutdown } = await import("../../core/shutdown.js");
 const { createLogger } = await import("../../core/logger.js");
 
@@ -23,30 +23,18 @@ const main = async () => {
   try {
     logger.info("Starting AiMate");
 
-    // Initialize DI Container
-    const container = await createContainer({ configManager, client });
-
-    // Attach services to client for access in events
-    client.services = container;
+    const app = await createDiscordApplication({ configManager, client });
 
     // Register graceful shutdown
     registerShutdown({
-      conversationBuffer: container.conversationBuffer,
-      cronJobWorker: container.cronJobWorker,
+      conversationBuffer: app.conversationBuffer,
+      cronJobWorker: app.cronJobWorker,
       configManager,
       client,
     });
 
-    // Load Events
-    await loadEvents(client);
-
-    // Load Commands
-    await loadCommands(client);
-
     // Start CronJobWorker
-    if (container.cronJobWorker) {
-      container.cronJobWorker.start();
-    }
+    app.cronJobWorker.start();
 
     // Login
     await client.login(getRequiredDiscordToken(configManager));

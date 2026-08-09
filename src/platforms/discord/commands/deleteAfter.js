@@ -96,15 +96,13 @@ export default {
    * 대상 메세지 포함, 이후의 모든 메세지를 삭제합니다
    * @param {import("discord.js").MessageContextMenuCommandInteraction} interaction
    */
-  async execute(interaction) {
+  async execute(interaction, { messageRepository }) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     // partial 채널은 bulkDelete가 없으므로 fetch로 완전한 객체를 가져옴
     const channel = await interaction.client.channels.fetch(
       interaction.channelId,
     );
-    const { messageRepository } = interaction.client.services;
-
     const messages = await fetchMessagesFromTarget(
       channel,
       interaction.targetMessage,

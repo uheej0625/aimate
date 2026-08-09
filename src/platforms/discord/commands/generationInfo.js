@@ -9,10 +9,9 @@ export default {
    * 메시지 생성 정보를 확인합니다
    * @param {import("discord.js").MessageContextMenuCommandInteraction} interaction
    */
-  async execute(interaction) {
+  async execute(interaction, { messageRepository }) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-    const { messageRepository } = interaction.client.services;
     const target = interaction.targetMessage;
 
     // DB에서 메시지 조회 (generation 포함)

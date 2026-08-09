@@ -12,6 +12,7 @@ import { MessageService } from "../messages/MessageService.js";
 import { BotAccountService } from "../accounts/BotAccountService.js";
 import { CronJobScheduler } from "../scheduling/CronJobScheduler.js";
 import { CronJobWorker } from "../scheduling/CronJobWorker.js";
+import { registerRetryPolicy } from "../scheduling/registerRetryPolicy.js";
 import { CharacterContextBuilder } from "../character/CharacterContextBuilder.js";
 import { PromptComposer } from "../chat/context/PromptComposer.js";
 import { SequenceBuilder } from "../chat/context/SequenceBuilder.js";
@@ -25,23 +26,19 @@ import { MessageHandler } from "../messages/MessageHandler.js";
 import { ConversationBuffer } from "../chat/ConversationBuffer.js";
 import { MessageSender } from "../messages/MessageSender.js";
 import { ChatFlow } from "../chat/ChatFlow.js";
-import { AppEvents, EventBus } from "./EventBus.js";
+import { EventBus } from "./EventBus.js";
 import { ToolRegistry } from "../tools/ToolRegistry.js";
 import { ToolExecutionContextFactory } from "../tools/ToolExecutionContextFactory.js";
-import { createLogger } from "./logger.js";
-
-const logger = createLogger("Container");
 
 /**
- * Dependency Injection Container
- * Creates and wires up all application services with their dependencies.
- *
- * This ensures:
- * - No circular dependencies
- * - Single source of truth for instance creation
- * - Easy testing with mock dependencies
+ * Application composition root.
+ * Creates core services while platform bootstraps supply their adapters.
  */
-export async function createContainer({ configManager, client = null }) {
+export async function createContainer({
+  configManager,
+  platformClients = new Map(),
+  platformDispatchers = new Map(),
+}) {
   if (!configManager) {
     throw new Error("createContainer requires a configManager.");
   }
@@ -59,14 +56,11 @@ export async function createContainer({ configManager, client = null }) {
   const cronJobRepository = new CronJobRepository();
   const cronJobScheduler = new CronJobScheduler(cronJobRepository);
   const eventBus = new EventBus();
+  registerRetryPolicy({ eventBus, cronJobScheduler });
 
   // Tools (function calling)
   const toolRegistry = new ToolRegistry(configManager);
   await toolRegistry.loadFromDirectory();
-
-  // platformClients: platform ID → 클라이언트 인스턴스 (discord client 등)
-  const platformClients = new Map();
-  if (client) platformClients.set("discord", client);
 
   const imageGenerator = new ImageGenerator(configManager);
   const toolContextFactory = new ToolExecutionContextFactory({
@@ -113,7 +107,7 @@ export async function createContainer({ configManager, client = null }) {
     generationRepository,
   );
 
-  // Core Components (New Architecture)
+  // Message delivery
   const messageSender = new MessageSender(
     messageService,
     generationRepository,
@@ -122,36 +116,6 @@ export async function createContainer({ configManager, client = null }) {
       generatedImageAttachmentResolver: new GeneratedImageAttachmentResolver(
         generationRepository,
       ),
-    },
-  );
-
-  eventBus.on(
-    AppEvents.GenerationServiceUnavailable,
-    async ({ channelRecord, platform }) => {
-      // Discord status update
-      if (client) {
-        const fallbackStatus =
-          configManager.get("discord.fallbackStatus") || "dnd";
-        await client.user.setStatus(fallbackStatus);
-        logger.info({ status: fallbackStatus }, "Bot status changed");
-      }
-
-      // Schedule retry cron job if channel context is available
-      if (channelRecord) {
-        try {
-          await cronJobScheduler.registerRetryJob(
-            channelRecord.id,
-            platform,
-            0, // retryCount starts at 0
-          );
-          logger.info(
-            { channelId: channelRecord.id },
-            "Retry cron job scheduled",
-          );
-        } catch (cronError) {
-          logger.error({ err: cronError }, "Failed to schedule retry");
-        }
-      }
     },
   );
 
@@ -171,7 +135,7 @@ export async function createContainer({ configManager, client = null }) {
   const cronJobWorker = new CronJobWorker(
     cronJobRepository,
     conversationBuffer,
-    platformClients,
+    platformDispatchers,
   );
 
   const messageHandler = new MessageHandler(
@@ -187,38 +151,14 @@ export async function createContainer({ configManager, client = null }) {
   );
 
   return {
-    // Repositories
     messageRepository,
-    userRepository,
-    platformAccountRepository,
     channelRepository,
     serverRepository,
-    generationRepository,
-    cronJobRepository,
-
-    // Services & Components
-    chatGenerator,
-    historyService,
-    messageService,
     botAccountService,
-    cronJobScheduler,
     cronJobWorker,
-    configManager,
-    sequenceBuilder,
-    responseParser,
-    generatedImageTagPolicy,
-    chatContextPreparer,
-    imageGenerator,
-    toolContextFactory,
-
-    // Core
     eventBus,
     messageHandler,
     conversationBuffer,
     chatFlow,
-    messageSender,
-
-    // Tools
-    toolRegistry,
   };
 }

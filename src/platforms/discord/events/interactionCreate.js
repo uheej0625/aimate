@@ -9,7 +9,7 @@ const logger = createLogger("Discord:Interaction");
  */
 export default {
   name: Events.InteractionCreate,
-  async execute(interaction, client) {
+  async execute(interaction, { client }) {
     // 슬래시 커맨드 또는 메시지 컨텍스트 메뉴 커맨드만 처리
     if (
       !interaction.isChatInputCommand() &&

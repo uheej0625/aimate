@@ -18,12 +18,10 @@ export default {
           { name: "채널", value: "channel" },
         ),
     ),
-  async execute(interaction) {
+  async execute(interaction, { channelRepository, serverRepository }) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     const scope = interaction.options.getString("스코프");
-    const { channelRepository, serverRepository } = interaction.client.services;
-
     try {
       let serverId = null;
 

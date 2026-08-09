@@ -3,8 +3,8 @@ import { adaptMessage } from "../adapter.js";
 
 export default {
   name: Events.MessageCreate,
-  async execute(message, client) {
+  async execute(message, { messageHandler }) {
     const adapted = adaptMessage(message);
-    await client.services.messageHandler.handle(adapted);
+    await messageHandler.handle(adapted);
   },
 };

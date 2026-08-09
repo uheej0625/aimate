@@ -24,7 +24,15 @@ test("CronJobWorker dispatches a due job and marks it executed", async () => {
     {
       add: (...args) => buffered.push(args),
     },
-    new Map([["cli", { user: { id: "cli-bot" } }]]),
+    new Map([
+      [
+        "cli",
+        {
+          resolveChannel: async (job) => job.channel,
+          getBotId: () => "cli-bot",
+        },
+      ],
+    ]),
   );
   const job = {
     id: 3,

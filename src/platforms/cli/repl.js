@@ -19,8 +19,13 @@ function makeTitle(messages) {
 }
 
 /** Start the persistent multi-conversation terminal UI. */
-export async function startRepl({ container, mockClient, onQuit = null }) {
-  const { channelRepository, messageRepository, messageHandler } = container;
+export async function startRepl({
+  channelRepository,
+  messageRepository,
+  messageHandler,
+  mockClient,
+  onQuit = null,
+}) {
   const tui = new ChatTui();
   const channelObjects = new Map();
 

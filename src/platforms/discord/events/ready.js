@@ -10,7 +10,7 @@ const logger = createLogger("Discord:Ready");
 export default {
   name: Events.ClientReady,
   once: true,
-  async execute(client) {
+  async execute(client, { botAccountService }) {
     logger.info(
       {
         tag: client.user.tag,
@@ -22,8 +22,7 @@ export default {
 
     // Initialize bot's platform account
     try {
-      const { botAccountService } = client.services;
-      const { account, created } = await botAccountService.initBotAccount({
+      await botAccountService.initBotAccount({
         platform: "discord",
         platformId: client.user.id,
         handle: client.user.username,

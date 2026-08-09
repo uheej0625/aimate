@@ -1,4 +1,3 @@
-import { adaptChannel as adaptDiscordChannel } from "../platforms/discord/adapter.js";
 import { createLogger } from "../core/logger.js";
 
 const logger = createLogger("CronJobWorker");
@@ -10,19 +9,19 @@ export class CronJobWorker {
   /**
    * @param {import('../repositories/CronJobRepository.js').CronJobRepository} cronJobRepository
    * @param {import('../chat/ConversationBuffer.js').ConversationBuffer} conversationBuffer
-   * @param {Map<string, any>} platformClients
+   * @param {Map<string, {resolveChannel: Function, getBotId: Function}>} platformDispatchers
    * @param {Object} [options]
    * @param {number} [options.pollInterval]
    */
   constructor(
     cronJobRepository,
     conversationBuffer,
-    platformClients = new Map(),
+    platformDispatchers = new Map(),
     { pollInterval = 5000 } = {},
   ) {
     this.cronJobRepository = cronJobRepository;
     this.conversationBuffer = conversationBuffer;
-    this.platformClients = platformClients;
+    this.platformDispatchers = platformDispatchers;
     this.pollInterval = pollInterval;
     this.intervalId = null;
     this.isRunning = false;
@@ -78,25 +77,15 @@ export class CronJobWorker {
 
     try {
       const platform = job.platform;
-      const client = this.platformClients.get(platform);
+      const dispatcher = this.platformDispatchers.get(platform);
 
-      if (!client) {
-        logger.error({ platform }, "No client found for platform");
+      if (!dispatcher) {
+        logger.error({ platform }, "No dispatcher found for platform");
         await this.cronJobRepository.updateStatus(job.id, "CANCELLED");
         return;
       }
 
-      let channel;
-      if (platform === "discord") {
-        const rawChannel = await client.channels.fetch(job.channel.platformId);
-        channel = adaptDiscordChannel(rawChannel);
-      } else if (platform === "cli") {
-        channel = job.channel;
-      } else {
-        logger.error({ platform }, "Unsupported platform");
-        await this.cronJobRepository.updateStatus(job.id, "CANCELLED");
-        return;
-      }
+      const channel = await dispatcher.resolveChannel(job);
 
       if (!channel) {
         logger.error(
@@ -107,7 +96,7 @@ export class CronJobWorker {
         return;
       }
 
-      const botId = client.user?.id ?? "bot";
+      const botId = (await dispatcher.getBotId(job)) ?? "bot";
       this.conversationBuffer.add(
         job.channel.platformId,
         channel,

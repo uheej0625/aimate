@@ -8,7 +8,7 @@ const logger = createLogger("Discord:CommandHandler");
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-export async function loadCommands(client) {
+export async function loadCommands(client, dependencies = {}) {
   const commandsPath = join(__dirname, "..", "commands");
   const commandFiles = readdirSync(commandsPath).filter((file) =>
     file.endsWith(".js"),
@@ -20,7 +20,11 @@ export async function loadCommands(client) {
     const commandModule = command.default || command;
 
     if ("data" in commandModule && "execute" in commandModule) {
-      client.commands.set(commandModule.data.name, commandModule);
+      client.commands.set(commandModule.data.name, {
+        ...commandModule,
+        execute: (interaction) =>
+          commandModule.execute(interaction, dependencies),
+      });
     } else {
       logger.warn(
         { file },

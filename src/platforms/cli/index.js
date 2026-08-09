@@ -21,8 +21,15 @@ const logger = createLogger("CLI");
 (async () => {
   logger.info("🔧 Initializing CLI Mode...");
 
-  const container = await createContainer({ configManager });
-  const { messageHandler, botAccountService } = container;
+  const mockClient = createMockClient({ botId: CLI_BOT_ID });
+  const platformClients = new Map([["cli", mockClient]]);
+  const container = await createContainer({ configManager, platformClients });
+  const {
+    messageHandler,
+    botAccountService,
+    channelRepository,
+    messageRepository,
+  } = container;
 
   // Register graceful shutdown
   registerShutdown({
@@ -44,6 +51,10 @@ const logger = createLogger("CLI");
     process.exit(1);
   }
 
-  const mockClient = createMockClient({ botId: CLI_BOT_ID });
-  await startRepl({ container, mockClient });
+  await startRepl({
+    channelRepository,
+    messageRepository,
+    messageHandler,
+    mockClient,
+  });
 })();

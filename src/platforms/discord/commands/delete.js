@@ -12,12 +12,10 @@ export default {
    * 메시지를 삭제합니다
    * @param {import("discord.js").MessageContextMenuCommandInteraction} interaction
    */
-  async execute(interaction) {
+  async execute(interaction, { messageRepository }) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     const targetMessage = interaction.targetMessage;
-    const messageRepository = interaction.client.services.messageRepository;
-
     // Discord에서 메시지 삭제
     try {
       await targetMessage.delete();
