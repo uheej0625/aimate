@@ -8,13 +8,13 @@ const logger = createLogger("Shutdown");
  *
  * @param {Object} options
  * @param {import('../chat/ConversationBuffer.js').ConversationBuffer} options.conversationBuffer
- * @param {import('../scheduling/CronService.js').CronService} [options.cronService]
+ * @param {import('../scheduling/CronJobWorker.js').CronJobWorker} [options.cronJobWorker]
  * @param {import('../config/ConfigManager.js').default} [options.configManager]
  * @param {import('discord.js').Client|null} [options.client] - Discord 클라이언트 (없으면 무시)
  */
 export function registerShutdown({
   conversationBuffer,
-  cronService = null,
+  cronJobWorker = null,
   configManager = null,
   client = null,
 }) {
@@ -26,10 +26,10 @@ export function registerShutdown({
 
     logger.info({ signal }, "Shutting down gracefully...");
 
-    // 1. CronService 중지
-    if (cronService) {
-      cronService.stop();
-      logger.info("CronService stopped");
+    // 1. CronJobWorker 중지
+    if (cronJobWorker) {
+      cronJobWorker.stop();
+      logger.info("CronJobWorker stopped");
     }
 
     // 2. 대기 중인 모든 타이머 정리

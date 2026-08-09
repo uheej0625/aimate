@@ -19,7 +19,7 @@ export class AiRuntime {
     chatContextPreparer = null,
     platformClients = new Map(),
     generationRepository = null,
-    getCronService = () => null,
+    cronJobScheduler = null,
     generateTextFn = undefined,
     createLanguageModelFn = undefined,
   }) {
@@ -29,7 +29,7 @@ export class AiRuntime {
     this.toolRegistry = toolRegistry;
     this.platformClients = platformClients;
     this.generationRepository = generationRepository;
-    this.getCronService = getCronService;
+    this.cronJobScheduler = cronJobScheduler;
     this.generateTextFn = generateTextFn;
     this.createLanguageModelFn = createLanguageModelFn;
     this.promptComposer = promptComposer ?? new PromptComposer(configManager);
@@ -88,7 +88,7 @@ export class AiRuntime {
       platformClient: this.platformClients.get(platform) ?? null,
       platformClients: this.platformClients,
       configManager: this.configManager,
-      cronService: this.getCronService(),
+      cronJobScheduler: this.cronJobScheduler,
       generationRepository: this.generationRepository,
       channel: channelRecord,
       requestCreatedAt: new Date(),

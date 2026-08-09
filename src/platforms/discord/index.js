@@ -32,7 +32,7 @@ const main = async () => {
     // Register graceful shutdown
     registerShutdown({
       conversationBuffer: container.conversationBuffer,
-      cronService: container.cronService,
+      cronJobWorker: container.cronJobWorker,
       configManager,
       client,
     });
@@ -43,9 +43,9 @@ const main = async () => {
     // Load Commands
     await loadCommands(client);
 
-    // Start CronService
-    if (container.cronService) {
-      container.cronService.start();
+    // Start CronJobWorker
+    if (container.cronJobWorker) {
+      container.cronJobWorker.start();
     }
 
     // Login

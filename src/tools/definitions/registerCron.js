@@ -37,13 +37,13 @@ export default {
    * @param {string} args.scheduledTime - ISO 8601 또는 상대 시간 (예: "1h", "30m")
    * @param {string} args.message - AI에게 전달할 메시지
    * @param {Object} ctx
-   * @param {Object} ctx.cronService - CronService 인스턴스
+   * @param {Object} ctx.cronJobScheduler - CronJobScheduler 인스턴스
    * @param {Object} ctx.channel - 채널 객체 (내부 Channel 레코드)
    * @param {Date} ctx.requestCreatedAt - 사용자 요청이 생성된 시각
    */
   execute: async (args, ctx) => {
-    if (!ctx.cronService) {
-      return { error: "CronService not available" };
+    if (!ctx.cronJobScheduler) {
+      return { error: "CronJobScheduler not available" };
     }
 
     if (!ctx.channel) {
@@ -58,7 +58,7 @@ export default {
       );
 
       // Cron job 등록
-      const job = await ctx.cronService.registerJob({
+      const job = await ctx.cronJobScheduler.registerJob({
         channelId: ctx.channel.id,
         platform: ctx.channel.platform,
         scheduledAt,

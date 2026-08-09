@@ -3,6 +3,7 @@ import assert from "node:assert";
 import { AiRuntime } from "../../src/ai/AiRuntime.js";
 
 test("AiRuntime keeps parsing helpers and context preparation focused", async () => {
+  const cronJobScheduler = {};
   const runtime = new AiRuntime({
     historyService: {},
     configManager: {
@@ -16,6 +17,7 @@ test("AiRuntime keeps parsing helpers and context preparation focused", async ()
         inputMessages: ["hello"],
       }),
     },
+    cronJobScheduler,
   });
 
   const prepared = await runtime.prepareContext("channel-1", "bot-1");
@@ -27,6 +29,10 @@ Hello [BREAK] Again
 `);
 
   assert.deepStrictEqual(parsed.messages, ["Hello", "Again"]);
+  assert.strictEqual(
+    runtime.createToolContext("cli").cronJobScheduler,
+    cronJobScheduler,
+  );
 });
 
 test("AiRuntime returns an ellipsis for empty chat context without model calls", async () => {

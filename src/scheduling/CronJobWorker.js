@@ -1,0 +1,125 @@
+import { adaptChannel as adaptDiscordChannel } from "../platforms/discord/adapter.js";
+import { createLogger } from "../core/logger.js";
+
+const logger = createLogger("CronJobWorker");
+
+/**
+ * Polls and executes scheduled jobs.
+ */
+export class CronJobWorker {
+  /**
+   * @param {import('../repositories/CronJobRepository.js').CronJobRepository} cronJobRepository
+   * @param {import('../chat/ConversationBuffer.js').ConversationBuffer} conversationBuffer
+   * @param {Map<string, any>} platformClients
+   * @param {Object} [options]
+   * @param {number} [options.pollInterval]
+   */
+  constructor(
+    cronJobRepository,
+    conversationBuffer,
+    platformClients = new Map(),
+    { pollInterval = 5000 } = {},
+  ) {
+    this.cronJobRepository = cronJobRepository;
+    this.conversationBuffer = conversationBuffer;
+    this.platformClients = platformClients;
+    this.pollInterval = pollInterval;
+    this.intervalId = null;
+    this.isRunning = false;
+  }
+
+  start() {
+    if (this.isRunning) {
+      logger.info("Already running");
+      return;
+    }
+
+    logger.info({ pollInterval: this.pollInterval }, "Starting CronJobWorker");
+    this.isRunning = true;
+    this.checkAndExecuteJobs();
+    this.intervalId = setInterval(() => {
+      this.checkAndExecuteJobs();
+    }, this.pollInterval);
+  }
+
+  stop() {
+    if (!this.isRunning) return;
+
+    logger.info("Stopping CronJobWorker");
+    this.isRunning = false;
+
+    if (this.intervalId) {
+      clearInterval(this.intervalId);
+      this.intervalId = null;
+    }
+  }
+
+  async checkAndExecuteJobs() {
+    try {
+      const pendingJobs = await this.cronJobRepository.getPendingJobs();
+      if (pendingJobs.length === 0) return;
+
+      logger.info({ count: pendingJobs.length }, "Found pending jobs");
+
+      for (const job of pendingJobs) {
+        try {
+          await this.executeJob(job);
+        } catch (error) {
+          logger.error({ err: error, jobId: job.id }, "Failed to execute job");
+        }
+      }
+    } catch (error) {
+      logger.error({ err: error }, "Error checking jobs");
+    }
+  }
+
+  async executeJob(job) {
+    logger.info({ jobId: job.id, type: job.type }, "Executing job");
+
+    try {
+      const platform = job.platform;
+      const client = this.platformClients.get(platform);
+
+      if (!client) {
+        logger.error({ platform }, "No client found for platform");
+        await this.cronJobRepository.updateStatus(job.id, "CANCELLED");
+        return;
+      }
+
+      let channel;
+      if (platform === "discord") {
+        const rawChannel = await client.channels.fetch(job.channel.platformId);
+        channel = adaptDiscordChannel(rawChannel);
+      } else if (platform === "cli") {
+        channel = job.channel;
+      } else {
+        logger.error({ platform }, "Unsupported platform");
+        await this.cronJobRepository.updateStatus(job.id, "CANCELLED");
+        return;
+      }
+
+      if (!channel) {
+        logger.error(
+          { platformId: job.channel.platformId },
+          "Channel not found",
+        );
+        await this.cronJobRepository.updateStatus(job.id, "CANCELLED");
+        return;
+      }
+
+      const botId = client.user?.id ?? "bot";
+      this.conversationBuffer.add(
+        job.channel.platformId,
+        channel,
+        botId,
+        job.message,
+      );
+
+      await this.cronJobRepository.updateStatus(job.id, "EXECUTED");
+      logger.info({ jobId: job.id }, "Job executed successfully");
+    } catch (error) {
+      logger.error({ err: error, jobId: job.id }, "Error executing job");
+      await this.cronJobRepository.updateStatus(job.id, "EXECUTED");
+    }
+  }
+}

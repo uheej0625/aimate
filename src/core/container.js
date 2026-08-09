@@ -9,7 +9,8 @@ import { AiRuntime } from "../ai/AiRuntime.js";
 import { HistoryService } from "../messages/HistoryService.js";
 import { MessageService } from "../messages/MessageService.js";
 import { BotAccountService } from "../accounts/BotAccountService.js";
-import { CronService } from "../scheduling/CronService.js";
+import { CronJobScheduler } from "../scheduling/CronJobScheduler.js";
+import { CronJobWorker } from "../scheduling/CronJobWorker.js";
 import { CharacterContextBuilder } from "../character/CharacterContextBuilder.js";
 import { PromptComposer } from "../chat/context/PromptComposer.js";
 import { SequenceBuilder } from "../chat/context/SequenceBuilder.js";
@@ -54,6 +55,7 @@ export async function createContainer({ configManager, client = null }) {
   const serverRepository = new ServerRepository();
   const generationRepository = new GenerationRepository(configManager);
   const cronJobRepository = new CronJobRepository();
+  const cronJobScheduler = new CronJobScheduler(cronJobRepository);
   const eventBus = new EventBus();
 
   // Tools (function calling)
@@ -64,15 +66,14 @@ export async function createContainer({ configManager, client = null }) {
   const platformClients = new Map();
   if (client) platformClients.set("discord", client);
 
-  // CronService는 나중에 초기화 (conversationBuffer 필요)
-  let cronService = null;
-
   // Services (business logic layer)
   const historyService = new HistoryService(
     messageRepository,
     historyMessageFormatter,
   );
-  const characterContextBuilder = new CharacterContextBuilder({ configManager });
+  const characterContextBuilder = new CharacterContextBuilder({
+    configManager,
+  });
   const promptComposer = new PromptComposer(
     configManager,
     characterContextBuilder,
@@ -96,7 +97,7 @@ export async function createContainer({ configManager, client = null }) {
     chatContextPreparer,
     platformClients,
     generationRepository,
-    getCronService: () => cronService,
+    cronJobScheduler,
   });
   const messageService = new MessageService(
     userRepository,
@@ -130,10 +131,10 @@ export async function createContainer({ configManager, client = null }) {
         logger.info({ status: fallbackStatus }, "Bot status changed");
       }
 
-      // Schedule retry cron job if cronService is available
-      if (cronService && channelRecord) {
+      // Schedule retry cron job if channel context is available
+      if (channelRecord) {
         try {
-          await cronService.registerRetryJob(
+          await cronJobScheduler.registerRetryJob(
             channelRecord.id,
             platform,
             0, // retryCount starts at 0
@@ -161,8 +162,7 @@ export async function createContainer({ configManager, client = null }) {
 
   const conversationBuffer = new ConversationBuffer(chatFlow, configManager);
 
-  // CronService 초기화 (conversationBuffer 준비 완료 후)
-  cronService = new CronService(
+  const cronJobWorker = new CronJobWorker(
     cronJobRepository,
     conversationBuffer,
     platformClients,
@@ -195,7 +195,8 @@ export async function createContainer({ configManager, client = null }) {
     historyService,
     messageService,
     botAccountService,
-    cronService,
+    cronJobScheduler,
+    cronJobWorker,
     configManager,
     sequenceBuilder,
     responseParser,
