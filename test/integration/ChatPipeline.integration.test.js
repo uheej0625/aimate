@@ -77,6 +77,12 @@ const { ChatContextPreparer } = await import(
 );
 const { ChatGenerator } = await import("../../src/ai/ChatGenerator.js");
 const { ChatFlow } = await import("../../src/chat/ChatFlow.js");
+const { ChatGenerationLifecycle } = await import(
+  "../../src/chat/ChatGenerationLifecycle.js"
+);
+const { ChatGenerationFailureHandler } = await import(
+  "../../src/chat/ChatGenerationFailureHandler.js"
+);
 const { AppEvents, EventBus } = await import("../../src/core/EventBus.js");
 const { createMockChannel, createMockClient } = await import(
   "../../src/platforms/cli/mocks.js"
@@ -112,7 +118,10 @@ test("chat pipeline persists history and multiple model-free replies", async () 
   });
   await harness.messageService.saveMessage(firstInput);
   await harness.messageService.saveMessage(firstInput);
-  await harness.chatFlow.execute(harness.channel, harness.botId);
+  await harness.chatFlow.execute({
+    channel: harness.channel,
+    botId: harness.botId,
+  });
 
   assert.deepStrictEqual(harness.sentMessages, ["첫 답장", "두 번째 답장"]);
   assert.match(modelRequests[0].system, /Fixture Character/);
@@ -125,7 +134,10 @@ test("chat pipeline persists history and multiple model-free replies", async () 
     content: "아까 뭐라고 했지?",
   });
   await harness.messageService.saveMessage(secondInput);
-  await harness.chatFlow.execute(harness.channel, harness.botId);
+  await harness.chatFlow.execute({
+    channel: harness.channel,
+    botId: harness.botId,
+  });
 
   assert.deepStrictEqual(harness.sentMessages, [
     "첫 답장",
@@ -195,7 +207,10 @@ test("chat pipeline marks a failed model call and sends a fallback", async () =>
   });
   await harness.messageService.saveMessage(input);
 
-  await harness.chatFlow.execute(harness.channel, harness.botId);
+  await harness.chatFlow.execute({
+    channel: harness.channel,
+    botId: harness.botId,
+  });
 
   const channel = await prisma.channel.findUnique({
     where: {
@@ -233,7 +248,10 @@ test("chat pipeline preserves cancellation before the model call", async () => {
   });
   await harness.messageService.saveMessage(input);
 
-  await harness.chatFlow.execute(harness.channel, harness.botId);
+  await harness.chatFlow.execute({
+    channel: harness.channel,
+    botId: harness.botId,
+  });
 
   const channel = await prisma.channel.findUnique({
     where: {
@@ -329,16 +347,25 @@ function createHarness({ generateTextFn }) {
     generationRepository,
     configManager,
   );
-  const chatFlow = new ChatFlow(
+  const generationLifecycle = new ChatGenerationLifecycle(
     generationRepository,
     channelRepository,
     messageRepository,
+    configManager,
+  );
+  const failureHandler = new ChatGenerationFailureHandler(
+    generationLifecycle,
+    messageSender,
+    eventBus,
+  );
+  const chatFlow = new ChatFlow({
     chatContextPreparer,
     chatGenerator,
     messageSender,
-    configManager,
-    { eventBus },
-  );
+    generationLifecycle,
+    failureHandler,
+    eventBus,
+  });
 
   return {
     botId,

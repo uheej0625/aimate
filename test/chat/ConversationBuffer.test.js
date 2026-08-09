@@ -8,25 +8,22 @@ test("ConversationBuffer tests", async (t) => {
   };
 
   await t.test("add should trigger chatFlow after timeout", async () => {
-    let executed = false;
+    let executedRequest = null;
     const mockChatFlow = {
-      execute: async () => {
-        executed = true;
+      execute: async (request) => {
+        executedRequest = request;
       },
     };
 
     const buffer = new ConversationBuffer(mockChatFlow, mockConfigManager);
-    buffer.add(
-      "chan-1",
-      { platform: "cli", platformChannelId: "chan-1" },
-      "bot-1",
-    );
+    const request = createRequest("cli", "chan-1", "bot-1");
+    buffer.add(request);
 
-    assert.strictEqual(executed, false, "Should not execute immediately");
+    assert.strictEqual(executedRequest, null, "Should not execute immediately");
 
     await new Promise((resolve) => setTimeout(resolve, 30));
 
-    assert.strictEqual(executed, true, "Should execute after timeout");
+    assert.strictEqual(executedRequest, request);
   });
 
   await t.test("add should debounce subsequent calls", async () => {
@@ -38,22 +35,31 @@ test("ConversationBuffer tests", async (t) => {
     };
 
     const buffer = new ConversationBuffer(mockChatFlow, mockConfigManager);
-    buffer.add(
-      "chan-2",
-      { platform: "cli", platformChannelId: "chan-2" },
-      "bot-1",
-    );
+    buffer.add(createRequest("cli", "chan-2", "bot-1"));
     
     await new Promise((resolve) => setTimeout(resolve, 5));
-    buffer.add(
-      "chan-2",
-      { platform: "cli", platformChannelId: "chan-2" },
-      "bot-1",
-    ); // reset timer
+    buffer.add(createRequest("cli", "chan-2", "bot-1")); // reset timer
 
     await new Promise((resolve) => setTimeout(resolve, 30));
 
     assert.strictEqual(callCount, 1, "Should only execute once if debounced");
+  });
+
+  await t.test("add should keep same channel IDs on different platforms separate", async () => {
+    let callCount = 0;
+    const mockChatFlow = {
+      execute: async () => {
+        callCount++;
+      },
+    };
+
+    const buffer = new ConversationBuffer(mockChatFlow, mockConfigManager);
+    buffer.add(createRequest("discord", "same-id", "discord-bot"));
+    buffer.add(createRequest("cli", "same-id", "cli-bot"));
+
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    assert.strictEqual(callCount, 2);
   });
 
   await t.test("clear should prevent execution", async () => {
@@ -65,15 +71,19 @@ test("ConversationBuffer tests", async (t) => {
     };
 
     const buffer = new ConversationBuffer(mockChatFlow, mockConfigManager);
-    buffer.add(
-      "chan-3",
-      { platform: "cli", platformChannelId: "chan-3" },
-      "bot-1",
-    );
-    buffer.clear("chan-3");
+    const request = createRequest("cli", "chan-3", "bot-1");
+    buffer.add(request);
+    buffer.clear(request.channel);
 
     await new Promise((resolve) => setTimeout(resolve, 30));
 
     assert.strictEqual(executed, false, "Should not execute if cleared");
   });
 });
+
+function createRequest(platform, platformChannelId, botId) {
+  return {
+    channel: { platform, platformChannelId },
+    botId,
+  };
+}

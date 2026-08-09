@@ -97,12 +97,11 @@ export class CronJobWorker {
       }
 
       const botId = (await dispatcher.getBotId(job)) ?? "bot";
-      this.conversationBuffer.add(
-        job.channel.platformId,
+      this.conversationBuffer.add({
         channel,
         botId,
-        job.message,
-      );
+        cronMessage: job.message,
+      });
 
       await this.cronJobRepository.updateStatus(job.id, "EXECUTED");
       logger.info({ jobId: job.id }, "Job executed successfully");

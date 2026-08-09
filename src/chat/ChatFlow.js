@@ -1,7 +1,5 @@
-import { AppEvents, EventBus } from "../core/EventBus.js";
+import { AppEvents } from "../core/EventBus.js";
 import { createLogger } from "../core/logger.js";
-import { ChatGenerationFailureHandler } from "./ChatGenerationFailureHandler.js";
-import { ChatGenerationLifecycle } from "./ChatGenerationLifecycle.js";
 
 const logger = createLogger("ChatFlow");
 
@@ -12,56 +10,35 @@ const logger = createLogger("ChatFlow");
  */
 export class ChatFlow {
   /**
-   * @param {import('../repositories/GenerationRepository.js').GenerationRepository} generationRepository
-   * @param {import('../repositories/ChannelRepository.js').ChannelRepository} channelRepository
-   * @param {import('../repositories/MessageRepository.js').MessageRepository} messageRepository
-   * @param {import('./context/ChatContextPreparer.js').ChatContextPreparer} chatContextPreparer
-   * @param {import('../ai/ChatGenerator.js').ChatGenerator} chatGenerator
-   * @param {import('../messages/MessageSender.js').MessageSender} messageSender
-   * @param {import('../config/ConfigManager.js').default} configManager
-   * @param {Object} [options]
-   * @param {import('../core/EventBus.js').EventBus} [options.eventBus]
-   * @param {import('./ChatGenerationLifecycle.js').ChatGenerationLifecycle} [options.generationLifecycle]
-   * @param {import('./ChatGenerationFailureHandler.js').ChatGenerationFailureHandler} [options.failureHandler]
+   * @param {Object} dependencies
+   * @param {import('./context/ChatContextPreparer.js').ChatContextPreparer} dependencies.chatContextPreparer
+   * @param {import('../ai/ChatGenerator.js').ChatGenerator} dependencies.chatGenerator
+   * @param {import('../messages/MessageSender.js').MessageSender} dependencies.messageSender
+   * @param {import('./ChatGenerationLifecycle.js').ChatGenerationLifecycle} dependencies.generationLifecycle
+   * @param {import('./ChatGenerationFailureHandler.js').ChatGenerationFailureHandler} dependencies.failureHandler
+   * @param {import('../core/EventBus.js').EventBus} dependencies.eventBus
    */
-  constructor(
-    generationRepository,
-    channelRepository,
-    messageRepository,
+  constructor({
     chatContextPreparer,
     chatGenerator,
     messageSender,
-    configManager,
-    { eventBus, generationLifecycle, failureHandler } = {},
-  ) {
+    generationLifecycle,
+    failureHandler,
+    eventBus,
+  }) {
     this.chatContextPreparer = chatContextPreparer;
     this.chatGenerator = chatGenerator;
     this.messageSender = messageSender;
-    this.eventBus = eventBus ?? new EventBus();
-    this.generationLifecycle =
-      generationLifecycle ??
-      new ChatGenerationLifecycle(
-        generationRepository,
-        channelRepository,
-        messageRepository,
-        configManager,
-      );
-    this.failureHandler =
-      failureHandler ??
-      new ChatGenerationFailureHandler(
-        this.generationLifecycle,
-        this.messageSender,
-        this.eventBus,
-      );
+    this.generationLifecycle = generationLifecycle;
+    this.failureHandler = failureHandler;
+    this.eventBus = eventBus;
   }
 
   /**
    * Execute the conversation logic.
-   * @param {import('../platforms/contracts.js').ChannelPort} channel
-   * @param {string} botId
-   * @param {string} [cronMessage] - Cron job에서 전달되는 시스템 메시지 (선택)
+   * @param {import('./contracts.js').ConversationRequest} request
    */
-  async execute(channel, botId, cronMessage = null) {
+  async execute({ channel, botId, cronMessage = null }) {
     let generation;
     let channelRecord;
 

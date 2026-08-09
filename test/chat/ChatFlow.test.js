@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert";
 import { ChatFlow } from "../../src/chat/ChatFlow.js";
 import { AppEvents, EventBus } from "../../src/core/EventBus.js";
+import { ChatGenerationFailureHandler } from "../../src/chat/ChatGenerationFailureHandler.js";
 import { prisma } from "../../src/database/client.js";
 
 test("ChatFlow tests", async (t) => {
@@ -12,20 +13,18 @@ test("ChatFlow tests", async (t) => {
     }, 10);
   });
 
-  const baseGenerationRepository = {
-    create: async () => ({ id: "gen-123" }),
-    updateDetails: async () => {},
-    updateStatus: async () => {},
-    checkAndUpdateStatus: async () => ({ shouldProceed: true }),
-  };
-
-  const baseChannelRepository = {
-    findByPlatformId: async () => ({
+  const baseGenerationLifecycle = {
+    findOrCreateChannel: async () => ({
       id: "channel-123",
       platform: "discord",
       platformId: "12345",
     }),
-    upsert: async () => ({ id: "channel-123" }),
+    startChatGeneration: async () => ({ id: "gen-123" }),
+    recordInput: async () => {},
+    markReadyToGenerate: async () => ({ shouldProceed: true }),
+    recordOutput: async () => {},
+    complete: async () => {},
+    fail: async () => {},
   };
 
   const baseChatContextPreparer = {
@@ -41,42 +40,30 @@ test("ChatFlow tests", async (t) => {
     generate: async () => ({ messages: ["Hello explorer!"] }),
   };
 
-  const baseMessageRepository = {
-    addGenerationId: async () => {},
-  };
-
   const baseMessageSender = {
     sendChunk: async () => true,
   };
 
-  const baseConfigManager = {
-    get: (key) => {
-      if (key === "discord.fallbackStatus") return "dnd";
-      if (key === "ai.chat.prompt") return "minimal";
-      return null;
-    },
-  };
-
   function createChatFlow({
-    generationRepository = baseGenerationRepository,
-    channelRepository = baseChannelRepository,
-    messageRepository = baseMessageRepository,
+    generationLifecycle = baseGenerationLifecycle,
     chatContextPreparer = baseChatContextPreparer,
     chatGenerator = baseChatGenerator,
     messageSender = baseMessageSender,
-    configManager = baseConfigManager,
     eventBus = new EventBus(),
+    failureHandler = new ChatGenerationFailureHandler(
+      generationLifecycle,
+      messageSender,
+      eventBus,
+    ),
   } = {}) {
-    return new ChatFlow(
-      generationRepository,
-      channelRepository,
-      messageRepository,
+    return new ChatFlow({
       chatContextPreparer,
       chatGenerator,
       messageSender,
-      configManager,
-      { eventBus },
-    );
+      generationLifecycle,
+      failureHandler,
+      eventBus,
+    });
   }
 
   await t.test(
@@ -91,19 +78,16 @@ test("ChatFlow tests", async (t) => {
       };
       const chatFlow = createChatFlow({ messageSender });
 
-      await chatFlow.execute(
-        { platform: "discord", platformChannelId: "12345" },
-        "bot-123",
-      );
+      await chatFlow.execute(createRequest());
 
       assert.strictEqual(sentMessage, "Hello explorer!");
     },
   );
 
   await t.test("execute should handle generation cancellation", async () => {
-    const generationRepository = {
-      ...baseGenerationRepository,
-      checkAndUpdateStatus: async () => ({ shouldProceed: false }),
+    const generationLifecycle = {
+      ...baseGenerationLifecycle,
+      markReadyToGenerate: async () => ({ shouldProceed: false }),
     };
 
     let sendChunkCalled = false;
@@ -114,12 +98,9 @@ test("ChatFlow tests", async (t) => {
       },
     };
 
-    const chatFlow = createChatFlow({ generationRepository, messageSender });
+    const chatFlow = createChatFlow({ generationLifecycle, messageSender });
 
-    await chatFlow.execute(
-      { platform: "discord", platformChannelId: "12345" },
-      "bot-1",
-    );
+    await chatFlow.execute(createRequest());
 
     assert.strictEqual(
       sendChunkCalled,
@@ -141,10 +122,7 @@ test("ChatFlow tests", async (t) => {
       const chatFlow = createChatFlow({ chatGenerator });
 
       await assert.doesNotReject(
-        chatFlow.execute(
-          { platform: "discord", platformChannelId: "12345" },
-          "bot-1",
-        ),
+        chatFlow.execute(createRequest()),
       );
     },
   );
@@ -180,10 +158,7 @@ test("ChatFlow tests", async (t) => {
       eventBus,
     });
 
-    await chatFlow.execute(
-      { platform: "discord", platformChannelId: "12345" },
-      "bot-1",
-    );
+    await chatFlow.execute(createRequest());
 
     assert.strictEqual(serviceUnavailablePayload.platform, "discord");
     assert.strictEqual(
@@ -197,3 +172,10 @@ test("ChatFlow tests", async (t) => {
     );
   });
 });
+
+function createRequest() {
+  return {
+    channel: { platform: "discord", platformChannelId: "12345" },
+    botId: "bot-1",
+  };
+}

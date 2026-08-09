@@ -26,6 +26,8 @@ import { MessageHandler } from "../messages/MessageHandler.js";
 import { ConversationBuffer } from "../chat/ConversationBuffer.js";
 import { MessageSender } from "../messages/MessageSender.js";
 import { ChatFlow } from "../chat/ChatFlow.js";
+import { ChatGenerationLifecycle } from "../chat/ChatGenerationLifecycle.js";
+import { ChatGenerationFailureHandler } from "../chat/ChatGenerationFailureHandler.js";
 import { EventBus } from "./EventBus.js";
 import { ToolRegistry } from "../tools/ToolRegistry.js";
 import { ToolExecutionContextFactory } from "../tools/ToolExecutionContextFactory.js";
@@ -118,16 +120,25 @@ export async function createContainer({
     },
   );
 
-  const chatFlow = new ChatFlow(
+  const generationLifecycle = new ChatGenerationLifecycle(
     generationRepository,
     channelRepository,
     messageRepository,
+    configManager,
+  );
+  const failureHandler = new ChatGenerationFailureHandler(
+    generationLifecycle,
+    messageSender,
+    eventBus,
+  );
+  const chatFlow = new ChatFlow({
     chatContextPreparer,
     chatGenerator,
     messageSender,
-    configManager,
-    { eventBus },
-  );
+    generationLifecycle,
+    failureHandler,
+    eventBus,
+  });
 
   const conversationBuffer = new ConversationBuffer(chatFlow, configManager);
 

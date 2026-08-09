@@ -77,7 +77,10 @@ export default {
     // 다시 ChatFlow 실행
     try {
       const adaptedChannel = adaptChannel(interaction.channel);
-      await chatFlow.execute(adaptedChannel, interaction.client.user.id);
+      await chatFlow.execute({
+        channel: adaptedChannel,
+        botId: interaction.client.user.id,
+      });
     } catch (err) {
       logger.error({ err }, "재생성(Reroll) 중 ChatFlow 실행 실패");
     }

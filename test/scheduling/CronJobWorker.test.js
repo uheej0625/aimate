@@ -17,6 +17,10 @@ test("CronJobWorker uses a five-second polling interval by default", () => {
 test("CronJobWorker dispatches a due job and marks it executed", async () => {
   const buffered = [];
   const statuses = [];
+  const channel = {
+    platform: "cli",
+    platformChannelId: "cli-channel",
+  };
   const cronJobWorker = new CronJobWorker(
     {
       updateStatus: async (id, status) => statuses.push({ id, status }),
@@ -28,7 +32,7 @@ test("CronJobWorker dispatches a due job and marks it executed", async () => {
       [
         "cli",
         {
-          resolveChannel: async (job) => job.channel,
+          resolveChannel: async () => channel,
           getBotId: () => "cli-bot",
         },
       ],
@@ -45,7 +49,7 @@ test("CronJobWorker dispatches a due job and marks it executed", async () => {
   await cronJobWorker.executeJob(job);
 
   assert.deepStrictEqual(buffered, [
-    ["cli-channel", job.channel, "cli-bot", "예약 메시지"],
+    [{ channel, botId: "cli-bot", cronMessage: "예약 메시지" }],
   ]);
   assert.deepStrictEqual(statuses, [{ id: 3, status: "EXECUTED" }]);
 });

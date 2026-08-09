@@ -44,11 +44,7 @@ export class MessageHandler {
       await this.generationRepository.cancelProcessing(channelRecord.id);
 
       // 4. Add to Buffer
-      this.conversationBuffer.add(
-        message.platformChannelId,
-        channel,
-        botId,
-      );
+      this.conversationBuffer.add({ channel, botId });
     } catch (error) {
       logger.error({ err: error }, "MessageHandler error");
     }

@@ -29,9 +29,11 @@ test("MessageHandler tests", async (t) => {
   );
 
   await t.test("handle should process message from a user", async () => {
-    let bufferAdded = false;
+    let bufferedRequest = null;
     const testMockBuffer = {
-      add: () => { bufferAdded = true; }
+      add: (request) => {
+        bufferedRequest = request;
+      },
     };
 
     const handler = new MessageHandler(
@@ -43,13 +45,17 @@ test("MessageHandler tests", async (t) => {
 
     const mockMessage = createMessage();
 
+    const channel = { platform: "discord", platformChannelId: "chan-123" };
     await handler.handle({
       message: mockMessage,
-      channel: { platform: "discord", platformChannelId: "chan-123" },
+      channel,
       botId: "bot-1",
     });
 
-    assert.strictEqual(bufferAdded, true, "Should add message to buffer");
+    assert.deepStrictEqual(bufferedRequest, {
+      channel,
+      botId: "bot-1",
+    });
   });
 
   await t.test("shouldHandle should filter bot messages", async () => {
