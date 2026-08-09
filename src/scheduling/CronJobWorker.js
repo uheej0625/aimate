@@ -25,6 +25,7 @@ export class CronJobWorker {
     this.pollInterval = pollInterval;
     this.intervalId = null;
     this.isRunning = false;
+    this.activeCheck = null;
   }
 
   start() {
@@ -54,6 +55,17 @@ export class CronJobWorker {
   }
 
   async checkAndExecuteJobs() {
+    if (this.activeCheck) return await this.activeCheck;
+
+    this.activeCheck = this.runPendingJobs();
+    try {
+      return await this.activeCheck;
+    } finally {
+      this.activeCheck = null;
+    }
+  }
+
+  async runPendingJobs() {
     try {
       const pendingJobs = await this.cronJobRepository.getPendingJobs();
       if (pendingJobs.length === 0) return;
@@ -75,39 +87,34 @@ export class CronJobWorker {
   async executeJob(job) {
     logger.info({ jobId: job.id, type: job.type }, "Executing job");
 
-    try {
-      const platform = job.platform;
-      const dispatcher = this.platformDispatchers.get(platform);
+    const platform = job.platform;
+    const dispatcher = this.platformDispatchers.get(platform);
 
-      if (!dispatcher) {
-        logger.error({ platform }, "No dispatcher found for platform");
-        await this.cronJobRepository.updateStatus(job.id, "CANCELLED");
-        return;
-      }
-
-      const channel = await dispatcher.resolveChannel(job);
-
-      if (!channel) {
-        logger.error(
-          { platformId: job.channel.platformId },
-          "Channel not found",
-        );
-        await this.cronJobRepository.updateStatus(job.id, "CANCELLED");
-        return;
-      }
-
-      const botId = (await dispatcher.getBotId(job)) ?? "bot";
-      this.conversationBuffer.add({
-        channel,
-        botId,
-        cronMessage: job.message,
-      });
-
-      await this.cronJobRepository.updateStatus(job.id, "EXECUTED");
-      logger.info({ jobId: job.id }, "Job executed successfully");
-    } catch (error) {
-      logger.error({ err: error, jobId: job.id }, "Error executing job");
-      await this.cronJobRepository.updateStatus(job.id, "EXECUTED");
+    if (!dispatcher) {
+      logger.error({ platform }, "No dispatcher found for platform");
+      await this.cronJobRepository.updateStatus(job.id, "CANCELLED");
+      return;
     }
+
+    const channel = await dispatcher.resolveChannel(job);
+
+    if (!channel) {
+      logger.error(
+        { platformId: job.channel.platformId },
+        "Channel not found",
+      );
+      await this.cronJobRepository.updateStatus(job.id, "CANCELLED");
+      return;
+    }
+
+    const botId = (await dispatcher.getBotId(job)) ?? "bot";
+    this.conversationBuffer.add({
+      channel,
+      botId,
+      cronMessage: job.message,
+    });
+
+    await this.cronJobRepository.updateStatus(job.id, "EXECUTED");
+    logger.info({ jobId: job.id }, "Job executed successfully");
   }
 }
