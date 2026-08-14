@@ -100,6 +100,15 @@ export class ChatGenerationLifecycle {
     );
   }
 
+  async cancel(generationId) {
+    if (!generationId) return false;
+    return await this.generationRepository.updateStatusIfCurrent(
+      generationId,
+      ["PROCESSING", "GENERATED"],
+      "CANCELLED",
+    );
+  }
+
   async fail(generationId) {
     if (!generationId) return false;
     return await this.generationRepository.updateStatusIfCurrent(

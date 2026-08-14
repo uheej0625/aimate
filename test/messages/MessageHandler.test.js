@@ -5,7 +5,7 @@ import { MessageHandler } from "../../src/messages/MessageHandler.js";
 test("MessageHandler tests", async (t) => {
   const mockMessageService = {
     saveMessage: async () => ({
-      channel: { id: "chan-123", platformId: "123", platform: "discord" }
+      channel: { id: "chan-123", platformId: "123", platform: "discord" },
     }),
   };
 
@@ -17,6 +17,10 @@ test("MessageHandler tests", async (t) => {
     add: async () => {},
   };
 
+  const mockGenerationAbortRegistry = {
+    abortChannel: () => {},
+  };
+
   const mockChannelRepository = {
     findByPlatformId: async () => ({ id: "chan-123" }),
   };
@@ -25,7 +29,8 @@ test("MessageHandler tests", async (t) => {
     mockMessageService,
     mockGenerationRepository,
     mockConversationBuffer,
-    mockChannelRepository
+    mockChannelRepository,
+    mockGenerationAbortRegistry,
   );
 
   await t.test("handle should process message from a user", async () => {
@@ -35,12 +40,20 @@ test("MessageHandler tests", async (t) => {
         bufferedRequest = request;
       },
     };
+    const calls = [];
+    const generationRepository = {
+      cancelProcessing: async (channelId) => calls.push(["cancel", channelId]),
+    };
+    const generationAbortRegistry = {
+      abortChannel: (channelId) => calls.push(["abort", channelId]),
+    };
 
     const handler = new MessageHandler(
       mockMessageService,
-      mockGenerationRepository,
+      generationRepository,
       testMockBuffer,
-      mockChannelRepository
+      mockChannelRepository,
+      generationAbortRegistry,
     );
 
     const mockMessage = createMessage();
@@ -56,6 +69,10 @@ test("MessageHandler tests", async (t) => {
       channel,
       botId: "bot-1",
     });
+    assert.deepStrictEqual(calls, [
+      ["abort", "chan-123"],
+      ["cancel", "chan-123"],
+    ]);
   });
 
   await t.test("shouldHandle should filter bot messages", async () => {
@@ -69,7 +86,7 @@ test("MessageHandler tests", async (t) => {
         },
         content: "ping",
       }),
-      "bot-1"
+      "bot-1",
     );
     assert.strictEqual(result, false);
   });
@@ -77,7 +94,7 @@ test("MessageHandler tests", async (t) => {
   await t.test("shouldHandle should filter empty messages", async () => {
     const result = await messageHandler.shouldHandle(
       createMessage({ content: "  " }),
-      "bot-1"
+      "bot-1",
     );
     assert.strictEqual(result, false);
   });

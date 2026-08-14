@@ -89,9 +89,11 @@ test("ChatGenerationLifecycle does not overwrite cancelled generations", async (
   );
 
   assert.strictEqual(await lifecycle.complete(7), false);
+  assert.strictEqual(await lifecycle.cancel(7), false);
   assert.strictEqual(await lifecycle.fail(7), false);
   assert.deepStrictEqual(transitions, [
     [7, "GENERATED", "COMPLETED"],
+    [7, ["PROCESSING", "GENERATED"], "CANCELLED"],
     [7, ["PROCESSING", "GENERATED"], "FAILED"],
   ]);
 });

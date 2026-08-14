@@ -25,6 +25,7 @@ export async function generateChatReply({
   generatedImageTagPolicy = new GeneratedImageTagPolicy(),
   generateTextFn = generateText,
   createLanguageModelFn = createLanguageModel,
+  abortSignal,
 }) {
   if (context.length === 0) {
     return {
@@ -45,6 +46,7 @@ export async function generateChatReply({
     messages,
     tools: Object.keys(tools).length > 0 ? tools : undefined,
     stopWhen: stepCountIs(configManager.get("tools.maxSteps") ?? 5),
+    abortSignal,
     ...getGenerationSettings(settings),
   };
   const requestMetadata = toRequestMetadata({

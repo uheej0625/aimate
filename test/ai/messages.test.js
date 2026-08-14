@@ -19,6 +19,7 @@ test("toModelMessages converts app chat context to AI SDK model messages", () =>
 
 test("generateChatReply sends xAI native and application tools together", async () => {
   let capturedRequest;
+  const abortController = new AbortController();
   const settings = {
     provider: "gateway",
     model: "xai/grok-4.5",
@@ -47,6 +48,7 @@ test("generateChatReply sends xAI native and application tools together", async 
       return { text: "완료", finishReason: "stop", steps: [] };
     },
     createLanguageModelFn: () => ({ provider: "test" }),
+    abortSignal: abortController.signal,
   });
 
   assert.deepStrictEqual(Object.keys(capturedRequest.tools), [
@@ -54,6 +56,7 @@ test("generateChatReply sends xAI native and application tools together", async 
     "web_search",
   ]);
   assert.strictEqual(capturedRequest.tools.web_search.id, "xai.web_search");
+  assert.strictEqual(capturedRequest.abortSignal, abortController.signal);
 });
 
 test("generateChatReply executes JSON-only pseudo tool calls without another model request", async () => {

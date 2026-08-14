@@ -29,6 +29,7 @@ export class ChatGenerator {
     systemInstruction,
     platform = "cli",
     channelRecord = null,
+    { abortSignal } = {},
   ) {
     return generateChatReply({
       configManager: this.configManager,
@@ -45,6 +46,7 @@ export class ChatGenerator {
       generatedImageTagPolicy: this.generatedImageTagPolicy,
       generateTextFn: this.generateTextFn,
       createLanguageModelFn: this.createLanguageModelFn,
+      abortSignal,
     });
   }
 }

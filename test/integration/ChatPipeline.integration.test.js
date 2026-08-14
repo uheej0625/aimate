@@ -83,13 +83,14 @@ const { ChatGenerationLifecycle } = await import(
 const { ChatGenerationFailureHandler } = await import(
   "../../src/chat/ChatGenerationFailureHandler.js"
 );
+const { ChatGenerationAbortRegistry } = await import(
+  "../../src/chat/ChatGenerationAbortRegistry.js"
+);
 const { AppEvents, EventBus } = await import("../../src/core/EventBus.js");
 const { createMockChannel, createMockClient } = await import(
   "../../src/platforms/cli/mocks.js"
 );
-const { adaptMessageData } = await import(
-  "../../src/platforms/cli/adapter.js"
-);
+const { adaptMessageData } = await import("../../src/platforms/cli/adapter.js");
 
 test.after(async () => {
   await prisma.$disconnect();
@@ -365,6 +366,7 @@ function createHarness({ generateTextFn }) {
     generationLifecycle,
     failureHandler,
     eventBus,
+    generationAbortRegistry: new ChatGenerationAbortRegistry(),
   });
 
   return {

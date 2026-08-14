@@ -28,6 +28,7 @@ import { MessageSender } from "../messages/MessageSender.js";
 import { ChatFlow } from "../chat/ChatFlow.js";
 import { ChatGenerationLifecycle } from "../chat/ChatGenerationLifecycle.js";
 import { ChatGenerationFailureHandler } from "../chat/ChatGenerationFailureHandler.js";
+import { ChatGenerationAbortRegistry } from "../chat/ChatGenerationAbortRegistry.js";
 import { EventBus } from "./EventBus.js";
 import { ToolRegistry } from "../tools/ToolRegistry.js";
 import { ToolExecutionContextFactory } from "../tools/ToolExecutionContextFactory.js";
@@ -63,6 +64,7 @@ export async function createContainer({
   const cronJobRepository = new CronJobRepository();
   const cronJobScheduler = new CronJobScheduler(cronJobRepository);
   const eventBus = new EventBus();
+  const generationAbortRegistry = new ChatGenerationAbortRegistry();
   registerRetryPolicy({ eventBus, cronJobScheduler });
 
   // Tools (function calling)
@@ -143,6 +145,7 @@ export async function createContainer({
     generationLifecycle,
     failureHandler,
     eventBus,
+    generationAbortRegistry,
   });
 
   const activateChannel = new ActivateChannel(
@@ -173,6 +176,7 @@ export async function createContainer({
     generationRepository,
     conversationBuffer,
     channelRepository,
+    generationAbortRegistry,
   );
 
   const botAccountService = new BotAccountService(

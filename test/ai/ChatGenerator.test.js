@@ -21,6 +21,8 @@ test("ChatGenerator creates tool context for the active channel", async () => {
   const toolContext = { channel };
   let contextInput = null;
   let registryInput = null;
+  let capturedRequest = null;
+  const abortController = new AbortController();
   const settings = {
     provider: "openai",
     model: "fake-model",
@@ -46,7 +48,10 @@ test("ChatGenerator creates tool context for the active channel", async () => {
         return {};
       },
     },
-    generateTextFn: async () => fakeTextResult("## messages\n안녕"),
+    generateTextFn: async (request) => {
+      capturedRequest = request;
+      return fakeTextResult("## messages\n안녕");
+    },
     createLanguageModelFn: () => ({ modelId: "fake-model" }),
   });
 
@@ -55,6 +60,7 @@ test("ChatGenerator creates tool context for the active channel", async () => {
     "system",
     "discord",
     channel,
+    { abortSignal: abortController.signal },
   );
 
   assert.deepStrictEqual(contextInput, { platform: "discord", channel });
@@ -63,6 +69,7 @@ test("ChatGenerator creates tool context for the active channel", async () => {
     context: toolContext,
   });
   assert.deepStrictEqual(result.messages, ["안녕"]);
+  assert.strictEqual(capturedRequest.abortSignal, abortController.signal);
 });
 
 function fakeTextResult(text) {

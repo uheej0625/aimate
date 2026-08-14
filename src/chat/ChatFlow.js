@@ -17,6 +17,7 @@ export class ChatFlow {
    * @param {import('./ChatGenerationLifecycle.js').ChatGenerationLifecycle} dependencies.generationLifecycle
    * @param {import('./ChatGenerationFailureHandler.js').ChatGenerationFailureHandler} dependencies.failureHandler
    * @param {import('../core/EventBus.js').EventBus} dependencies.eventBus
+   * @param {import('./ChatGenerationAbortRegistry.js').ChatGenerationAbortRegistry} dependencies.generationAbortRegistry
    */
   constructor({
     chatContextPreparer,
@@ -25,6 +26,7 @@ export class ChatFlow {
     generationLifecycle,
     failureHandler,
     eventBus,
+    generationAbortRegistry,
   }) {
     this.chatContextPreparer = chatContextPreparer;
     this.chatGenerator = chatGenerator;
@@ -32,6 +34,7 @@ export class ChatFlow {
     this.generationLifecycle = generationLifecycle;
     this.failureHandler = failureHandler;
     this.eventBus = eventBus;
+    this.generationAbortRegistry = generationAbortRegistry;
   }
 
   /**
@@ -41,6 +44,7 @@ export class ChatFlow {
   async execute({ channel, botId, cronMessage = null }) {
     let generation;
     let channelRecord;
+    let abortSignal;
 
     try {
       // 0. Get or create internal channel
@@ -51,6 +55,10 @@ export class ChatFlow {
       // 1. Start Generation Tracking
       generation =
         await this.generationLifecycle.startChatGeneration(channelRecord);
+      abortSignal = this.generationAbortRegistry.register(
+        channelRecord.id,
+        generation.id,
+      );
       await this.eventBus.emitAsync(AppEvents.GenerationStarted, {
         generation,
         channelRecord,
@@ -90,19 +98,42 @@ export class ChatFlow {
       }
 
       // 5. Generate and parse the response
-      const aiResult = await this.chatGenerator.generate(
-        context,
-        systemInstruction,
-        channel.platform,
-        channelRecord,
-      );
+      let aiResult;
+      try {
+        aiResult = await this.chatGenerator.generate(
+          context,
+          systemInstruction,
+          channel.platform,
+          channelRecord,
+          { abortSignal },
+        );
+      } catch (error) {
+        if (!abortSignal.aborted) throw error;
+
+        try {
+          await this.generationLifecycle.cancel(generation.id);
+        } catch (cancelError) {
+          logger.error(
+            { err: cancelError, generationId: generation.id },
+            "Failed to cancel aborted generation",
+          );
+        }
+
+        logger.info({ generationId: generation.id }, "Generation aborted");
+        await this.eventBus.emitAsync(AppEvents.GenerationCancelled, {
+          generation,
+          channelRecord,
+          platform,
+          reason: "aborted_during_generation",
+        });
+        return;
+      }
 
       // 6. Save AI response details (including raw API req/res)
-      const recorded =
-        await this.generationLifecycle.recordGeneratedOutput(
-          generation.id,
-          aiResult,
-        );
+      const recorded = await this.generationLifecycle.recordGeneratedOutput(
+        generation.id,
+        aiResult,
+      );
       if (!recorded.shouldProceed) {
         logger.info(
           { generationId: generation.id },
@@ -140,7 +171,20 @@ export class ChatFlow {
       }
 
       // 8. Mark as COMPLETED after all messages sent
-      await this.generationLifecycle.complete(generation.id);
+      const completed = await this.generationLifecycle.complete(generation.id);
+      if (!completed) {
+        logger.info(
+          { generationId: generation.id },
+          "Generation cancelled before completion",
+        );
+        await this.eventBus.emitAsync(AppEvents.GenerationCancelled, {
+          generation,
+          channelRecord,
+          platform,
+          reason: "cancelled_before_completion",
+        });
+        return;
+      }
 
       await this.eventBus.emitAsync(AppEvents.GenerationCompleted, {
         generation,
@@ -156,6 +200,13 @@ export class ChatFlow {
         channelRecord,
         channel,
       });
+    } finally {
+      if (generation && channelRecord) {
+        this.generationAbortRegistry.unregister(
+          channelRecord.id,
+          generation.id,
+        );
+      }
     }
   }
 }

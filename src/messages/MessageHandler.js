@@ -14,17 +14,20 @@ export class MessageHandler {
    * @param {import('../repositories/GenerationRepository.js').GenerationRepository} generationRepository
    * @param {import('../chat/ConversationBuffer.js').ConversationBuffer} conversationBuffer
    * @param {import('../repositories/ChannelRepository.js').ChannelRepository} channelRepository
+   * @param {import('../chat/ChatGenerationAbortRegistry.js').ChatGenerationAbortRegistry} generationAbortRegistry
    */
   constructor(
     messageService,
     generationRepository,
     conversationBuffer,
     channelRepository,
+    generationAbortRegistry,
   ) {
     this.messageService = messageService;
     this.generationRepository = generationRepository;
     this.conversationBuffer = conversationBuffer;
     this.channelRepository = channelRepository;
+    this.generationAbortRegistry = generationAbortRegistry;
   }
 
   /**
@@ -41,6 +44,7 @@ export class MessageHandler {
 
       // 3. Cancel any processing generation for this channel
       // (New message interrupts previous generation context conceptually)
+      this.generationAbortRegistry.abortChannel(channelRecord.id);
       await this.generationRepository.cancelProcessing(channelRecord.id);
 
       // 4. Add to Buffer
