@@ -36,6 +36,18 @@ export class ChatGenerationAbortRegistry {
     return count;
   }
 
+  /**
+   * Abort every active generation across all channels.
+   * @returns {number} Number of aborted requests
+   */
+  abortAll() {
+    let count = 0;
+    for (const channelId of this.entries.keys()) {
+      count += this.abortChannel(channelId);
+    }
+    return count;
+  }
+
   unregister(channelId, generationId) {
     const generations = this.entries.get(channelId);
     if (!generations) return;

@@ -29,6 +29,7 @@ const main = async () => {
     registerShutdown({
       conversationBuffer: app.conversationBuffer,
       cronJobWorker: app.cronJobWorker,
+      generationAbortRegistry: app.generationAbortRegistry,
       configManager,
       client,
     });

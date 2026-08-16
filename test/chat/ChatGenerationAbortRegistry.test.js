@@ -17,3 +17,14 @@ test("ChatGenerationAbortRegistry aborts all active generations without removing
   assert.strictEqual(registry.abortChannel("channel-1"), 1);
   assert.strictEqual(latest.aborted, true);
 });
+
+test("ChatGenerationAbortRegistry abortAll cancels every active channel", () => {
+  const registry = new ChatGenerationAbortRegistry();
+  const channelOne = registry.register("channel-1", 1);
+  const channelTwo = registry.register("channel-2", 2);
+
+  assert.strictEqual(registry.abortAll(), 2);
+  assert.strictEqual(channelOne.aborted, true);
+  assert.strictEqual(channelTwo.aborted, true);
+  assert.strictEqual(registry.abortAll(), 0);
+});

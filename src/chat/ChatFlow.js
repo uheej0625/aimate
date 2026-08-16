@@ -129,6 +129,26 @@ export class ChatFlow {
         return;
       }
 
+      if (abortSignal.aborted) {
+        try {
+          await this.generationLifecycle.cancel(generation.id);
+        } catch (cancelError) {
+          logger.error(
+            { err: cancelError, generationId: generation.id },
+            "Failed to cancel aborted generation",
+          );
+        }
+
+        logger.info({ generationId: generation.id }, "Generation aborted");
+        await this.eventBus.emitAsync(AppEvents.GenerationCancelled, {
+          generation,
+          channelRecord,
+          platform,
+          reason: "aborted_during_generation",
+        });
+        return;
+      }
+
       // 6. Save AI response details (including raw API req/res)
       const recorded = await this.generationLifecycle.recordGeneratedOutput(
         generation.id,

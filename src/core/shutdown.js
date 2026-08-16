@@ -9,12 +9,14 @@ const logger = createLogger("Shutdown");
  * @param {Object} options
  * @param {import('../chat/ConversationBuffer.js').ConversationBuffer} options.conversationBuffer
  * @param {import('../scheduling/CronJobWorker.js').CronJobWorker} [options.cronJobWorker]
+ * @param {import('../chat/ChatGenerationAbortRegistry.js').ChatGenerationAbortRegistry} [options.generationAbortRegistry]
  * @param {import('../config/ConfigManager.js').default} [options.configManager]
  * @param {import('discord.js').Client|null} [options.client] - Discord 클라이언트 (없으면 무시)
  */
 export function registerShutdown({
   conversationBuffer,
   cronJobWorker = null,
+  generationAbortRegistry = null,
   configManager = null,
   client = null,
 }) {
@@ -36,7 +38,15 @@ export function registerShutdown({
     conversationBuffer.clearAll();
     logger.info("Conversation buffers cleared");
 
-    // 3. 진행 중인 Generation들을 CANCELLED로 변경
+    // 3. 진행 중인 모델 요청 abort
+    if (generationAbortRegistry) {
+      const aborted = generationAbortRegistry.abortAll();
+      if (aborted > 0) {
+        logger.info({ count: aborted }, "Aborted in-flight model requests");
+      }
+    }
+
+    // 4. 진행 중인 Generation들을 CANCELLED로 변경
     try {
       const result = await prisma.generation.updateMany({
         where: { status: { in: ["PROCESSING", "GENERATED"] } },
@@ -52,7 +62,7 @@ export function registerShutdown({
       logger.error({ err: error }, "Failed to cancel generations");
     }
 
-    // 4. Discord 클라이언트 종료
+    // 5. Discord 클라이언트 종료
     if (client) {
       try {
         client.destroy();
@@ -62,13 +72,13 @@ export function registerShutdown({
       }
     }
 
-    // 5. Config watcher 종료
+    // 6. Config watcher 종료
     if (configManager) {
       configManager.close();
       logger.info("Config watcher closed");
     }
 
-    // 6. Prisma 연결 종료
+    // 7. Prisma 연결 종료
     try {
       await prisma.$disconnect();
       logger.info("Database connection closed");

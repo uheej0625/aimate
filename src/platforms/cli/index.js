@@ -28,11 +28,13 @@ const logger = createLogger("CLI");
     messageHandler,
     botAccountService,
     conversationCatalog,
+    generationAbortRegistry,
   } = container;
 
   // Register graceful shutdown
   registerShutdown({
     conversationBuffer: container.conversationBuffer,
+    generationAbortRegistry,
     configManager,
   });
 

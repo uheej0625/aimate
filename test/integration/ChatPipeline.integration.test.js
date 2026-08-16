@@ -272,7 +272,82 @@ test("chat pipeline preserves cancellation before the model call", async () => {
   assert.deepStrictEqual(harness.sentMessages, []);
 });
 
+test("chat pipeline aborts an in-flight generation when interrupted", async () => {
+  let releaseFirst;
+  const firstBlocked = new Promise((resolve) => {
+    releaseFirst = resolve;
+  });
+  let modelCallCount = 0;
+
+  const harness = createHarness({
+    generateTextFn: async () => {
+      modelCallCount += 1;
+      if (modelCallCount === 1) {
+        await firstBlocked;
+        return fakeTextResult("## messages\n첫 응답");
+      }
+
+      return fakeTextResult("## messages\n두 번째 응답");
+    },
+  });
+
+  const firstInput = createUserMessage(harness, {
+    id: `abort-first-${randomUUID()}`,
+    content: "먼저 이 메시지",
+  });
+  await harness.messageService.saveMessage(firstInput);
+
+  const firstRun = harness.chatFlow.execute({
+    channel: harness.channel,
+    botId: harness.botId,
+  });
+
+  await new Promise((resolve) => {
+    const interval = setInterval(() => {
+      if (modelCallCount === 1) {
+        clearInterval(interval);
+        resolve();
+      }
+    }, 10);
+  });
+
+  const channel = await prisma.channel.findUnique({
+    where: {
+      platform_platformId: {
+        platform: "cli",
+        platformId: harness.channel.platformChannelId,
+      },
+    },
+  });
+
+  harness.generationAbortRegistry.abortChannel(channel.id);
+  await harness.generationRepository.cancelProcessing(channel.id);
+  releaseFirst();
+  await firstRun;
+
+  const secondInput = createUserMessage(harness, {
+    id: `abort-second-${randomUUID()}`,
+    content: "두 번째 메시지",
+  });
+  await harness.messageService.saveMessage(secondInput);
+  await harness.chatFlow.execute({
+    channel: harness.channel,
+    botId: harness.botId,
+  });
+
+  const generations = await prisma.generation.findMany({
+    where: { channelId: channel.id },
+    orderBy: { id: "asc" },
+  });
+
+  assert.strictEqual(generations.length, 2);
+  assert.strictEqual(generations[0].status, "CANCELLED");
+  assert.strictEqual(generations[1].status, "COMPLETED");
+  assert.deepStrictEqual(harness.sentMessages, ["두 번째 응답"]);
+});
+
 function createHarness({ generateTextFn }) {
+  const generationAbortRegistry = new ChatGenerationAbortRegistry();
   const id = randomUUID();
   const botId = `bot-${id}`;
   const mockClient = createMockClient({ botId });
@@ -366,7 +441,7 @@ function createHarness({ generateTextFn }) {
     generationLifecycle,
     failureHandler,
     eventBus,
-    generationAbortRegistry: new ChatGenerationAbortRegistry(),
+    generationAbortRegistry,
   });
 
   return {
@@ -376,6 +451,7 @@ function createHarness({ generateTextFn }) {
     sentMessages,
     eventBus,
     generationRepository,
+    generationAbortRegistry,
     messageService,
     chatFlow,
   };
