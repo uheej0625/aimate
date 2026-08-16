@@ -191,6 +191,41 @@ test("ChatFlow tests", async (t) => {
   });
 
   await t.test(
+    "execute stops when cancellation wins before input recording",
+    async () => {
+      const eventBus = new EventBus();
+      let cancellationReason = null;
+      let generateCalled = false;
+      eventBus.on(AppEvents.GenerationCancelled, async ({ reason }) => {
+        cancellationReason = reason;
+      });
+      const generationLifecycle = {
+        ...baseGenerationLifecycle,
+        recordInput: async () => false,
+      };
+      const chatGenerator = {
+        generate: async () => {
+          generateCalled = true;
+        },
+      };
+
+      const chatFlow = createChatFlow({
+        generationLifecycle,
+        chatGenerator,
+        eventBus,
+      });
+
+      await chatFlow.execute(createRequest());
+
+      assert.strictEqual(generateCalled, false);
+      assert.strictEqual(
+        cancellationReason,
+        "cancelled_before_input_record",
+      );
+    },
+  );
+
+  await t.test(
     "execute should stop when cancelled during model generation",
     async () => {
       let generated = false;

@@ -141,7 +141,6 @@ export async function createContainer({
   const generationLifecycle = new ChatGenerationLifecycle(
     generationRepository,
     channelRepository,
-    messageRepository,
     configManager,
   );
   const failureHandler = new ChatGenerationFailureHandler(

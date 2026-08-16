@@ -76,10 +76,27 @@ export class ChatFlow {
         );
 
       // 3. Update Generation with input details
-      await this.generationLifecycle.recordInput(generation.id, {
-        inputMessages,
-        messageIds,
-      });
+      const inputRecorded = await this.generationLifecycle.recordInput(
+        generation.id,
+        {
+          inputMessages,
+          messageIds,
+        },
+      );
+
+      if (inputRecorded === false) {
+        logger.info(
+          { generationId: generation.id },
+          "Generation cancelled before input was recorded",
+        );
+        await this.eventBus.emitAsync(AppEvents.GenerationCancelled, {
+          generation,
+          channelRecord,
+          platform,
+          reason: "cancelled_before_input_record",
+        });
+        return;
+      }
 
       // 4. Check Cancellation before generating
       const canGenerate = await this.generationLifecycle.canGenerate(

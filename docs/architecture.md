@@ -70,6 +70,8 @@ flowchart TD
 
 `ConversationBuffer`는 `platform:platformChannelId`를 키로 사용하므로 서로 다른 플랫폼에서 같은 채널 ID를 사용해도 충돌하지 않는다. 일반 사용자 메시지와 예약 작업 모두 `ConversationRequest`로 `ChatFlow`를 호출한다.
 
+각 `Generation`은 하나의 대화 턴 기록 단위다. 버퍼링 전의 사용자 메시지는 즉시 독립 저장하고, 생성이 시작될 때 해당 턴이 소비한 메시지 목록과 입력 스냅샷을 하나의 트랜잭션으로 `Generation`에 연결한다. 모델 출력과 상태 전환도 조건부 갱신으로 함께 기록하며, 전송된 봇 메시지는 동일한 `generationId`로 저장한다.
+
 ## Generation 상태
 
 ```mermaid

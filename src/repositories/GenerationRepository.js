@@ -43,6 +43,53 @@ export class GenerationRepository {
   }
 
   /**
+   * Record the user messages consumed by a chat generation as one unit.
+   * The generation input snapshot and message links must either both persist
+   * or both be rolled back.
+   *
+   * @param {number} generationId
+   * @param {{inputMessages: string[], messageIds: number[]}} input
+   * @returns {Promise<boolean>} False when the generation was cancelled first.
+   */
+  async recordInputWithMessages(generationId, { inputMessages, messageIds }) {
+    const input = JSON.stringify({
+      messages: inputMessages.map((content, index) => ({
+        id: messageIds[index] ?? null,
+        content,
+      })),
+    });
+
+    return await prisma.$transaction(async (tx) => {
+      const generation = await tx.generation.updateMany({
+        where: {
+          id: generationId,
+          status: "PROCESSING",
+        },
+        data: { input },
+      });
+
+      if (generation.count !== 1) {
+        return false;
+      }
+
+      if (messageIds.length === 0) return true;
+
+      const messages = await tx.message.updateMany({
+        where: { id: { in: messageIds } },
+        data: { generationId },
+      });
+
+      if (messages.count !== messageIds.length) {
+        throw new Error(
+          `Cannot record input for generation ${generationId} because one or more messages are missing.`,
+        );
+      }
+
+      return true;
+    });
+  }
+
+  /**
    * Update generation status.
    * @param {string} generationId - Generation ID
    * @param {string} status - New status

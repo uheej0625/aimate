@@ -5,12 +5,10 @@ export class ChatGenerationLifecycle {
   constructor(
     generationRepository,
     channelRepository,
-    messageRepository,
     configManager,
   ) {
     this.generationRepository = generationRepository;
     this.channelRepository = channelRepository;
-    this.messageRepository = messageRepository;
     this.configManager = configManager;
   }
 
@@ -44,18 +42,13 @@ export class ChatGenerationLifecycle {
   }
 
   async recordInput(generationId, { inputMessages, messageIds }) {
-    await this.generationRepository.updateDetails(generationId, {
-      input: JSON.stringify({
-        messages: inputMessages.map((content, index) => ({
-          id: messageIds[index] ?? null,
-          content,
-        })),
-      }),
-    });
-
-    for (const messageId of messageIds) {
-      await this.messageRepository.addGenerationId(messageId, generationId);
-    }
+    return await this.generationRepository.recordInputWithMessages(
+      generationId,
+      {
+        inputMessages,
+        messageIds,
+      },
+    );
   }
 
   async canGenerate(generationId) {

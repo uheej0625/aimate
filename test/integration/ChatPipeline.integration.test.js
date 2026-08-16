@@ -426,7 +426,6 @@ function createHarness({ generateTextFn }) {
   const generationLifecycle = new ChatGenerationLifecycle(
     generationRepository,
     channelRepository,
-    messageRepository,
     configManager,
   );
   const failureHandler = new ChatGenerationFailureHandler(
