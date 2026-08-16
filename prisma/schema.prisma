@@ -105,6 +105,7 @@ model Message {
 model Generation {
   id Int @id @default(autoincrement())
 
+  characterId String
   type String @default("CHAT") // "CHAT", "IMAGE", "VOICE", "EMBEDDING"
 
   channelId String

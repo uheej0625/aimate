@@ -24,17 +24,12 @@ test("MessageService tests", async (t) => {
     save: async (data) => ({ id: "msg-123", ...data }),
   };
 
-  const mockGenerationRepository = {
-    appendMessage: async () => {},
-  };
-
   const messageService = new MessageService(
     mockUserRepository,
     mockPlatformAccountRepository,
     mockChannelRepository,
     mockServerRepository,
     mockMessageRepository,
-    mockGenerationRepository,
   );
 
   await t.test(
@@ -42,10 +37,15 @@ test("MessageService tests", async (t) => {
     async () => {
       const mockMessage = {
         platform: "discord",
-        guildId: "guild-1",
-        channelId: "channel-1",
-        author: { id: "author-1", username: "user", globalName: "User" },
-        id: "platform-msg-1",
+        platformMessageId: "platform-msg-1",
+        platformChannelId: "channel-1",
+        platformServerId: "guild-1",
+        author: {
+          platformUserId: "author-1",
+          handle: "user",
+          displayName: "User",
+          isBot: false,
+        },
         content: "Hello",
       };
 
@@ -74,13 +74,19 @@ test("MessageService tests", async (t) => {
         mockChannelRepository,
         mockServerRepository,
         linkMockMsgRepo,
-        mockGenerationRepository,
       );
 
       const mockMessage = {
         platform: "discord",
-        author: { id: "a1" },
-        id: "m1",
+        platformMessageId: "m1",
+        platformChannelId: "channel-1",
+        platformServerId: null,
+        author: {
+          platformUserId: "a1",
+          handle: "user",
+          displayName: null,
+          isBot: false,
+        },
         content: "Hey",
       };
 

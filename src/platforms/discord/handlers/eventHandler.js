@@ -12,7 +12,7 @@ const __dirname = dirname(__filename);
  * 이벤트 핸들러 로더
  * events 폴더의 모든 이벤트 파일을 로드하고 클라이언트에 등록
  */
-export async function loadEvents(client) {
+export async function loadEvents(client, dependencies = {}) {
   const eventsPath = join(__dirname, "..", "events");
   const eventFiles = readdirSync(eventsPath).filter((file) =>
     file.endsWith(".js"),
@@ -22,14 +22,15 @@ export async function loadEvents(client) {
     const filePath = join(eventsPath, file);
     const event = await import(`file://${filePath}`);
     const eventModule = event.default || event;
+    const context = { client, ...dependencies };
 
     if (eventModule.once) {
       client.once(eventModule.name, (...args) =>
-        eventModule.execute(...args, client),
+        eventModule.execute(...args, context),
       );
     } else {
       client.on(eventModule.name, (...args) =>
-        eventModule.execute(...args, client),
+        eventModule.execute(...args, context),
       );
     }
   }

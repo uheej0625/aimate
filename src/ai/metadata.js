@@ -1,10 +1,24 @@
-export function toRequestMetadata({ settings, system, messages, tools }) {
+import { resolveDialect } from "./dialects.js";
+
+export function toRequestMetadata({
+  settings,
+  system,
+  messages,
+  tools,
+  appTools,
+}) {
   return {
     provider: settings.provider,
+    dialect: resolveDialect(settings),
+    api: settings.api,
     model: settings.model,
     system,
     messages,
     tools: Object.keys(tools ?? {}),
+    appTools: Object.keys(appTools ?? {}),
+    nativeTools: Object.keys(tools ?? {}).filter(
+      (name) => !(name in (appTools ?? {})),
+    ),
     temperature: settings.temperature,
     maxOutputTokens: settings.maxOutputTokens,
     topP: settings.topP,

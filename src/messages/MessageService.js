@@ -9,7 +9,6 @@ export class MessageService {
    * @param {import('../repositories/ChannelRepository.js').ChannelRepository} channelRepository
    * @param {import('../repositories/ServerRepository.js').ServerRepository} serverRepository
    * @param {import('../repositories/MessageRepository.js').MessageRepository} messageRepository
-   * @param {import('../repositories/GenerationRepository.js').GenerationRepository} generationRepository
    */
   constructor(
     userRepository,
@@ -17,50 +16,47 @@ export class MessageService {
     channelRepository,
     serverRepository,
     messageRepository,
-    generationRepository,
   ) {
     this.userRepository = userRepository;
     this.platformAccountRepository = platformAccountRepository;
     this.channelRepository = channelRepository;
     this.serverRepository = serverRepository;
     this.messageRepository = messageRepository;
-    this.generationRepository = generationRepository;
   }
 
   /**
    * Save a message to the database with all related entities.
    * Automatically creates/updates server, channel, and platform account as needed.
    *
-   * @param {Object} message - Message object (from Discord.js or mock)
+   * @param {import('../application/contracts.js').NormalizedMessage} message
    * @param {number} [generationId] - Optional generation ID to link message to
    * @param {Array} [attachments] - Optional structured attachment metadata
    * @returns {Promise<{message: Object, channel: Object, platformAccount: Object}>}
    */
   async saveMessage(message, generationId = null, attachments = []) {
     const platform = message.platform;
-    const platformChannelId = message.platformChannelId ?? message.channelId;
 
     // 1. Ensure server exists (if message is in a guild)
-    let serverId = null;
-    if (message.guildId) {
+    let internalServerId = null;
+    if (message.platformServerId) {
       const server = await this.serverRepository.upsert({
         platform: platform,
-        platformId: message.guildId,
+        platformId: message.platformServerId,
       });
-      serverId = server.id;
+      internalServerId = server.id;
     }
 
     // 2. Ensure channel exists
     const channel = await this.channelRepository.upsert({
       platform: platform,
-      platformId: platformChannelId,
-      serverId: serverId,
+      platformId: message.platformChannelId,
+      serverId: internalServerId,
     });
 
     // 3. Find or create platform account
     let platformAccount = await this.platformAccountRepository.findByPlatformId(
       platform,
-      message.author.id,
+      message.author.platformUserId,
     );
 
     if (!platformAccount) {
@@ -70,27 +66,27 @@ export class MessageService {
       // Create platform account
       platformAccount = await this.platformAccountRepository.upsert({
         platform: platform,
-        platformId: message.author.id,
+        platformId: message.author.platformUserId,
         userId: user.id,
-        handle: message.author.username,
-        displayName: message.author.globalName,
+        handle: message.author.handle,
+        displayName: message.author.displayName,
       });
     } else {
       // Update existing platform account
       platformAccount = await this.platformAccountRepository.upsert({
         platform: platform,
-        platformId: message.author.id,
+        platformId: message.author.platformUserId,
         userId: platformAccount.userId,
-        handle: message.author.username,
-        displayName: message.author.globalName,
+        handle: message.author.handle,
+        displayName: message.author.displayName,
       });
     }
 
     // 4. Save message
     const savedMessage = await this.messageRepository.save({
       platform: platform,
-      platformId: message.id,
-      serverId: serverId,
+      platformId: message.platformMessageId,
+      serverId: internalServerId,
       channelId: channel.id,
       authorId: platformAccount.id,
       content: message.content,

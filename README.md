@@ -28,19 +28,19 @@ cp .env.example .env
 
 채워야 하는 주요 항목:
 
-| 변수                           | 설명                    |
-| ------------------------------ | ----------------------- |
-| `DISCORD_TOKEN`                | Discord 봇 토큰         |
-| `DISCORD_CLIENT_ID`            | Discord 애플리케이션 ID |
-| `AI_GATEWAY_API_KEY`           | Vercel AI Gateway 키    |
-| `OPENAI_API_KEY`               | OpenAI 직접 연동 키     |
-| `GOOGLE_GENERATIVE_AI_API_KEY` | Google Generative AI 키 |
-| `VERTEX_PROJECT_ID`            | Vertex AI 프로젝트 ID   |
-| `VERTEX_LOCATION`              | Vertex AI 리전          |
+| 변수                                    | 설명                              |
+| --------------------------------------- | --------------------------------- |
+| `AIMATE_DISCORD_<CHARACTER_ID>_TOKEN`   | 캐릭터별 Discord 봇 토큰          |
+| `AI_GATEWAY_API_KEY`                    | Vercel AI Gateway 키              |
+| `OPENAI_API_KEY`                        | OpenAI 직접 연동 키               |
+| `XAI_API_KEY`                           | xAI 직접 연동 키                  |
+| `GOOGLE_GENERATIVE_AI_API_KEY`          | Google Generative AI 키           |
+| `VERTEX_PROJECT_ID`                     | Vertex AI 프로젝트 ID             |
+| `VERTEX_LOCATION`                       | Vertex AI 리전                    |
 
-AI provider는 Vercel AI SDK provider 이름을 그대로 씁니다. `config/default.json`의 `ai.chat.provider`, `ai.image.provider`에는 `gateway`, `openai`, `google`, `vertex`, `openaiCompatible` 중 하나를 넣습니다. AI Gateway를 쓰면 `provider`를 `gateway`로 두고 `model`을 `openai/gpt-5-mini`처럼 Gateway 모델 ID로 설정합니다.
+AI provider는 Vercel AI SDK provider 이름을 그대로 씁니다. `config/default.json`의 `ai.chat.provider`, `ai.image.provider`에는 `gateway`, `openai`, `google`, `vertex`, `openaiCompatible`, `xai` 중 하나를 넣습니다. AI Gateway를 쓰면 `provider`를 `gateway`로 두고 `model`을 `openai/gpt-5-mini`처럼 Gateway 모델 ID로 설정합니다.
 
-`ai.chat.prompt`와 `ai.image.prompt`에는 `content/prompts/` 아래에 존재하는 프롬프트 팩 이름을 지정해야 합니다. 프로젝트에서 사용하는 프롬프트 팩은 별도 라이선스와 개발 상태 때문에 Git에서 제외될 수 있습니다.
+`ai.chat.prompt`와 `ai.image.prompt`에는 `content/prompts/` 아래에 존재하는 프롬프트 팩 이름을 지정해야 합니다. `character`에는 `content/characters/` 아래에 존재하는 캐릭터 ID를 지정하며, 해당 ID의 대문자·하이픈 치환 값으로 Discord 토큰 환경변수 이름을 만듭니다. 예를 들어 `character: "alice-v2"`는 `AIMATE_DISCORD_ALICE_V2_TOKEN`을 사용합니다. 프로젝트에서 사용하는 프롬프트 팩은 별도 라이선스와 개발 상태 때문에 Git에서 제외될 수 있습니다.
 
 ### 3. 데이터베이스 초기화
 
@@ -68,7 +68,7 @@ CLI는 전체 화면 TUI로 실행되며 대화 채널과 히스토리가 데이
 
 ### 크론 스케줄링
 
-봇이 스스로 특정 시간에 메시지를 보내거나 작업을 예약할 수 있습니다. LLM이 대화 중에 직접 `registerCron` 도구를 호출해서 일정을 잡습니다.
+봇이 스스로 특정 시간에 메시지를 보내거나 작업을 예약할 수 있습니다. LLM이 대화 중에 `register_cron_job` 도구를 호출해서 일정을 잡습니다.
 
 ### 도구 (Tools)
 
@@ -78,9 +78,34 @@ LLM이 필요하다고 판단하면 스스로 도구를 호출합니다.
 - `getTime` — 현재 시스템 시간 조회
 - `setDiscordPresence` / `setDiscordStatus` — 봇의 Discord 상태 변경
 
+### xAI 웹 검색
+
+xAI의 서버사이드 웹 검색은 `nativeTools`를 명시해 켭니다. Gateway 모델 ID의 접두사(`xai/…`)와 직접 xAI provider는 dialect를 자동 결정합니다. 명시적 `dialect` 값은 이 자동 판단을 덮어쓰는 경우에만 사용합니다. Gateway 경로는 xAI 키 없이 Gateway 키만으로 동작합니다.
+
+```json
+{
+  "provider": "gateway",
+  "model": "xai/grok-4.5",
+  "nativeTools": { "webSearch": true }
+}
+```
+
+xAI를 직접 호출할 때는 `XAI_API_KEY`와 Responses API를 사용합니다.
+
+```json
+{
+  "provider": "xai",
+  "model": "grok-4.5",
+  "api": "responses",
+  "nativeTools": { "webSearch": true }
+}
+```
+
+xAI Responses API의 서버사이드 도구는 AiMate의 일반 도구(`getTime`, `fetchUrl` 등)와 함께 사용할 수 있습니다.
+
 ### 캐릭터 설정
 
-`content/character/` 안의 파일로 봇의 이름, 나이, 말투, 성격 등을 정의합니다. 프롬프트를 고치지 않아도 `variables.json`과 `identity.md`만 수정하면 캐릭터가 바뀝니다.
+`config/default.json`의 `character`로 활성 캐릭터를 고릅니다. `content/characters/<character>/` 안의 `variables.json`, `identity.md`, `reference.png`으로 이름, 나이, 말투, 성격과 셀피 기준 이미지를 정의합니다. 변경은 다음 실행부터 적용됩니다.
 
 ---
 
@@ -88,22 +113,32 @@ LLM이 필요하다고 판단하면 스스로 도구를 호출합니다.
 
 ```txt
 src/
+├── application/   # 플랫폼 독립 계약과 애플리케이션 유스케이스
 ├── ai/            # Vercel AI SDK 런타임, 모델, 채팅·이미지 생성
+├── accounts/      # 봇 계정 초기화
 ├── character/     # 캐릭터 컨텍스트 구성
 ├── chat/          # 대화 흐름, 프롬프트 조립, 응답 파싱
+├── config/        # 설정 로드와 검증
 ├── core/          # DI 컨테이너, 이벤트, 로깅, 종료 처리
+├── database/      # Prisma 클라이언트
 ├── messages/      # 메시지 저장, 히스토리, 전송
 ├── platforms/     # Discord / CLI 어댑터
 ├── repositories/  # Prisma 데이터 접근
 ├── scheduling/    # 예약 작업과 재시도
-└── tools/         # LLM 도구 정의 및 실행
+├── tools/         # LLM 도구 정의 및 실행
+└── utils/         # 템플릿과 런타임 유틸리티
 
 content/
-├── character/     # 캐릭터 정의 (identity.md, variables.json)
+├── characters/    # 캐릭터별 정의 (<character>/identity.md 등)
 └── prompts/       # 시스템 프롬프트 템플릿
 ```
 
-각 플랫폼(Discord, CLI)은 들어오는 메시지를 동일한 내부 포맷으로 변환한 뒤 동일한 처리 흐름을 탑니다. 내부 메시지 포맷은 `docs/message-format.md`를 참조하세요.
+각 플랫폼은 외부 객체를
+[`src/application/contracts.js`](src/application/contracts.js)의 내부 계약으로
+변환한 뒤 동일한 처리 흐름을 탑니다. 플랫폼 진입점은 애플리케이션
+유스케이스만 호출하며 Repository에 직접 접근하지 않습니다. 자세한 의존
+방향과 메시지 처리 흐름은 [`docs/architecture.md`](docs/architecture.md), 예약
+작업은 [`docs/cron-guide.md`](docs/cron-guide.md)를 참조하세요.
 
 ---
 
@@ -113,7 +148,7 @@ content/
 - **Database**: Prisma + SQLite
 - **AI**: Vercel AI SDK
 - **Platforms**: discord.js, CLI
-- **기타**: pino (로깅), node-cron (스케줄링), jsdom + @mozilla/readability (URL 파싱)
+- **기타**: pino (로깅), Node.js 타이머 (예약 작업 폴링), jsdom + @mozilla/readability (URL 파싱)
 
 ---
 

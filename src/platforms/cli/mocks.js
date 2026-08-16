@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
-import { adaptMessage } from "./adapter.js";
+import { adaptMessageData } from "./adapter.js";
 
 /**
  * @param {{ botId: string, username?: string, globalName?: string }} options
@@ -29,9 +29,8 @@ export function createMockChannel({
   onTyping = null,
 }) {
   const mockChannel = {
-    id: channelId,
-    type: 1, // DM
     platform: "cli",
+    platformChannelId: channelId,
     sendTyping: async () => onTyping?.(),
     send: async (payload) => {
       const content =
@@ -44,14 +43,12 @@ export function createMockChannel({
         process.stdout.write("\n> ");
       }
 
-      return adaptMessage({
+      return adaptMessageData({
         id: uuidv4(),
         content,
         channelId,
         guildId: null,
         author: mockClient.user,
-        channel: mockChannel,
-        client: mockClient,
       });
     },
   };

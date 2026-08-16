@@ -16,7 +16,7 @@ export class ChatGenerationLifecycle {
 
   async findOrCreateChannel(channel) {
     const platform = channel.platform;
-    const platformChannelId = channel.id;
+    const platformChannelId = channel.platformChannelId;
 
     let channelRecord = await this.channelRepository.findByPlatformId(
       platform,
@@ -58,14 +58,12 @@ export class ChatGenerationLifecycle {
     }
   }
 
-  async markReadyToGenerate(generationId) {
-    return await this.generationRepository.checkAndUpdateStatus(
-      generationId,
-      "GENERATED",
-    );
+  async canGenerate(generationId) {
+    const generation = await this.generationRepository.findById(generationId);
+    return generation?.status === "PROCESSING";
   }
 
-  async recordOutput(generationId, aiResult) {
+  async recordGeneratedOutput(generationId, aiResult) {
     const apiRequest =
       aiResult.apiRequests?.length === 1
         ? aiResult.apiRequests[0]
@@ -79,20 +77,45 @@ export class ChatGenerationLifecycle {
           ? aiResult.apiResponses
           : undefined;
 
-    await this.generationRepository.updateDetails(generationId, {
-      output: JSON.stringify(aiResult.messages),
-      apiRequest,
-      apiResponse,
-    });
+    const updated =
+      await this.generationRepository.updateDetailsAndStatusIfCurrent(
+        generationId,
+        "PROCESSING",
+        "GENERATED",
+        {
+          output: JSON.stringify(aiResult.messages),
+          apiRequest,
+          apiResponse,
+        },
+      );
+
+    return { shouldProceed: updated };
   }
 
   async complete(generationId) {
-    await this.generationRepository.updateStatus(generationId, "COMPLETED");
+    return await this.generationRepository.updateStatusIfCurrent(
+      generationId,
+      "GENERATED",
+      "COMPLETED",
+    );
+  }
+
+  async cancel(generationId) {
+    if (!generationId) return false;
+    return await this.generationRepository.updateStatusIfCurrent(
+      generationId,
+      ["PROCESSING", "GENERATED"],
+      "CANCELLED",
+    );
   }
 
   async fail(generationId) {
-    if (!generationId) return;
-    await this.generationRepository.updateStatus(generationId, "FAILED");
+    if (!generationId) return false;
+    return await this.generationRepository.updateStatusIfCurrent(
+      generationId,
+      ["PROCESSING", "GENERATED"],
+      "FAILED",
+    );
   }
 }
 import { getRequiredChatPromptName } from "./promptConfig.js";

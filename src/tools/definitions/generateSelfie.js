@@ -1,8 +1,8 @@
 import { jsonSchema } from "ai";
-import path from "path";
 import { executeImageGenerationTool } from "../ImageGenerationToolRunner.js";
+import { resolveCharacterFileById } from "../../character/config.js";
 
-/** @type {import('../ActionRegistry.js').ToolDef} */
+/** @type {import('../ToolRegistry.js').ToolDef} */
 export default {
   name: "generate_selfie",
   enabled: true,
@@ -10,7 +10,7 @@ export default {
   requires: ["image"],
 
   description:
-    "Generate a casual smartphone-style selfie of the bot/character to share naturally in chat. This tool is specifically for images where the character's own face appears, so it always uses content/character/reference.png as the face reference. All parameters may be written in natural language. Prefer specific, vivid, detailed descriptions instead of short keywords.",
+    "Generate a casual smartphone-style selfie of the bot/character to share naturally in chat. This tool is specifically for images where the character's own face appears, so it always uses the active character's reference.png as the face reference. All parameters may be written in natural language. Prefer specific, vivid, detailed descriptions instead of short keywords.",
   inputSchema: jsonSchema({
     type: "object",
     properties: {
@@ -64,10 +64,8 @@ export default {
    * @param {Object} context
    */
   execute: async (args, context) => {
-    const referenceImagePath = path.join(
-      process.cwd(),
-      "content",
-      "character",
+    const referenceImagePath = resolveCharacterFileById(
+      context.characterId,
       "reference.png",
     );
     return executeImageGenerationTool(args, context, {
@@ -78,7 +76,7 @@ export default {
         {
           path: referenceImagePath,
           requiredMessage:
-            "Selfie generation requires content/character/reference.png",
+            "Selfie generation requires the active character reference.png",
         },
       ],
       describe: (toolArgs) => `Generated selfie for scene: ${toolArgs.scene}`,

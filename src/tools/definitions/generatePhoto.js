@@ -1,8 +1,8 @@
 import { jsonSchema } from "ai";
-import path from "path";
 import { executeImageGenerationTool } from "../ImageGenerationToolRunner.js";
+import { resolveCharacterFileById } from "../../character/config.js";
 
-/** @type {import('../ActionRegistry.js').ToolDef} */
+/** @type {import('../ToolRegistry.js').ToolDef} */
 export default {
   name: "generate_photo",
   enabled: true,
@@ -76,16 +76,18 @@ export default {
    * @param {Object} context
    */
   execute: async (args, context) => {
-    return executeImageGenerationTool(args, context, buildPhotoSpec(args));
+    return executeImageGenerationTool(
+      args,
+      context,
+      buildPhotoSpec(args, context.characterId),
+    );
   },
 };
 
-export function buildPhotoSpec(args) {
+export function buildPhotoSpec(args, characterId) {
   if (args.kind === "selfie") {
-    const referenceImagePath = path.join(
-      process.cwd(),
-      "content",
-      "character",
+    const referenceImagePath = resolveCharacterFileById(
+      characterId,
       "reference.png",
     );
 
@@ -97,7 +99,7 @@ export function buildPhotoSpec(args) {
         {
           path: referenceImagePath,
           requiredMessage:
-            "Selfie photo generation requires content/character/reference.png",
+            "Selfie photo generation requires the active character reference.png",
         },
       ],
       describe: (toolArgs) =>

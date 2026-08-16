@@ -1,7 +1,7 @@
 import { jsonSchema } from "ai";
 import { executeImageGenerationTool } from "../ImageGenerationToolRunner.js";
 
-/** @type {import('../ActionRegistry.js').ToolDef} */
+/** @type {import('../ToolRegistry.js').ToolDef} */
 export default {
   name: "generate_screenshot",
   enabled: true,

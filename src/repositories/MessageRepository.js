@@ -127,6 +127,16 @@ export class MessageRepository {
   }
 
   /**
+   * @param {number} messageId
+   * @returns {Promise<Object|null>}
+   */
+  async findById(messageId) {
+    return await prisma.message.findUnique({
+      where: { id: messageId },
+    });
+  }
+
+  /**
    * Find a single message by platform and platformId, including its generation.
    * @param {string} platform - Platform name (e.g. "discord")
    * @param {string} platformId - Platform-specific message ID

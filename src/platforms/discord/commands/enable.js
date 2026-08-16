@@ -18,42 +18,15 @@ export default {
           { name: "채널", value: "channel" },
         ),
     ),
-  async execute(interaction) {
+  async execute(interaction, { activateChannel }) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     const scope = interaction.options.getString("스코프");
-    const { channelRepository, serverRepository } = interaction.client.services;
-
     try {
-      let serverId = null;
-
-      // 서버/글로벌 스코프: 서버 레코드 확보
-      if (scope === "server" || scope === "global") {
-        if (interaction.guildId) {
-          const server = await serverRepository.upsert({
-            platform: "discord",
-            platformId: interaction.guildId,
-          });
-          serverId = server.id;
-        }
-      }
-
-      // 채널 스코프: 서버와 채널 레코드 확보
-      if (scope === "channel") {
-        if (interaction.guildId) {
-          const server = await serverRepository.upsert({
-            platform: "discord",
-            platformId: interaction.guildId,
-          });
-          serverId = server.id;
-        }
-      }
-
-      // 채널 레코드 생성 (이미 있으면 업데이트)
-      await channelRepository.upsert({
+      await activateChannel.execute({
         platform: "discord",
-        platformId: interaction.channelId,
-        serverId,
+        platformChannelId: interaction.channelId,
+        platformServerId: interaction.guildId,
         scope,
       });
 

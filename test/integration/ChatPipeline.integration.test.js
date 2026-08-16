@@ -75,13 +75,22 @@ const { SequenceBuilder } = await import(
 const { ChatContextPreparer } = await import(
   "../../src/chat/context/ChatContextPreparer.js"
 );
-const { AiRuntime } = await import("../../src/ai/AiRuntime.js");
+const { ChatGenerator } = await import("../../src/ai/ChatGenerator.js");
 const { ChatFlow } = await import("../../src/chat/ChatFlow.js");
+const { ChatGenerationLifecycle } = await import(
+  "../../src/chat/ChatGenerationLifecycle.js"
+);
+const { ChatGenerationFailureHandler } = await import(
+  "../../src/chat/ChatGenerationFailureHandler.js"
+);
+const { ChatGenerationAbortRegistry } = await import(
+  "../../src/chat/ChatGenerationAbortRegistry.js"
+);
 const { AppEvents, EventBus } = await import("../../src/core/EventBus.js");
 const { createMockChannel, createMockClient } = await import(
   "../../src/platforms/cli/mocks.js"
 );
-const { adaptMessage } = await import("../../src/platforms/cli/adapter.js");
+const { adaptMessageData } = await import("../../src/platforms/cli/adapter.js");
 
 test.after(async () => {
   await prisma.$disconnect();
@@ -110,7 +119,10 @@ test("chat pipeline persists history and multiple model-free replies", async () 
   });
   await harness.messageService.saveMessage(firstInput);
   await harness.messageService.saveMessage(firstInput);
-  await harness.chatFlow.execute(harness.channel, harness.botId);
+  await harness.chatFlow.execute({
+    channel: harness.channel,
+    botId: harness.botId,
+  });
 
   assert.deepStrictEqual(harness.sentMessages, ["첫 답장", "두 번째 답장"]);
   assert.match(modelRequests[0].system, /Fixture Character/);
@@ -123,7 +135,10 @@ test("chat pipeline persists history and multiple model-free replies", async () 
     content: "아까 뭐라고 했지?",
   });
   await harness.messageService.saveMessage(secondInput);
-  await harness.chatFlow.execute(harness.channel, harness.botId);
+  await harness.chatFlow.execute({
+    channel: harness.channel,
+    botId: harness.botId,
+  });
 
   assert.deepStrictEqual(harness.sentMessages, [
     "첫 답장",
@@ -143,7 +158,7 @@ test("chat pipeline persists history and multiple model-free replies", async () 
     where: {
       platform_platformId: {
         platform: "cli",
-        platformId: harness.channel.id,
+        platformId: harness.channel.platformChannelId,
       },
     },
   });
@@ -157,6 +172,7 @@ test("chat pipeline persists history and multiple model-free replies", async () 
   });
 
   assert.strictEqual(generations.length, 2);
+  assert.ok(generations.every(({ characterId }) => characterId === "fixture"));
   assert.ok(generations.every(({ status }) => status === "COMPLETED"));
   assert.ok(
     generations.every(
@@ -172,7 +188,9 @@ test("chat pipeline persists history and multiple model-free replies", async () 
   ]);
   assert.strictEqual(messages.length, 5);
   assert.strictEqual(
-    messages.filter(({ platformId }) => platformId === firstInput.id).length,
+    messages.filter(
+      ({ platformId }) => platformId === firstInput.platformMessageId,
+    ).length,
     1,
   );
   assert.ok(messages.every(({ generationId }) => generationId !== null));
@@ -190,13 +208,16 @@ test("chat pipeline marks a failed model call and sends a fallback", async () =>
   });
   await harness.messageService.saveMessage(input);
 
-  await harness.chatFlow.execute(harness.channel, harness.botId);
+  await harness.chatFlow.execute({
+    channel: harness.channel,
+    botId: harness.botId,
+  });
 
   const channel = await prisma.channel.findUnique({
     where: {
       platform_platformId: {
         platform: "cli",
-        platformId: harness.channel.id,
+        platformId: harness.channel.platformChannelId,
       },
     },
   });
@@ -228,13 +249,16 @@ test("chat pipeline preserves cancellation before the model call", async () => {
   });
   await harness.messageService.saveMessage(input);
 
-  await harness.chatFlow.execute(harness.channel, harness.botId);
+  await harness.chatFlow.execute({
+    channel: harness.channel,
+    botId: harness.botId,
+  });
 
   const channel = await prisma.channel.findUnique({
     where: {
       platform_platformId: {
         platform: "cli",
-        platformId: harness.channel.id,
+        platformId: harness.channel.platformChannelId,
       },
     },
   });
@@ -248,7 +272,82 @@ test("chat pipeline preserves cancellation before the model call", async () => {
   assert.deepStrictEqual(harness.sentMessages, []);
 });
 
+test("chat pipeline aborts an in-flight generation when interrupted", async () => {
+  let releaseFirst;
+  const firstBlocked = new Promise((resolve) => {
+    releaseFirst = resolve;
+  });
+  let modelCallCount = 0;
+
+  const harness = createHarness({
+    generateTextFn: async () => {
+      modelCallCount += 1;
+      if (modelCallCount === 1) {
+        await firstBlocked;
+        return fakeTextResult("## messages\n첫 응답");
+      }
+
+      return fakeTextResult("## messages\n두 번째 응답");
+    },
+  });
+
+  const firstInput = createUserMessage(harness, {
+    id: `abort-first-${randomUUID()}`,
+    content: "먼저 이 메시지",
+  });
+  await harness.messageService.saveMessage(firstInput);
+
+  const firstRun = harness.chatFlow.execute({
+    channel: harness.channel,
+    botId: harness.botId,
+  });
+
+  await new Promise((resolve) => {
+    const interval = setInterval(() => {
+      if (modelCallCount === 1) {
+        clearInterval(interval);
+        resolve();
+      }
+    }, 10);
+  });
+
+  const channel = await prisma.channel.findUnique({
+    where: {
+      platform_platformId: {
+        platform: "cli",
+        platformId: harness.channel.platformChannelId,
+      },
+    },
+  });
+
+  harness.generationAbortRegistry.abortChannel(channel.id);
+  await harness.generationRepository.cancelProcessing(channel.id);
+  releaseFirst();
+  await firstRun;
+
+  const secondInput = createUserMessage(harness, {
+    id: `abort-second-${randomUUID()}`,
+    content: "두 번째 메시지",
+  });
+  await harness.messageService.saveMessage(secondInput);
+  await harness.chatFlow.execute({
+    channel: harness.channel,
+    botId: harness.botId,
+  });
+
+  const generations = await prisma.generation.findMany({
+    where: { channelId: channel.id },
+    orderBy: { id: "asc" },
+  });
+
+  assert.strictEqual(generations.length, 2);
+  assert.strictEqual(generations[0].status, "CANCELLED");
+  assert.strictEqual(generations[1].status, "COMPLETED");
+  assert.deepStrictEqual(harness.sentMessages, ["두 번째 응답"]);
+});
+
 function createHarness({ generateTextFn }) {
+  const generationAbortRegistry = new ChatGenerationAbortRegistry();
   const id = randomUUID();
   const botId = `bot-${id}`;
   const mockClient = createMockClient({ botId });
@@ -260,6 +359,7 @@ function createHarness({ generateTextFn }) {
   });
   const config = {
     app: { language: "ko-KR" },
+    character: "fixture",
     ai: {
       chat: {
         provider: "openai",
@@ -284,7 +384,7 @@ function createHarness({ generateTextFn }) {
   const channelRepository = new ChannelRepository();
   const serverRepository = new ServerRepository();
   const messageRepository = new MessageRepository(configManager);
-  const generationRepository = new GenerationRepository();
+  const generationRepository = new GenerationRepository(configManager);
   const eventBus = new EventBus();
   const messageService = new MessageService(
     userRepository,
@@ -292,7 +392,6 @@ function createHarness({ generateTextFn }) {
     channelRepository,
     serverRepository,
     messageRepository,
-    generationRepository,
   );
   const historyService = new HistoryService(
     messageRepository,
@@ -314,13 +413,8 @@ function createHarness({ generateTextFn }) {
     configManager,
     sequenceBuilder,
   );
-  const aiRuntime = new AiRuntime({
-    historyService,
+  const chatGenerator = new ChatGenerator({
     configManager,
-    promptComposer,
-    sequenceBuilder,
-    chatContextPreparer,
-    generationRepository,
     generateTextFn,
     createLanguageModelFn: () => ({ modelId: "fake-model" }),
   });
@@ -329,15 +423,26 @@ function createHarness({ generateTextFn }) {
     generationRepository,
     configManager,
   );
-  const chatFlow = new ChatFlow(
+  const generationLifecycle = new ChatGenerationLifecycle(
     generationRepository,
     channelRepository,
     messageRepository,
-    aiRuntime,
-    messageSender,
     configManager,
-    { eventBus },
   );
+  const failureHandler = new ChatGenerationFailureHandler(
+    generationLifecycle,
+    messageSender,
+    eventBus,
+  );
+  const chatFlow = new ChatFlow({
+    chatContextPreparer,
+    chatGenerator,
+    messageSender,
+    generationLifecycle,
+    failureHandler,
+    eventBus,
+    generationAbortRegistry,
+  });
 
   return {
     botId,
@@ -346,19 +451,20 @@ function createHarness({ generateTextFn }) {
     sentMessages,
     eventBus,
     generationRepository,
+    generationAbortRegistry,
     messageService,
     chatFlow,
   };
 }
 
 function createUserMessage(harness, { id, content }) {
-  return adaptMessage({
+  return adaptMessageData({
     id,
     content,
-    channelId: harness.channel.id,
+    channelId: harness.channel.platformChannelId,
     guildId: null,
     author: {
-      id: `user-${harness.channel.id}`,
+      id: `user-${harness.channel.platformChannelId}`,
       username: "integration-user",
       globalName: "Integration User",
       bot: false,

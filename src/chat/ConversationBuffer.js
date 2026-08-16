@@ -20,40 +20,49 @@ export class ConversationBuffer {
 
   /**
    * Add a request to the buffer.
-   * @param {string} platformChannelId
-   * @param {import('discord.js').TextBasedChannel} channel
-   * @param {string} botId
-   * @param {string} [cronMessage] - Cron job에서 전달되는 시스템 메시지 (선택)
+   * @param {import('../application/contracts.js').ConversationRequest} request
    */
-  add(platformChannelId, channel, botId, cronMessage = null) {
+  add(request) {
+    const key = this.getKey(request.channel);
+
     // Clear existing timer if any (user is still typing)
-    if (this.buffers.has(platformChannelId)) {
-      clearTimeout(this.buffers.get(platformChannelId));
+    if (this.buffers.has(key)) {
+      clearTimeout(this.buffers.get(key));
     }
 
     // Set new timer
     const timer = setTimeout(() => {
-      this.buffers.delete(platformChannelId);
-      this.chatFlow.execute(channel, botId, cronMessage).catch((error) => {
+      this.buffers.delete(key);
+      this.chatFlow.execute(request).catch((error) => {
         logger.error(
-          { err: error, platformChannelId },
+          {
+            err: error,
+            platform: request.channel.platform,
+            platformChannelId: request.channel.platformChannelId,
+          },
           "ChatFlow error",
         );
       });
     }, this.BUFFER_TIMEOUT);
 
-    this.buffers.set(platformChannelId, timer);
+    this.buffers.set(key, timer);
   }
 
   /**
    * Clear buffer for a channel immediately (e.g. on manual trigger or command)
-   * @param {string} platformChannelId
+   * @param {import('../application/contracts.js').ChannelPort} channel
    */
-  clear(platformChannelId) {
-    if (this.buffers.has(platformChannelId)) {
-      clearTimeout(this.buffers.get(platformChannelId));
-      this.buffers.delete(platformChannelId);
+  clear(channel) {
+    const key = this.getKey(channel);
+
+    if (this.buffers.has(key)) {
+      clearTimeout(this.buffers.get(key));
+      this.buffers.delete(key);
     }
+  }
+
+  getKey(channel) {
+    return `${channel.platform}:${channel.platformChannelId}`;
   }
 
   /**

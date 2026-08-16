@@ -5,7 +5,7 @@ import { MessageHandler } from "../../src/messages/MessageHandler.js";
 test("MessageHandler tests", async (t) => {
   const mockMessageService = {
     saveMessage: async () => ({
-      channel: { id: "chan-123", platformId: "123", platform: "discord" }
+      channel: { id: "chan-123", platformId: "123", platform: "discord" },
     }),
   };
 
@@ -17,6 +17,10 @@ test("MessageHandler tests", async (t) => {
     add: async () => {},
   };
 
+  const mockGenerationAbortRegistry = {
+    abortChannel: () => {},
+  };
+
   const mockChannelRepository = {
     findByPlatformId: async () => ({ id: "chan-123" }),
   };
@@ -25,49 +29,90 @@ test("MessageHandler tests", async (t) => {
     mockMessageService,
     mockGenerationRepository,
     mockConversationBuffer,
-    mockChannelRepository
+    mockChannelRepository,
+    mockGenerationAbortRegistry,
   );
 
   await t.test("handle should process message from a user", async () => {
-    let bufferAdded = false;
+    let bufferedRequest = null;
     const testMockBuffer = {
-      add: () => { bufferAdded = true; }
+      add: (request) => {
+        bufferedRequest = request;
+      },
+    };
+    const calls = [];
+    const generationRepository = {
+      cancelProcessing: async (channelId) => calls.push(["cancel", channelId]),
+    };
+    const generationAbortRegistry = {
+      abortChannel: (channelId) => calls.push(["abort", channelId]),
     };
 
     const handler = new MessageHandler(
       mockMessageService,
-      mockGenerationRepository,
+      generationRepository,
       testMockBuffer,
-      mockChannelRepository
+      mockChannelRepository,
+      generationAbortRegistry,
     );
 
-    const mockMessage = {
-      author: { id: "user-1" },
-      client: { user: { id: "bot-1" } },
-      channelId: "chan-123",
-      channel: { id: "chan-123" },
-      content: "Hello",
-      platform: "discord"
-    };
+    const mockMessage = createMessage();
 
-    await handler.handle(mockMessage);
+    const channel = { platform: "discord", platformChannelId: "chan-123" };
+    await handler.handle({
+      message: mockMessage,
+      channel,
+      botId: "bot-1",
+    });
 
-    assert.strictEqual(bufferAdded, true, "Should add message to buffer");
+    assert.deepStrictEqual(bufferedRequest, {
+      channel,
+      botId: "bot-1",
+    });
+    assert.deepStrictEqual(calls, [
+      ["abort", "chan-123"],
+      ["cancel", "chan-123"],
+    ]);
   });
 
   await t.test("shouldHandle should filter bot messages", async () => {
     const result = await messageHandler.shouldHandle(
-      { author: { id: "bot-1" }, content: "ping" },
-      "bot-1"
+      createMessage({
+        author: {
+          platformUserId: "bot-1",
+          handle: "bot",
+          displayName: null,
+          isBot: true,
+        },
+        content: "ping",
+      }),
+      "bot-1",
     );
     assert.strictEqual(result, false);
   });
 
   await t.test("shouldHandle should filter empty messages", async () => {
     const result = await messageHandler.shouldHandle(
-      { author: { id: "user-1" }, content: "  " },
-      "bot-1"
+      createMessage({ content: "  " }),
+      "bot-1",
     );
     assert.strictEqual(result, false);
   });
 });
+
+function createMessage(overrides = {}) {
+  return {
+    platform: "discord",
+    platformMessageId: "message-1",
+    platformChannelId: "chan-123",
+    platformServerId: null,
+    content: "Hello",
+    author: {
+      platformUserId: "user-1",
+      handle: "user",
+      displayName: "User",
+      isBot: false,
+    },
+    ...overrides,
+  };
+}

@@ -13,20 +13,15 @@ export default {
    * 해당 Generation에 속한 봇의 메시지를 모두 삭제하고 재생성합니다.
    * @param {import("discord.js").MessageContextMenuCommandInteraction} interaction
    */
-  async execute(interaction) {
+  async execute(interaction, { rerollConversation }) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-    const targetMessage = interaction.targetMessage;
-    const messageRepository = interaction.client.services.messageRepository;
-    const chatFlow = interaction.client.services.chatFlow;
+    const plan = await rerollConversation.prepare({
+      platform: "discord",
+      platformMessageId: interaction.targetMessage.id,
+    });
 
-    // DB에서 대상 메시지 조회
-    const dbMessage = await messageRepository.findByPlatformId(
-      "discord",
-      targetMessage.id,
-    );
-
-    if (!dbMessage || !dbMessage.generationId) {
+    if (plan.status === "NOT_REROLLABLE") {
       await interaction.editReply({
         content:
           "재생성할 수 없는 메시지입니다. (DB 정보 없거나 Generation ID 없음)",
@@ -34,44 +29,29 @@ export default {
       return;
     }
 
-    // 동일 generationId를 가진 모든 메시지 조회 (MessageRepository에 메소드 필요)
-    const generationMessages = await messageRepository.findByGenerationId(
-      dbMessage.generationId,
-    );
-    if (!generationMessages || generationMessages.length === 0) {
+    if (plan.status === "MESSAGES_NOT_FOUND") {
       await interaction.editReply({
         content: "해당 생성 회차(Generation)의 메시지를 찾을 수 없습니다.",
       });
       return;
     }
 
-    const platformIds = generationMessages.map((m) => m.platformId);
-
     // Discord에서 메시지 삭제
-    for (const pid of platformIds) {
+    for (const platformMessageId of plan.platformMessageIds) {
       try {
-        const msgToDelete = await interaction.channel.messages.fetch(pid);
+        const msgToDelete = await interaction.channel.messages.fetch(
+          platformMessageId,
+        );
         if (msgToDelete) {
           await msgToDelete.delete();
         }
       } catch (error) {
         logger.warn(
-          { err: error, platformId: pid },
+          { err: error, platformId: platformMessageId },
           "Discord 메시지 개별 삭제 실패 (이미 지워졌을 수 있음)",
         );
       }
     }
-
-    // DB에서 메시지 삭제
-    const deletedCount = await messageRepository.deleteManyByPlatformIds(
-      "discord",
-      platformIds,
-    );
-
-    logger.info(
-      { generationId: dbMessage.generationId, deletedCount },
-      "재생성(Reroll)을 위해 기존 메시지 삭제 완료",
-    );
 
     await interaction.editReply({
       content: `기존 메시지 삭제완료. 다시 답변을 생성합니다...`,
@@ -80,7 +60,18 @@ export default {
     // 다시 ChatFlow 실행
     try {
       const adaptedChannel = adaptChannel(interaction.channel);
-      await chatFlow.execute(adaptedChannel, interaction.client.user.id);
+      const { deletedCount } = await rerollConversation.execute({
+        platform: "discord",
+        platformMessageIds: plan.platformMessageIds,
+        conversationRequest: {
+          channel: adaptedChannel,
+          botId: interaction.client.user.id,
+        },
+      });
+      logger.info(
+        { generationId: plan.generationId, deletedCount },
+        "재생성(Reroll)을 위해 기존 메시지 삭제 완료",
+      );
     } catch (err) {
       logger.error({ err }, "재생성(Reroll) 중 ChatFlow 실행 실패");
     }

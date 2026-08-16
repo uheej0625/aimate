@@ -32,6 +32,7 @@
     "@ai-sdk/google-vertex": "^4.0.137",
     "@ai-sdk/openai": "^3.0.65",
     "@ai-sdk/openai-compatible": "^2.0.48",
+    "@ai-sdk/xai": "^3.0.111",
     "@inquirer/prompts": "^8.4.2",
     "@mozilla/readability": "^0.6.0",
     "@prisma/client": "^5.22.0",

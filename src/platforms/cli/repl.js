@@ -1,13 +1,13 @@
 import { v4 as uuidv4 } from "uuid";
 import { CLI_BOT_ID, CLI_USER_ID } from "./constants.js";
-import { adaptMessage } from "./adapter.js";
+import { adaptIncomingMessage } from "./adapter.js";
 import { createMockChannel } from "./mocks.js";
 import { ChatTui } from "./tui.js";
 
 function toViewMessage(record) {
   return {
-    id: record.platformId,
-    role: record.author.platformId === CLI_BOT_ID ? "assistant" : "user",
+    id: record.id,
+    role: record.authorPlatformId === CLI_BOT_ID ? "assistant" : "user",
     content: record.content,
     createdAt: record.createdAt,
   };
@@ -19,8 +19,12 @@ function makeTitle(messages) {
 }
 
 /** Start the persistent multi-conversation terminal UI. */
-export async function startRepl({ container, mockClient, onQuit = null }) {
-  const { channelRepository, messageRepository, messageHandler } = container;
+export async function startRepl({
+  conversationCatalog,
+  messageHandler,
+  mockClient,
+  onQuit = null,
+}) {
   const tui = new ChatTui();
   const channelObjects = new Map();
 
@@ -44,52 +48,47 @@ export async function startRepl({ container, mockClient, onQuit = null }) {
     return channel;
   };
 
-  const loadChannel = async (record) => {
-    const records = await messageRepository.getHistoryByPlatformChannelId(
-      "cli",
-      record.platformId,
-      100,
-    );
-    const messages = records.map(toViewMessage);
-    makeChannelObject(record.platformId);
+  const toViewChannel = (record) => {
+    const messages = record.messages.map(toViewMessage);
+    makeChannelObject(record.id);
     return {
-      id: record.platformId,
+      id: record.id,
       title: makeTitle(messages),
       messages,
-      messageCount: record._count?.messages ?? messages.length,
+      messageCount: record.messageCount,
       updatedAt: record.updatedAt,
     };
   };
 
-  let records = await channelRepository.listByPlatform("cli");
+  let records = await conversationCatalog.list({ platform: "cli" });
   if (!records.length) {
     records = [
-      await channelRepository.upsert({
+      await conversationCatalog.create({
         platform: "cli",
-        platformId: uuidv4(),
+        platformChannelId: uuidv4(),
         scope: "channel",
       }),
     ];
   }
-  const channels = await Promise.all(records.map(loadChannel));
+  const channels = records.map(toViewChannel);
   tui.start(channels);
 
   tui.on("new-channel", () => {
     void (async () => {
       try {
         const id = uuidv4();
-        await channelRepository.upsert({
+        const conversation = await conversationCatalog.create({
           platform: "cli",
-          platformId: id,
+          platformChannelId: id,
           scope: "channel",
         });
         makeChannelObject(id);
         tui.addChannel({
-          id,
+          id: conversation.id,
           title: "새 채팅",
-          messages: [],
-          messageCount: 0,
-          updatedAt: new Date(),
+          messages: conversation.messages,
+          messageCount: conversation.messageCount,
+          updatedAt: conversation.updatedAt,
         });
       } catch {
         tui.setNotice("새 채팅을 만들지 못했습니다", "error");
@@ -122,7 +121,7 @@ export async function startRepl({ container, mockClient, onQuit = null }) {
       });
       tui.setBusy(channelId, true);
       try {
-        await messageHandler.handle(adaptMessage(message));
+        await messageHandler.handle(adaptIncomingMessage(message));
       } catch {
         tui.setBusy(channelId, false);
         tui.setNotice("메시지를 처리하지 못했습니다", "error");

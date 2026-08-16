@@ -5,11 +5,15 @@ import { ChannelRepository } from "../repositories/ChannelRepository.js";
 import { ServerRepository } from "../repositories/ServerRepository.js";
 import { GenerationRepository } from "../repositories/GenerationRepository.js";
 import { CronJobRepository } from "../repositories/CronJobRepository.js";
-import { AiRuntime } from "../ai/AiRuntime.js";
+import { MemoryRepository } from "../repositories/MemoryRepository.js";
+import { ChatGenerator } from "../ai/ChatGenerator.js";
+import { ImageGenerator } from "../ai/ImageGenerator.js";
 import { HistoryService } from "../messages/HistoryService.js";
 import { MessageService } from "../messages/MessageService.js";
 import { BotAccountService } from "../accounts/BotAccountService.js";
-import { CronService } from "../scheduling/CronService.js";
+import { CronJobScheduler } from "../scheduling/CronJobScheduler.js";
+import { CronJobWorker } from "../scheduling/CronJobWorker.js";
+import { registerRetryPolicy } from "../scheduling/registerRetryPolicy.js";
 import { CharacterContextBuilder } from "../character/CharacterContextBuilder.js";
 import { PromptComposer } from "../chat/context/PromptComposer.js";
 import { SequenceBuilder } from "../chat/context/SequenceBuilder.js";
@@ -23,22 +27,30 @@ import { MessageHandler } from "../messages/MessageHandler.js";
 import { ConversationBuffer } from "../chat/ConversationBuffer.js";
 import { MessageSender } from "../messages/MessageSender.js";
 import { ChatFlow } from "../chat/ChatFlow.js";
-import { AppEvents, EventBus } from "./EventBus.js";
+import { ChatGenerationLifecycle } from "../chat/ChatGenerationLifecycle.js";
+import { ChatGenerationFailureHandler } from "../chat/ChatGenerationFailureHandler.js";
+import { ChatGenerationAbortRegistry } from "../chat/ChatGenerationAbortRegistry.js";
+import { EventBus } from "./EventBus.js";
 import { ToolRegistry } from "../tools/ToolRegistry.js";
-import { createLogger } from "./logger.js";
-
-const logger = createLogger("Container");
+import { ToolExecutionContextFactory } from "../tools/ToolExecutionContextFactory.js";
+import { ActivateChannel } from "../application/ActivateChannel.js";
+import { StoredMessageService } from "../application/StoredMessageService.js";
+import { GetGenerationInfo } from "../application/GetGenerationInfo.js";
+import { RerollConversation } from "../application/RerollConversation.js";
+import { ConversationCatalog } from "../application/ConversationCatalog.js";
+import { MemoryService } from "../memory/MemoryService.js";
+import { MemoryExtractor } from "../memory/MemoryExtractor.js";
+import { registerMemoryPolicy } from "../memory/registerMemoryPolicy.js";
 
 /**
- * Dependency Injection Container
- * Creates and wires up all application services with their dependencies.
- *
- * This ensures:
- * - No circular dependencies
- * - Single source of truth for instance creation
- * - Easy testing with mock dependencies
+ * Application composition root.
+ * Creates core services while platform bootstraps supply their adapters.
  */
-export async function createContainer({ configManager, client = null }) {
+export async function createContainer({
+  configManager,
+  platformClients = new Map(),
+  platformDispatchers = new Map(),
+}) {
   if (!configManager) {
     throw new Error("createContainer requires a configManager.");
   }
@@ -52,27 +64,35 @@ export async function createContainer({ configManager, client = null }) {
   const platformAccountRepository = new PlatformAccountRepository();
   const channelRepository = new ChannelRepository();
   const serverRepository = new ServerRepository();
-  const generationRepository = new GenerationRepository();
+  const generationRepository = new GenerationRepository(configManager);
   const cronJobRepository = new CronJobRepository();
+  const memoryRepository = new MemoryRepository();
+  const cronJobScheduler = new CronJobScheduler(cronJobRepository);
   const eventBus = new EventBus();
+  const generationAbortRegistry = new ChatGenerationAbortRegistry();
+  registerRetryPolicy({ eventBus, cronJobScheduler });
 
   // Tools (function calling)
   const toolRegistry = new ToolRegistry(configManager);
   await toolRegistry.loadFromDirectory();
 
-  // platformClients: platform ID → 클라이언트 인스턴스 (discord client 등)
-  const platformClients = new Map();
-  if (client) platformClients.set("discord", client);
-
-  // CronService는 나중에 초기화 (conversationBuffer 필요)
-  let cronService = null;
+  const imageGenerator = new ImageGenerator(configManager);
+  const toolContextFactory = new ToolExecutionContextFactory({
+    configManager,
+    cronJobScheduler,
+    imageGenerator,
+    generationRepository,
+    platformClients,
+  });
 
   // Services (business logic layer)
   const historyService = new HistoryService(
     messageRepository,
     historyMessageFormatter,
   );
-  const characterContextBuilder = new CharacterContextBuilder();
+  const characterContextBuilder = new CharacterContextBuilder({
+    configManager,
+  });
   const promptComposer = new PromptComposer(
     configManager,
     characterContextBuilder,
@@ -80,23 +100,23 @@ export async function createContainer({ configManager, client = null }) {
   const sequenceBuilder = new SequenceBuilder(promptComposer);
   const responseParser = new AIResponseParser();
   const generatedImageTagPolicy = new GeneratedImageTagPolicy();
+  const memoryService = new MemoryService(
+    memoryRepository,
+    userRepository,
+    configManager,
+  );
   const chatContextPreparer = new ChatContextPreparer(
     historyService,
     configManager,
     sequenceBuilder,
+    memoryService,
   );
-  const aiRuntime = new AiRuntime({
-    historyService,
+  const chatGenerator = new ChatGenerator({
     configManager,
     toolRegistry,
-    promptComposer,
-    sequenceBuilder,
     responseParser,
     generatedImageTagPolicy,
-    chatContextPreparer,
-    platformClients,
-    generationRepository,
-    getCronService: () => cronService,
+    toolContextFactory,
   });
   const messageService = new MessageService(
     userRepository,
@@ -104,10 +124,9 @@ export async function createContainer({ configManager, client = null }) {
     channelRepository,
     serverRepository,
     messageRepository,
-    generationRepository,
   );
 
-  // Core Components (New Architecture)
+  // Message delivery
   const messageSender = new MessageSender(
     messageService,
     generationRepository,
@@ -119,53 +138,55 @@ export async function createContainer({ configManager, client = null }) {
     },
   );
 
-  eventBus.on(
-    AppEvents.GenerationServiceUnavailable,
-    async ({ channelRecord, platform }) => {
-      // Discord status update
-      if (client) {
-        const fallbackStatus =
-          configManager.get("discord.fallbackStatus") || "dnd";
-        await client.user.setStatus(fallbackStatus);
-        logger.info({ status: fallbackStatus }, "Bot status changed");
-      }
-
-      // Schedule retry cron job if cronService is available
-      if (cronService && channelRecord) {
-        try {
-          await cronService.registerRetryJob(
-            channelRecord.id,
-            platform,
-            0, // retryCount starts at 0
-          );
-          logger.info(
-            { channelId: channelRecord.id },
-            "Retry cron job scheduled",
-          );
-        } catch (cronError) {
-          logger.error({ err: cronError }, "Failed to schedule retry");
-        }
-      }
-    },
-  );
-
-  const chatFlow = new ChatFlow(
+  const generationLifecycle = new ChatGenerationLifecycle(
     generationRepository,
     channelRepository,
     messageRepository,
-    aiRuntime,
-    messageSender,
     configManager,
-    { eventBus },
+  );
+  const failureHandler = new ChatGenerationFailureHandler(
+    generationLifecycle,
+    messageSender,
+    eventBus,
+  );
+  const memoryExtractor = new MemoryExtractor(
+    memoryRepository,
+    userRepository,
+    messageRepository,
+    configManager,
+  );
+  registerMemoryPolicy({ eventBus, memoryExtractor });
+  const chatFlow = new ChatFlow({
+    chatContextPreparer,
+    chatGenerator,
+    messageSender,
+    generationLifecycle,
+    failureHandler,
+    eventBus,
+    generationAbortRegistry,
+  });
+
+  const activateChannel = new ActivateChannel(
+    channelRepository,
+    serverRepository,
+  );
+  const storedMessageService = new StoredMessageService(messageRepository);
+  const getGenerationInfo = new GetGenerationInfo(messageRepository);
+  const rerollConversation = new RerollConversation(
+    messageRepository,
+    chatFlow,
+  );
+  const conversationCatalog = new ConversationCatalog(
+    channelRepository,
+    messageRepository,
   );
 
   const conversationBuffer = new ConversationBuffer(chatFlow, configManager);
 
-  // CronService 초기화 (conversationBuffer 준비 완료 후)
-  cronService = new CronService(
+  const cronJobWorker = new CronJobWorker(
     cronJobRepository,
     conversationBuffer,
-    platformClients,
+    platformDispatchers,
   );
 
   const messageHandler = new MessageHandler(
@@ -173,6 +194,7 @@ export async function createContainer({ configManager, client = null }) {
     generationRepository,
     conversationBuffer,
     channelRepository,
+    generationAbortRegistry,
   );
 
   const botAccountService = new BotAccountService(
@@ -181,35 +203,17 @@ export async function createContainer({ configManager, client = null }) {
   );
 
   return {
-    // Repositories
-    messageRepository,
-    userRepository,
-    platformAccountRepository,
-    channelRepository,
-    serverRepository,
-    generationRepository,
-    cronJobRepository,
-
-    // Services & Components
-    aiRuntime,
-    historyService,
-    messageService,
+    activateChannel,
+    storedMessageService,
+    getGenerationInfo,
+    rerollConversation,
+    conversationCatalog,
     botAccountService,
-    cronService,
-    configManager,
-    sequenceBuilder,
-    responseParser,
-    generatedImageTagPolicy,
-    chatContextPreparer,
-
-    // Core
+    cronJobWorker,
     eventBus,
+    generationAbortRegistry,
     messageHandler,
     conversationBuffer,
     chatFlow,
-    messageSender,
-
-    // Tools
-    toolRegistry,
   };
 }

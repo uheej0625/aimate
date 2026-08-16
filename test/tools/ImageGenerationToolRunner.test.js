@@ -47,8 +47,8 @@ test("executeImageGenerationTool renders prompts, passes references, and records
       },
     };
     const generated = Buffer.from("generated image");
-    const ai = {
-      generateImage: async (prompt, options) => {
+    const imageGenerator = {
+      generate: async (prompt, options) => {
         calls.push(["generateImage", prompt, options]);
         return {
           buffer: generated,
@@ -68,7 +68,7 @@ test("executeImageGenerationTool renders prompts, passes references, and records
     const result = await executeImageGenerationTool(
       { scene: "cafe", sourceImages: ["[IMAGE:source123]"] },
       {
-        ai,
+        imageGenerator,
         configManager,
         generationRepository,
         channel: { id: "channel-1" },
@@ -145,8 +145,8 @@ test("executeImageGenerationTool marks the generation failed when image generati
       executeImageGenerationTool(
         { scene: "desk" },
         {
-          ai: {
-            generateImage: async () => {
+          imageGenerator: {
+            generate: async () => {
               throw new Error("boom");
             },
           },
@@ -196,8 +196,8 @@ test("executeImageGenerationTool does not pass image references when none are re
     await executeImageGenerationTool(
       { scene: "new ramen shop" },
       {
-        ai: {
-          generateImage: async (_prompt, options) => {
+        imageGenerator: {
+          generate: async (_prompt, options) => {
             receivedOptions = options;
             return { buffer: Buffer.from("generated image") };
           },

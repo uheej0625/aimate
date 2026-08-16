@@ -13,10 +13,11 @@ export class PromptComposer {
    */
   constructor(
     configManager = null,
-    characterContextBuilder = new CharacterContextBuilder(),
+    characterContextBuilder = null,
   ) {
     this.configManager = configManager;
-    this.characterContextBuilder = characterContextBuilder;
+    this.characterContextBuilder =
+      characterContextBuilder ?? new CharacterContextBuilder({ configManager });
   }
 
   /**

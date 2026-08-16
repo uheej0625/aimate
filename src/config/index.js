@@ -15,12 +15,11 @@ const __dirname = path.dirname(__filename);
 
 const ACTIVE_AI_PURPOSES = ["chat", "image"];
 const ENV_OVERRIDES = [
-  ["DISCORD_TOKEN", "secrets.discordToken"],
-  ["DISCORD_CLIENT_ID", "secrets.discordClientId"],
   ["GOOGLE_GENERATIVE_AI_API_KEY", "secrets.googleApiKey"],
   ["OPENAI_API_KEY", "secrets.openaiApiKey"],
   ["AI_GATEWAY_API_KEY", "secrets.aiGatewayApiKey"],
   ["OPENAI_COMPATIBLE_API_KEY", "secrets.openaiCompatibleApiKey"],
+  ["XAI_API_KEY", "secrets.xaiApiKey"],
   ["VERTEX_PROJECT_ID", "secrets.vertexProjectId"],
   ["VERTEX_LOCATION", "secrets.vertexLocation"],
   ["VERTEX_CLIENT_EMAIL", "secrets.vertexClientEmail"],
@@ -64,10 +63,7 @@ export function createConfigManager({
  * @param {string[]} purposes
  * @returns {Promise<boolean>}
  */
-export async function validateAiConfig(
-  manager,
-  purposes = ACTIVE_AI_PURPOSES,
-) {
+export async function validateAiConfig(manager, purposes = ACTIVE_AI_PURPOSES) {
   if (!manager) {
     throw new Error("validateAiConfig requires a config manager.");
   }

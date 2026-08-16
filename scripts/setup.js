@@ -10,6 +10,7 @@ if (process.platform === "win32") {
 
 import { input, checkbox, select } from "@inquirer/prompts";
 import { fileURLToPath } from "url";
+import { getDiscordTokenEnvKey } from "../src/platforms/discord/credentials.js";
 
 const [major, minor] = process.versions.node.split(".").map(Number);
 if (major < 20 || (major === 20 && minor < 12)) {
@@ -27,10 +28,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const locales = {
   en: {
     title: "=== AiMate Environment Setup Wizard ===",
-    discordToken: "Enter your DISCORD_TOKEN:",
-    discordClientId: "Enter your DISCORD_CLIENT_ID:",
+    discordToken: (envKey) => `Enter your ${envKey}:`,
     selectProviders: "Select AI providers you want to configure:",
     openaiKey: "Enter OPENAI_API_KEY:",
+    xaiKey: "Enter XAI_API_KEY:",
     aiGatewayKey: "Enter AI_GATEWAY_API_KEY:",
     googleKey: "Enter GOOGLE_GENERATIVE_AI_API_KEY:",
     vertexProjectId: "Enter VERTEX_PROJECT_ID:",
@@ -43,11 +44,11 @@ const locales = {
   },
   ko: {
     title: "=== AiMate 환경 설정 마법사 ===",
-    discordToken: "DISCORD_TOKEN을 입력하세요:",
-    discordClientId: "DISCORD_CLIENT_ID를 입력하세요:",
+    discordToken: (envKey) => `${envKey}을 입력하세요:`,
     selectProviders:
       "설정할 AI 프로바이더를 선택하세요 (스페이스바 선택, 엔터 완료):",
     openaiKey: "OPENAI_API_KEY를 입력하세요:",
+    xaiKey: "XAI_API_KEY를 입력하세요:",
     aiGatewayKey: "AI_GATEWAY_API_KEY를 입력하세요:",
     googleKey: "GOOGLE_GENERATIVE_AI_API_KEY를 입력하세요:",
     vertexProjectId: "VERTEX_PROJECT_ID를 입력하세요:",
@@ -70,16 +71,21 @@ async function main() {
   });
 
   const t = locales[lang];
+  const configPath = path.join(__dirname, "..", "config", "default.json");
+  const config = JSON.parse(await fs.readFile(configPath, "utf8"));
+  const discordTokenEnvKey = getDiscordTokenEnvKey(config.character);
 
   console.log(`\n${t.title}\n`);
 
-  const discordToken = await input({ message: t.discordToken });
-  const discordClientId = await input({ message: t.discordClientId });
+  const discordToken = await input({
+    message: t.discordToken(discordTokenEnvKey),
+  });
 
   const providers = await checkbox({
     message: t.selectProviders,
     choices: [
       { name: "OpenAI", value: "openai" },
+      { name: "xAI", value: "xai" },
       { name: "Vercel AI Gateway", value: "aiGateway" },
       { name: "Google Generative AI", value: "google" },
       { name: "Vertex AI", value: "vertex" },
@@ -92,12 +98,15 @@ async function main() {
   });
 
   const envData = {
-    DISCORD_TOKEN: discordToken,
-    DISCORD_CLIENT_ID: discordClientId,
+    [discordTokenEnvKey]: discordToken,
   };
 
   if (providers.includes("openai")) {
     envData.OPENAI_API_KEY = await input({ message: t.openaiKey });
+  }
+
+  if (providers.includes("xai")) {
+    envData.XAI_API_KEY = await input({ message: t.xaiKey });
   }
 
   if (providers.includes("aiGateway")) {
@@ -119,12 +128,16 @@ async function main() {
 
   // Generate .env content
   let envString = "# Discord Bot\n";
-  envString += `DISCORD_TOKEN=${envData.DISCORD_TOKEN}\n`;
-  envString += `DISCORD_CLIENT_ID=${envData.DISCORD_CLIENT_ID}\n\n`;
+  envString += `${discordTokenEnvKey}=${envData[discordTokenEnvKey]}\n\n`;
 
   if (providers.includes("openai")) {
     envString += "# OpenAI\n";
     envString += `OPENAI_API_KEY=${envData.OPENAI_API_KEY}\n\n`;
+  }
+
+  if (providers.includes("xai")) {
+    envString += "# xAI\n";
+    envString += `XAI_API_KEY=${envData.XAI_API_KEY}\n\n`;
   }
 
   if (providers.includes("aiGateway")) {

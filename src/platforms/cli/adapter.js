@@ -1,12 +1,12 @@
 /**
  * CLI 플랫폼 어댑터
- * CLI에서 생성된 원시 데이터를 내부 표준 형식(AdaptedMessage)으로 변환한다.
+ * CLI에서 생성된 원시 데이터를 플랫폼 독립적인 계약으로 변환한다.
  *
- * @see docs/message-format.md
+ * @see ../../application/contracts.js
  */
 
 /**
- * CLI 원시 메시지 데이터를 내부 표준 메시지 형식으로 변환한다.
+ * CLI 원시 메시지에서 저장·처리에 필요한 순수 데이터만 추출한다.
  *
  * @param {Object} raw - CLI에서 생성된 원시 메시지 데이터
  * @param {string} raw.id
@@ -18,24 +18,36 @@
  * @param {string} raw.author.username
  * @param {string|null} [raw.author.globalName]
  * @param {boolean} [raw.author.bot]
- * @param {Object} raw.channel - 이미 표준 형식을 따르는 채널 객체
- * @param {Object} raw.client - { user: { id: string } }
- * @returns {import('../../../docs/message-format').AdaptedMessage}
+ * @returns {import('../../application/contracts.js').NormalizedMessage}
  */
-export function adaptMessage(raw) {
+export function adaptMessageData(raw) {
   return {
-    id: raw.id,
-    content: raw.content,
     platform: "cli",
-    channelId: raw.channelId,
-    guildId: raw.guildId ?? null,
+    platformMessageId: raw.id,
+    platformChannelId: raw.channelId,
+    platformServerId: raw.guildId ?? null,
+    content: raw.content,
     author: {
-      id: raw.author.id,
-      username: raw.author.username,
-      globalName: raw.author.globalName ?? null,
-      bot: raw.author.bot ?? false,
+      platformUserId: raw.author.id,
+      handle: raw.author.username,
+      displayName: raw.author.globalName ?? null,
+      isBot: raw.author.bot ?? false,
     },
+  };
+}
+
+/**
+ * CLI 원시 메시지를 MessageHandler 입력으로 변환한다.
+ *
+ * @param {Object} raw
+ * @param {import('../../application/contracts.js').ChannelPort} raw.channel
+ * @param {{user: {id: string}}} raw.client
+ * @returns {import('../../application/contracts.js').IncomingMessageRequest}
+ */
+export function adaptIncomingMessage(raw) {
+  return {
+    message: adaptMessageData(raw),
     channel: raw.channel,
-    client: raw.client,
+    botId: raw.client.user.id,
   };
 }

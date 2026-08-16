@@ -1,9 +1,17 @@
+import {
+  hasEnabledNativeTools,
+  resolveDialect,
+  supportedAiDialects,
+  validateNativeTools,
+} from "./dialects.js";
+
 const SUPPORTED_PROVIDERS = [
   "gateway",
   "openai",
   "google",
   "vertex",
   "openaiCompatible",
+  "xai",
 ];
 
 function valueExists(value) {
@@ -20,6 +28,9 @@ export function getAiSettings(configManager, purpose) {
   return {
     provider: "gateway",
     providerOptions: undefined,
+    dialect: undefined,
+    api: undefined,
+    nativeTools: undefined,
     maxRetries: undefined,
     ...settings,
   };
@@ -104,6 +115,50 @@ export function validateAiPurpose(configManager, purpose) {
       !configManager.get("secrets.openaiCompatibleApiKey")
     ) {
       missing.push("OPENAI_COMPATIBLE_API_KEY");
+    }
+  }
+
+  if (provider === "xai" && !configManager.get("secrets.xaiApiKey")) {
+    missing.push("XAI_API_KEY");
+  }
+
+  if (settings.api && provider !== "xai") {
+    invalid.push(`ai.${purpose}.api는 xai provider에서만 사용할 수 있습니다.`);
+  }
+
+  if (provider === "xai") {
+    const api = settings.api ?? "chat";
+    if (!["chat", "responses"].includes(api)) {
+      invalid.push(`ai.${purpose}.api="${api}" (허용값: chat, responses)`);
+    }
+    if (hasEnabledNativeTools(settings) && api !== "responses") {
+      invalid.push(
+        `ai.${purpose}.nativeTools는 xai Responses API (api: "responses")가 필요합니다.`,
+      );
+    }
+  }
+
+  if (settings.dialect && !supportedAiDialects().includes(settings.dialect)) {
+    invalid.push(
+      `ai.${purpose}.dialect="${settings.dialect}" (허용값: ${supportedAiDialects().join(", ")})`,
+    );
+  }
+
+  invalid.push(
+    ...validateNativeTools(settings).map(
+      (message) => `ai.${purpose}.${message}`,
+    ),
+  );
+
+  if (hasEnabledNativeTools(settings)) {
+    const dialect = resolveDialect(settings);
+
+    if (!dialect) {
+      invalid.push(`ai.${purpose}.nativeTools에는 dialect가 필요합니다.`);
+    } else if (!supportedAiDialects().includes(dialect)) {
+      invalid.push(
+        `ai.${purpose}.nativeTools에 대한 dialect="${dialect}"은 지원되지 않습니다.`,
+      );
     }
   }
 

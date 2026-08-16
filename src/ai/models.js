@@ -3,6 +3,7 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createVertex } from "@ai-sdk/google-vertex";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
+import { createXai } from "@ai-sdk/xai";
 import { getAiSettings } from "./config.js";
 
 export function createLanguageModel(configManager, purpose = "chat") {
@@ -77,6 +78,19 @@ function createProvider(configManager, settings) {
     return {
       language: (model) => compatible(model),
       image: (model) => compatible.imageModel(model),
+    };
+  }
+
+  if (provider === "xai") {
+    const xai = createXai({
+      apiKey: configManager.get("secrets.xaiApiKey"),
+      baseURL: settings.baseURL,
+    });
+
+    return {
+      language: (model) =>
+        settings.api === "responses" ? xai.responses(model) : xai(model),
+      image: (model) => xai.image(model),
     };
   }
 

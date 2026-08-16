@@ -10,6 +10,7 @@ const configManager = createConfigManager({ watch: false });
 configureLogger(configManager);
 
 const { REST, Routes } = await import("discord.js");
+const { getRequiredDiscordToken } = await import("./credentials.js");
 const { readdirSync } = await import("fs");
 const { join, dirname } = await import("path");
 const { fileURLToPath } = await import("url");
@@ -20,22 +21,11 @@ const logger = createLogger("Deploy");
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const token = configManager.get("secrets.discordToken");
-const clientId = configManager.get("secrets.discordClientId");
-
-if (!token) {
-  logger.fatal(
-    "DISCORD_TOKEN이 설정되지 않았습니다. .env 또는 config/default.json을 확인하세요.",
-  );
-  process.exit(1);
-}
-if (!clientId) {
-  logger.fatal(
-    "DISCORD_CLIENT_ID가 설정되지 않았습니다. .env 또는 config/default.json의 secrets.discordClientId를 채워주세요.",
-  );
-  logger.info(
-    "   Discord Developer Portal → 앱 선택 → General Information → Application ID",
-  );
+let token;
+try {
+  token = getRequiredDiscordToken(configManager);
+} catch (error) {
+  logger.fatal({ err: error }, "Discord token configuration is invalid");
   process.exit(1);
 }
 
@@ -56,6 +46,9 @@ for (const file of commandFiles) {
 const rest = new REST({ version: "10" }).setToken(token);
 
 try {
+  const application = await rest.get(Routes.currentApplication());
+  const clientId = application.id;
+
   logger.info({ count: commands.length }, "🚀 Discord에 커맨드 등록 시작...");
 
   const guildId = process.env.DISCORD_GUILD_ID;
