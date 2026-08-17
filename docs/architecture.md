@@ -93,7 +93,7 @@ stateDiagram-v2
 
 - 메시지 이벤트: `messageHandler`
 - Discord 명령: `activateChannel`, `storedMessageService`, `getGenerationInfo`, `rerollConversation`
-- CLI 대화 목록: `conversationCatalog`
+- CLI 채널 목록: `channelCatalog`
 - 예약 실행: `cronJobWorker`
 - 종료 처리: `conversationBuffer`, `cronJobWorker`
 

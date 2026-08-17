@@ -4,7 +4,7 @@ import { ActivateChannel } from "../../src/application/ActivateChannel.js";
 import { StoredMessageService } from "../../src/application/StoredMessageService.js";
 import { GetGenerationInfo } from "../../src/application/GetGenerationInfo.js";
 import { RerollConversation } from "../../src/application/RerollConversation.js";
-import { ConversationCatalog } from "../../src/application/ConversationCatalog.js";
+import { ChannelCatalog } from "../../src/application/ChannelCatalog.js";
 
 test("ActivateChannel resolves a server and activates its channel", async () => {
   const serverCalls = [];
@@ -161,9 +161,9 @@ test("RerollConversation prepares cleanup and reruns the conversation", async ()
   assert.deepStrictEqual(requests, [conversationRequest]);
 });
 
-test("ConversationCatalog maps repository records to conversation DTOs", async () => {
+test("ChannelCatalog maps repository records to channel DTOs", async () => {
   const updatedAt = new Date("2026-08-09T00:00:00Z");
-  const catalog = new ConversationCatalog(
+  const catalog = new ChannelCatalog(
     {
       listByPlatform: async () => [
         {

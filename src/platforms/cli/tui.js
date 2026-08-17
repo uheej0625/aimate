@@ -318,7 +318,7 @@ export class ChatTui extends EventEmitter {
     const lines = [];
 
     lines.push(
-      `${COLORS.purple}◆ AiMate${RESET}  ${COLORS.dim}Terminal conversations${RESET}${" ".repeat(Math.max(0, width - 33))}`,
+      `${COLORS.purple}◆ AiMate${RESET}  ${COLORS.dim}Terminal channels${RESET}${" ".repeat(Math.max(0, width - 29))}`,
     );
     lines.push(border("─", "─", "─", width));
 
@@ -391,7 +391,7 @@ export class ChatTui extends EventEmitter {
   renderChannels(width, height) {
     if (!width) return [];
     const lines = [
-      ` ${this.focus === "channels" ? COLORS.cyan : COLORS.dim}대화 목록${RESET}`,
+      ` ${this.focus === "channels" ? COLORS.cyan : COLORS.dim}채널 목록${RESET}`,
     ];
     for (
       let index = 0;

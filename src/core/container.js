@@ -37,7 +37,7 @@ import { ActivateChannel } from "../application/ActivateChannel.js";
 import { StoredMessageService } from "../application/StoredMessageService.js";
 import { GetGenerationInfo } from "../application/GetGenerationInfo.js";
 import { RerollConversation } from "../application/RerollConversation.js";
-import { ConversationCatalog } from "../application/ConversationCatalog.js";
+import { ChannelCatalog } from "../application/ChannelCatalog.js";
 import { MemoryService } from "../memory/MemoryService.js";
 import { MemoryExtractor } from "../memory/MemoryExtractor.js";
 import { registerMemoryPolicy } from "../memory/registerMemoryPolicy.js";
@@ -175,7 +175,7 @@ export async function createContainer({
     messageRepository,
     chatFlow,
   );
-  const conversationCatalog = new ConversationCatalog(
+  const channelCatalog = new ChannelCatalog(
     channelRepository,
     messageRepository,
   );
@@ -206,7 +206,7 @@ export async function createContainer({
     storedMessageService,
     getGenerationInfo,
     rerollConversation,
-    conversationCatalog,
+    channelCatalog,
     botAccountService,
     cronJobWorker,
     eventBus,

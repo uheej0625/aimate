@@ -27,7 +27,7 @@ const logger = createLogger("CLI");
   const {
     messageHandler,
     botAccountService,
-    conversationCatalog,
+    channelCatalog,
     generationAbortRegistry,
   } = container;
 
@@ -53,7 +53,7 @@ const logger = createLogger("CLI");
   }
 
   await startRepl({
-    conversationCatalog,
+    channelCatalog,
     messageHandler,
     mockClient,
   });

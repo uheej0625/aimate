@@ -18,9 +18,9 @@ function makeTitle(messages) {
   return source ? source.replace(/\s+/g, " ").slice(0, 32) : "새 채팅";
 }
 
-/** Start the persistent multi-conversation terminal UI. */
+/** Start the persistent multi-channel terminal UI. */
 export async function startRepl({
-  conversationCatalog,
+  channelCatalog,
   messageHandler,
   mockClient,
   onQuit = null,
@@ -60,10 +60,10 @@ export async function startRepl({
     };
   };
 
-  let records = await conversationCatalog.list({ platform: "cli" });
+  let records = await channelCatalog.list({ platform: "cli" });
   if (!records.length) {
     records = [
-      await conversationCatalog.create({
+      await channelCatalog.create({
         platform: "cli",
         platformChannelId: uuidv4(),
         scope: "channel",
@@ -77,18 +77,18 @@ export async function startRepl({
     void (async () => {
       try {
         const id = uuidv4();
-        const conversation = await conversationCatalog.create({
+        const channel = await channelCatalog.create({
           platform: "cli",
           platformChannelId: id,
           scope: "channel",
         });
         makeChannelObject(id);
         tui.addChannel({
-          id: conversation.id,
+          id: channel.id,
           title: "새 채팅",
-          messages: conversation.messages,
-          messageCount: conversation.messageCount,
-          updatedAt: conversation.updatedAt,
+          messages: channel.messages,
+          messageCount: channel.messageCount,
+          updatedAt: channel.updatedAt,
         });
       } catch {
         tui.setNotice("새 채팅을 만들지 못했습니다", "error");

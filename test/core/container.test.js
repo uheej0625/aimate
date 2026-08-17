@@ -16,9 +16,9 @@ test("createContainer exposes only application entrypoint dependencies", async (
   assert.deepStrictEqual(Object.keys(container).sort(), [
     "activateChannel",
     "botAccountService",
+    "channelCatalog",
     "chatFlow",
     "conversationBuffer",
-    "conversationCatalog",
     "cronJobWorker",
     "eventBus",
     "generationAbortRegistry",
