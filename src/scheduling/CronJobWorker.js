@@ -109,7 +109,8 @@ export class CronJobWorker {
 
     const botId = (await dispatcher.getBotId(job)) ?? "bot";
     this.conversationBuffer.add({
-      channel,
+      channelPort: channel,
+      internalChannelId: job.channelId,
       botId,
       cronMessage: job.message,
     });

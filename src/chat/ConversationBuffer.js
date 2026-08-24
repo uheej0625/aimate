@@ -23,7 +23,7 @@ export class ConversationBuffer {
    * @param {import('../application/contracts.js').ConversationRequest} request
    */
   add(request) {
-    const key = this.getKey(request.channel);
+    const key = this.getKey(request.channelPort);
 
     // Clear existing timer if any (user is still typing)
     if (this.buffers.has(key)) {
@@ -37,8 +37,8 @@ export class ConversationBuffer {
         logger.error(
           {
             err: error,
-            platform: request.channel.platform,
-            platformChannelId: request.channel.platformChannelId,
+            platform: request.channelPort.platform,
+            platformChannelId: request.channelPort.platformChannelId,
           },
           "ChatFlow error",
         );
@@ -61,8 +61,8 @@ export class ConversationBuffer {
     }
   }
 
-  getKey(channel) {
-    return `${channel.platform}:${channel.platformChannelId}`;
+  getKey(channelPort) {
+    return `${channelPort.platform}:${channelPort.platformChannelId}`;
   }
 
   /**

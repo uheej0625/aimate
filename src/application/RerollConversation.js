@@ -26,6 +26,7 @@ export class RerollConversation {
     return {
       status: "READY",
       generationId: message.generationId,
+      internalChannelId: message.generation.channelId,
       platformMessageIds: generationMessages.map(
         (generationMessage) => generationMessage.platformId,
       ),

@@ -73,7 +73,7 @@ test("ConversationBuffer tests", async (t) => {
     const buffer = new ConversationBuffer(mockChatFlow, mockConfigManager);
     const request = createRequest("cli", "chan-3", "bot-1");
     buffer.add(request);
-    buffer.clear(request.channel);
+    buffer.clear(request.channelPort);
 
     await new Promise((resolve) => setTimeout(resolve, 30));
 
@@ -83,7 +83,8 @@ test("ConversationBuffer tests", async (t) => {
 
 function createRequest(platform, platformChannelId, botId) {
   return {
-    channel: { platform, platformChannelId },
+    channelPort: { platform, platformChannelId },
+    internalChannelId: `internal-${platformChannelId}`,
     botId,
   };
 }

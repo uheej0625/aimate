@@ -40,6 +40,7 @@ test("CronJobWorker dispatches a due job and marks it executed", async () => {
   );
   const job = {
     id: 3,
+    channelId: "internal-cli-channel",
     type: "ai_scheduled",
     platform: "cli",
     message: "예약 메시지",
@@ -49,7 +50,14 @@ test("CronJobWorker dispatches a due job and marks it executed", async () => {
   await cronJobWorker.executeJob(job);
 
   assert.deepStrictEqual(buffered, [
-    [{ channel, botId: "cli-bot", cronMessage: "예약 메시지" }],
+    [
+      {
+        channelPort: channel,
+        internalChannelId: "internal-cli-channel",
+        botId: "cli-bot",
+        cronMessage: "예약 메시지",
+      },
+    ],
   ]);
   assert.deepStrictEqual(statuses, [{ id: 3, status: "EXECUTED" }]);
 });
@@ -185,6 +193,7 @@ test("CronJobWorker cancels jobs whose channel no longer exists", async () => {
 function createJob() {
   return {
     id: 9,
+    channelId: "internal-channel",
     type: "ai_scheduled",
     platform: "discord",
     message: "예약 메시지",

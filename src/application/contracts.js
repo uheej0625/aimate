@@ -47,7 +47,8 @@
  * A request to generate a response for one conversation.
  *
  * @typedef {Object} ConversationRequest
- * @property {ChannelPort} channel
+ * @property {ChannelPort} channelPort
+ * @property {string} internalChannelId
  * @property {string} botId
  * @property {string|null} [cronMessage]
  */

@@ -119,7 +119,10 @@ test("RerollConversation prepares cleanup and reruns the conversation", async ()
   const requests = [];
   const useCase = new RerollConversation(
     {
-      findByPlatformId: async () => ({ generationId: 7 }),
+      findByPlatformId: async () => ({
+        generationId: 7,
+        generation: { channelId: "internal-channel-1" },
+      }),
       findByGenerationId: async () => [
         { platformId: "reply-1" },
         { platformId: "reply-2" },
@@ -141,11 +144,13 @@ test("RerollConversation prepares cleanup and reruns the conversation", async ()
   assert.deepStrictEqual(plan, {
     status: "READY",
     generationId: 7,
+    internalChannelId: "internal-channel-1",
     platformMessageIds: ["reply-1", "reply-2"],
   });
 
   const conversationRequest = {
-    channel: { platform: "discord", platformChannelId: "channel-1" },
+    channelPort: { platform: "discord", platformChannelId: "channel-1" },
+    internalChannelId: plan.internalChannelId,
     botId: "bot",
   };
   const result = await useCase.execute({
