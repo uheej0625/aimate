@@ -38,8 +38,6 @@ test("ChatGenerationLifecycle keeps PROCESSING until output is recorded", async 
       },
     },
     {},
-    {},
-    {},
   );
 
   assert.strictEqual(await lifecycle.canGenerate(7), true);
@@ -73,8 +71,6 @@ test("ChatGenerationLifecycle does not overwrite cancelled generations", async (
         return false;
       },
     },
-    {},
-    {},
     {},
   );
 

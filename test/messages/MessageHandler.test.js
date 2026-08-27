@@ -66,7 +66,8 @@ test("MessageHandler tests", async (t) => {
     });
 
     assert.deepStrictEqual(bufferedRequest, {
-      channel,
+      channelPort: channel,
+      internalChannelId: "chan-123",
       botId: "bot-1",
     });
     assert.deepStrictEqual(calls, [

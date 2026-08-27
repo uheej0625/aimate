@@ -64,7 +64,8 @@ export default {
         platform: "discord",
         platformMessageIds: plan.platformMessageIds,
         conversationRequest: {
-          channel: adaptedChannel,
+          channelPort: adaptedChannel,
+          internalChannelId: plan.internalChannelId,
           botId: interaction.client.user.id,
         },
       });

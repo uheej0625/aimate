@@ -12,6 +12,7 @@ export class ChatFlow {
   /**
    * @param {Object} dependencies
    * @param {import('./context/ChatContextPreparer.js').ChatContextPreparer} dependencies.chatContextPreparer
+   * @param {import('../repositories/ChannelRepository.js').ChannelRepository} dependencies.channelRepository
    * @param {import('../ai/ChatGenerator.js').ChatGenerator} dependencies.chatGenerator
    * @param {import('../messages/MessageSender.js').MessageSender} dependencies.messageSender
    * @param {import('./ChatGenerationLifecycle.js').ChatGenerationLifecycle} dependencies.generationLifecycle
@@ -21,6 +22,7 @@ export class ChatFlow {
    */
   constructor({
     chatContextPreparer,
+    channelRepository,
     chatGenerator,
     messageSender,
     generationLifecycle,
@@ -29,6 +31,7 @@ export class ChatFlow {
     generationAbortRegistry,
   }) {
     this.chatContextPreparer = chatContextPreparer;
+    this.channelRepository = channelRepository;
     this.chatGenerator = chatGenerator;
     this.messageSender = messageSender;
     this.generationLifecycle = generationLifecycle;
@@ -41,16 +44,18 @@ export class ChatFlow {
    * Execute the conversation logic.
    * @param {import('../application/contracts.js').ConversationRequest} request
    */
-  async execute({ channel, botId, cronMessage = null }) {
+  async execute({ channelPort, internalChannelId, botId, cronMessage = null }) {
     let generation;
     let channelRecord;
     let abortSignal;
 
     try {
-      // 0. Get or create internal channel
-      const platform = channel.platform;
-      channelRecord =
-        await this.generationLifecycle.findOrCreateChannel(channel);
+      // 0. Load the latest internal channel state
+      const platform = channelPort.platform;
+      channelRecord = await this.channelRepository.findById(internalChannelId);
+      if (!channelRecord) {
+        throw new Error(`Channel ${internalChannelId} no longer exists.`);
+      }
 
       // 1. Start Generation Tracking
       generation =
@@ -120,7 +125,7 @@ export class ChatFlow {
         aiResult = await this.chatGenerator.generate(
           context,
           systemInstruction,
-          channel.platform,
+          channelPort.platform,
           channelRecord,
           { abortSignal },
         );
@@ -188,7 +193,7 @@ export class ChatFlow {
       // 7. Send each message chunk
       for (const message of aiResult.messages) {
         const sent = await this.messageSender.sendChunk(
-          channel,
+          channelPort,
           message,
           generation.id,
         );
@@ -235,7 +240,7 @@ export class ChatFlow {
         error,
         generation,
         channelRecord,
-        channel,
+        channel: channelPort,
       });
     } finally {
       if (generation && channelRecord) {

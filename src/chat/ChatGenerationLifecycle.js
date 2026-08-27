@@ -1,35 +1,12 @@
+import { getRequiredChatPromptName } from "./promptConfig.js";
+
 /**
  * Owns chat generation state transitions and persistence details.
  */
 export class ChatGenerationLifecycle {
-  constructor(
-    generationRepository,
-    channelRepository,
-    configManager,
-  ) {
+  constructor(generationRepository, configManager) {
     this.generationRepository = generationRepository;
-    this.channelRepository = channelRepository;
     this.configManager = configManager;
-  }
-
-  async findOrCreateChannel(channel) {
-    const platform = channel.platform;
-    const platformChannelId = channel.platformChannelId;
-
-    let channelRecord = await this.channelRepository.findByPlatformId(
-      platform,
-      platformChannelId,
-    );
-
-    if (!channelRecord) {
-      channelRecord = await this.channelRepository.upsert({
-        platform,
-        platformId: platformChannelId,
-        serverId: null,
-      });
-    }
-
-    return channelRecord;
   }
 
   async startChatGeneration(channelRecord) {
@@ -111,4 +88,3 @@ export class ChatGenerationLifecycle {
     );
   }
 }
-import { getRequiredChatPromptName } from "./promptConfig.js";

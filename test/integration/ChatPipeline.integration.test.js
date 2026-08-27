@@ -119,10 +119,7 @@ test("chat pipeline persists history and multiple model-free replies", async () 
   });
   await harness.messageService.saveMessage(firstInput);
   await harness.messageService.saveMessage(firstInput);
-  await harness.chatFlow.execute({
-    channel: harness.channel,
-    botId: harness.botId,
-  });
+  await harness.executeChat();
 
   assert.deepStrictEqual(harness.sentMessages, ["첫 답장", "두 번째 답장"]);
   assert.match(modelRequests[0].system, /Fixture Character/);
@@ -135,10 +132,7 @@ test("chat pipeline persists history and multiple model-free replies", async () 
     content: "아까 뭐라고 했지?",
   });
   await harness.messageService.saveMessage(secondInput);
-  await harness.chatFlow.execute({
-    channel: harness.channel,
-    botId: harness.botId,
-  });
+  await harness.executeChat();
 
   assert.deepStrictEqual(harness.sentMessages, [
     "첫 답장",
@@ -208,10 +202,7 @@ test("chat pipeline marks a failed model call and sends a fallback", async () =>
   });
   await harness.messageService.saveMessage(input);
 
-  await harness.chatFlow.execute({
-    channel: harness.channel,
-    botId: harness.botId,
-  });
+  await harness.executeChat();
 
   const channel = await prisma.channel.findUnique({
     where: {
@@ -249,10 +240,7 @@ test("chat pipeline preserves cancellation before the model call", async () => {
   });
   await harness.messageService.saveMessage(input);
 
-  await harness.chatFlow.execute({
-    channel: harness.channel,
-    botId: harness.botId,
-  });
+  await harness.executeChat();
 
   const channel = await prisma.channel.findUnique({
     where: {
@@ -297,10 +285,7 @@ test("chat pipeline aborts an in-flight generation when interrupted", async () =
   });
   await harness.messageService.saveMessage(firstInput);
 
-  const firstRun = harness.chatFlow.execute({
-    channel: harness.channel,
-    botId: harness.botId,
-  });
+  const firstRun = harness.executeChat();
 
   await new Promise((resolve) => {
     const interval = setInterval(() => {
@@ -330,10 +315,7 @@ test("chat pipeline aborts an in-flight generation when interrupted", async () =
     content: "두 번째 메시지",
   });
   await harness.messageService.saveMessage(secondInput);
-  await harness.chatFlow.execute({
-    channel: harness.channel,
-    botId: harness.botId,
-  });
+  await harness.executeChat();
 
   const generations = await prisma.generation.findMany({
     where: { channelId: channel.id },
@@ -425,7 +407,6 @@ function createHarness({ generateTextFn }) {
   );
   const generationLifecycle = new ChatGenerationLifecycle(
     generationRepository,
-    channelRepository,
     configManager,
   );
   const failureHandler = new ChatGenerationFailureHandler(
@@ -435,6 +416,7 @@ function createHarness({ generateTextFn }) {
   );
   const chatFlow = new ChatFlow({
     chatContextPreparer,
+    channelRepository,
     chatGenerator,
     messageSender,
     generationLifecycle,
@@ -442,6 +424,17 @@ function createHarness({ generateTextFn }) {
     eventBus,
     generationAbortRegistry,
   });
+  const executeChat = async () => {
+    const channelRecord = await channelRepository.findByPlatformId(
+      channel.platform,
+      channel.platformChannelId,
+    );
+    return await chatFlow.execute({
+      channelPort: channel,
+      internalChannelId: channelRecord.id,
+      botId,
+    });
+  };
 
   return {
     botId,
@@ -453,6 +446,7 @@ function createHarness({ generateTextFn }) {
     generationAbortRegistry,
     messageService,
     chatFlow,
+    executeChat,
   };
 }
 

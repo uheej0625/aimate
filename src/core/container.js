@@ -140,7 +140,6 @@ export async function createContainer({
 
   const generationLifecycle = new ChatGenerationLifecycle(
     generationRepository,
-    channelRepository,
     configManager,
   );
   const failureHandler = new ChatGenerationFailureHandler(
@@ -157,6 +156,7 @@ export async function createContainer({
   registerMemoryPolicy({ eventBus, memoryExtractor });
   const chatFlow = new ChatFlow({
     chatContextPreparer,
+    channelRepository,
     chatGenerator,
     messageSender,
     generationLifecycle,

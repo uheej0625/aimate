@@ -14,12 +14,17 @@ test("ChatFlow tests", async (t) => {
     }, 10);
   });
 
+  const baseChannelRecord = {
+    id: "channel-123",
+    platform: "discord",
+    platformId: "12345",
+  };
+
+  const baseChannelRepository = {
+    findById: async () => baseChannelRecord,
+  };
+
   const baseGenerationLifecycle = {
-    findOrCreateChannel: async () => ({
-      id: "channel-123",
-      platform: "discord",
-      platformId: "12345",
-    }),
     startChatGeneration: async () => ({ id: "gen-123" }),
     recordInput: async () => {},
     canGenerate: async () => true,
@@ -47,6 +52,7 @@ test("ChatFlow tests", async (t) => {
   };
 
   function createChatFlow({
+    channelRepository = baseChannelRepository,
     generationLifecycle = baseGenerationLifecycle,
     chatContextPreparer = baseChatContextPreparer,
     chatGenerator = baseChatGenerator,
@@ -61,6 +67,7 @@ test("ChatFlow tests", async (t) => {
   } = {}) {
     return new ChatFlow({
       chatContextPreparer,
+      channelRepository,
       chatGenerator,
       messageSender,
       generationLifecycle,
@@ -69,6 +76,41 @@ test("ChatFlow tests", async (t) => {
       generationAbortRegistry,
     });
   }
+
+  await t.test(
+    "execute loads the latest channel record by its internal ID",
+    async () => {
+      let requestedId = null;
+      let startedWith = null;
+      const latestChannelRecord = {
+        ...baseChannelRecord,
+        scope: "server",
+      };
+      const channelRepository = {
+        findById: async (internalChannelId) => {
+          requestedId = internalChannelId;
+          return latestChannelRecord;
+        },
+      };
+      const generationLifecycle = {
+        ...baseGenerationLifecycle,
+        startChatGeneration: async (channelRecord) => {
+          startedWith = channelRecord;
+          return { id: "gen-123" };
+        },
+      };
+
+      const chatFlow = createChatFlow({
+        channelRepository,
+        generationLifecycle,
+      });
+
+      await chatFlow.execute(createRequest());
+
+      assert.strictEqual(requestedId, "channel-123");
+      assert.strictEqual(startedWith, latestChannelRecord);
+    },
+  );
 
   await t.test(
     "execute cancels an aborted model request without failing the generation",
@@ -324,7 +366,8 @@ test("ChatFlow tests", async (t) => {
 
 function createRequest() {
   return {
-    channel: { platform: "discord", platformChannelId: "12345" },
+    channelPort: { platform: "discord", platformChannelId: "12345" },
+    internalChannelId: "channel-123",
     botId: "bot-1",
   };
 }
