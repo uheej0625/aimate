@@ -190,7 +190,7 @@ export async function createContainer({
 
   const messageHandler = new MessageHandler(
     messageService,
-    generationRepository,
+    generationLifecycle,
     conversationBuffer,
     channelRepository,
     generationAbortRegistry,

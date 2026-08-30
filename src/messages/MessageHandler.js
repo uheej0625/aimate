@@ -11,20 +11,20 @@ const logger = createLogger("MessageHandler");
 export class MessageHandler {
   /**
    * @param {import('../messages/MessageService.js').MessageService} messageService
-   * @param {import('../repositories/GenerationRepository.js').GenerationRepository} generationRepository
+   * @param {import('../chat/ChatGenerationLifecycle.js').ChatGenerationLifecycle} generationLifecycle
    * @param {import('../chat/ConversationBuffer.js').ConversationBuffer} conversationBuffer
    * @param {import('../repositories/ChannelRepository.js').ChannelRepository} channelRepository
    * @param {import('../chat/ChatGenerationAbortRegistry.js').ChatGenerationAbortRegistry} generationAbortRegistry
    */
   constructor(
     messageService,
-    generationRepository,
+    generationLifecycle,
     conversationBuffer,
     channelRepository,
     generationAbortRegistry,
   ) {
     this.messageService = messageService;
-    this.generationRepository = generationRepository;
+    this.generationLifecycle = generationLifecycle;
     this.conversationBuffer = conversationBuffer;
     this.channelRepository = channelRepository;
     this.generationAbortRegistry = generationAbortRegistry;
@@ -45,7 +45,7 @@ export class MessageHandler {
       // 3. Cancel any processing generation for this channel
       // (New message interrupts previous generation context conceptually)
       this.generationAbortRegistry.abortChannel(channelRecord.id);
-      await this.generationRepository.cancelProcessing(channelRecord.id);
+      await this.generationLifecycle.cancelActiveForChannel(channelRecord.id);
 
       // 4. Add to Buffer
       this.conversationBuffer.add({

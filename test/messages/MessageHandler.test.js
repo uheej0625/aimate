@@ -9,8 +9,8 @@ test("MessageHandler tests", async (t) => {
     }),
   };
 
-  const mockGenerationRepository = {
-    cancelProcessing: async () => {},
+  const mockGenerationLifecycle = {
+    cancelActiveForChannel: async () => {},
   };
 
   const mockConversationBuffer = {
@@ -27,7 +27,7 @@ test("MessageHandler tests", async (t) => {
 
   const messageHandler = new MessageHandler(
     mockMessageService,
-    mockGenerationRepository,
+    mockGenerationLifecycle,
     mockConversationBuffer,
     mockChannelRepository,
     mockGenerationAbortRegistry,
@@ -41,8 +41,9 @@ test("MessageHandler tests", async (t) => {
       },
     };
     const calls = [];
-    const generationRepository = {
-      cancelProcessing: async (channelId) => calls.push(["cancel", channelId]),
+    const generationLifecycle = {
+      cancelActiveForChannel: async (channelId) =>
+        calls.push(["cancel", channelId]),
     };
     const generationAbortRegistry = {
       abortChannel: (channelId) => calls.push(["abort", channelId]),
@@ -50,7 +51,7 @@ test("MessageHandler tests", async (t) => {
 
     const handler = new MessageHandler(
       mockMessageService,
-      generationRepository,
+      generationLifecycle,
       testMockBuffer,
       mockChannelRepository,
       generationAbortRegistry,

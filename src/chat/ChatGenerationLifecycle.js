@@ -33,6 +33,10 @@ export class ChatGenerationLifecycle {
     return generation?.status === "PROCESSING";
   }
 
+  async cancelActiveForChannel(channelId) {
+    return await this.generationRepository.cancelProcessing(channelId, "CHAT");
+  }
+
   async recordGeneratedOutput(generationId, aiResult) {
     const apiRequest =
       aiResult.apiRequests?.length === 1

@@ -62,6 +62,22 @@ test("ChatGenerationLifecycle keeps PROCESSING until output is recorded", async 
   ]);
 });
 
+test("ChatGenerationLifecycle cancels active chat generations for a channel", async () => {
+  const calls = [];
+  const lifecycle = new ChatGenerationLifecycle(
+    {
+      cancelProcessing: async (...args) => {
+        calls.push(args);
+        return 2;
+      },
+    },
+    {},
+  );
+
+  assert.strictEqual(await lifecycle.cancelActiveForChannel("channel-1"), 2);
+  assert.deepStrictEqual(calls, [["channel-1", "CHAT"]]);
+});
+
 test("ChatGenerationLifecycle does not overwrite cancelled generations", async () => {
   const transitions = [];
   const lifecycle = new ChatGenerationLifecycle(
