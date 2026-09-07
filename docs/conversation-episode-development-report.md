@@ -1,606 +1,418 @@
-# Conversation 도메인 및 AI 경계 후처리 구현 계획
-
-| 항목   | 내용                                                                                                      |
-| ------ | --------------------------------------------------------------------------------------------------------- |
-| 작성일 | 2026-08-27                                                                                                |
-| 상태   | 정책 확정 및 구현 계획                                                                                    |
-| 목적   | 일정 시간 모은 대화를 AI가 의미 단위 `Conversation`으로 나누고, 확정된 구간별 Summary와 Memory를 생성한다. |
-
-## 1. 목표
-
-현재는 CHAT `Generation`이 완료될 때마다 Memory를 추출한다. 짧은 대화가 여러 Generation으로 나뉘면 같은 사실을 반복해서 검사하고, 전체 흐름을 보지 못한 상태에서 기억을 판단하게 된다.
-
-단순 유휴 시간만으로 `Conversation` 경계를 확정하는 방식도 사용하지 않는다. 사용자가 봇의 질문에 늦게 답하거나 비동기적으로 대화하면, 기계적인 시간 경계와 의미상 대화 경계가 쉽게 어긋나기 때문이다.
-
-이를 다음과 같이 바꾼다.
-
-```text
-사용자 메시지 수신
-  → Message 저장
-  → Channel의 열린 ReviewWindow 생성 또는 활동 시각 갱신
-  → 평소처럼 CHAT Generation 실행
-  → 입출력 Message와 Generation은 아직 Conversation에 확정하지 않음
-
-ConversationReviewWorker 주기 실행
-  → 마지막 사용자 메시지 이후 6시간이 지난 ReviewWindow 선점
-  → 아직 Conversation에 속하지 않은 ReviewTurn을 스냅샷으로 고정
-  → 전체 스냅샷으로 CONVERSATION_REVIEW Generation 실행
-  → AI가 확정 Conversation 여러 개와 최대 하나의 Pending tail 반환
-  → 확정 구간별 Summary와 Memory 저장
-  → Pending tail은 다음 Review 입력으로 유지
-```
-
-`6시간`은 AI Review를 시작하기 위한 운영상 유휴 기준이다. 이 값 자체가 Conversation 경계를 결정하지 않는다. `Conversation`은 AI가 Review 결과로 확정한 의미상 대화 구간이다.
-
-## 2. 용어와 책임
-
-| 이름                                   | 의미                                                                    |
-| -------------------------------------- | ----------------------------------------------------------------------- |
-| `Channel`                              | Discord나 CLI 등 플랫폼상의 대화 장소                                   |
-| `ConversationReviewWindow`             | 미확정 대화를 모으고 Review 시점·claim·Pending 상태를 관리하는 운영 단위 |
-| `ReviewTurn`                           | AI가 경계를 나눌 수 있는 최소 입력 단위                                 |
-| `Conversation`                         | AI가 의미상 하나의 대화로 확정한 구간                                   |
-| `Generation(type=CHAT)`                | 한 번의 채팅 AI 실행과 그 입출력 기록                                   |
-| `Generation(type=CONVERSATION_REVIEW)` | 한 번의 경계 판정·요약·Memory 추출 실행 기록                            |
-| `Pending tail`                         | 아직 끝나지 않았다고 판단해 확정하지 않은 연속된 마지막 ReviewTurn 구간  |
-| `Memory`                               | 확정 Conversation에서 추출한 사용자 기억                               |
-| `Summary`                              | 확정 Conversation의 압축 표현                                           |
-
-관계는 다음과 같다.
-
-```text
-Channel
-├─ ConversationReviewWindow
-│  └─ Generation(type=CONVERSATION_REVIEW)[]
-├─ Conversation[]
-│  ├─ Message[]
-│  ├─ Generation(type=CHAT)[]
-│  ├─ Memory[]
-│  └─ reviewGeneration
-└─ 아직 Conversation에 속하지 않은 ReviewTurn[]
-   └─ 다음 Review의 Pending 또는 신규 입력
-```
-
-`ConversationReviewWindow`와 `Conversation`은 서로 대체할 수 없다.
-
-- `ConversationReviewWindow`: 언제 Review할지와 누가 처리 중인지 관리한다.
-- `Conversation`: Review가 확정한 의미상 결과를 보존한다.
-
-## 3. 경계 정책
-
-첫 버전의 Conversation 경계 정책은 다음과 같이 고정한다.
-
-1. 마지막 사용자 메시지 이후 6시간이 지나면 Review 후보가 된다.
-2. 실행 중인 CHAT Generation이 있으면 Review를 시작하지 않는다.
-3. AI는 입력을 0개 이상의 확정 Conversation과 최대 하나의 Pending tail로 나눈다.
-4. Pending은 반드시 입력의 연속된 마지막 구간이어야 한다.
-5. 확정된 Conversation은 이후 Review에서 다시 나누거나 합치지 않는다.
-6. Pending 상태에서 새 대화가 들어오면 기존 Pending과 신규 ReviewTurn을 함께 Review한다.
-7. Pending 이후 새 입력이 없으면 24시간 뒤 `mustFinalize` Review를 실행한다.
-8. `mustFinalize` Review에서는 Pending을 반환할 수 없다.
-9. 이미 확정된 Conversation에 대한 늦은 응답도 확정 결과를 다시 열지 않는다. 이후 Review에서 별도 Conversation으로 확정될 수 있다.
-
-예를 들어 Review 후보가 Generation #3부터 #10까지라면 다음 결과가 가능하다.
-
-```text
-Generation #3 ~ #6  → Conversation #1 확정
-Generation #7 ~ #8  → Conversation #2 확정
-Generation #9 ~ #10 → Pending tail
-```
-
-다음에 Generation #11부터 #13이 추가되면, 이미 확정된 #3부터 #8은 제외하고 #9부터 #13만 다시 Review한다.
-
-의미상 미완료 여부를 애플리케이션 규칙으로 추론하지 않는다. 봇의 마지막 문장이 질문인지, CHAT이 실패했는지 같은 정보는 AI 입력에 제공하되 Pending 여부는 Review 출력으로 결정한다.
-
-## 4. 범위
-
-이번 구현에 포함한다.
-
-- 사용자 메시지가 들어오면 Channel의 열린 `ConversationReviewWindow`를 생성하거나 갱신한다.
-- 6시간 유휴 후 미확정 ReviewTurn 스냅샷을 만든다.
-- ReviewTurn을 AI가 여러 Conversation과 하나의 Pending tail로 나누게 한다.
-- 확정 Conversation별 Summary와 Memory 후보를 한 번의 Review에서 생성한다.
-- AI 출력의 경계, 누락, 중복, Pending 위치를 애플리케이션에서 검증한다.
-- 확정된 Message와 CHAT Generation에 `conversationId`를 설정한다.
-- 실패하거나 취소된 CHAT의 사용자 Message도 Review 입력에 포함한다.
-- Generation에 연결되지 못한 사용자 Message도 독립 ReviewTurn으로 포함한다.
-- 후처리 AI 호출을 `CONVERSATION_REVIEW` Generation으로 기록한다.
-- 실패한 Review는 같은 스냅샷을 다시 만들 수 있도록 claim을 해제한다.
-- worker 정상 종료 시 실행 중 Review를 취소하고 재시도 가능한 상태로 되돌린다.
-
-이번 구현에 포함하지 않는다.
-
-- 확정 Conversation의 재분할·병합·재개방
-- 여러 Review 결과의 비교와 현재 버전 선택
-- 사람의 Review 승인·반려
-- 과거 Message와 Generation의 Conversation 자동 역산
-- 여러 사용자가 섞인 Conversation의 사용자별 Memory 추출
-- Conversation Summary의 채팅 프롬프트 삽입과 검색
-- 날짜 기준 Daily Digest 생성
-
-## 5. ReviewTurn 구성
-
-Review 경계는 실제 DB ID를 AI가 직접 조합하게 하지 않고, 애플리케이션이 만든 순번 기반 `ReviewTurn` 사이에서만 나눈다.
-
-```json
-{
-  "turnIndex": 0,
-  "generationId": 3,
-  "generationStatus": "COMPLETED",
-  "userMessages": [
-    { "messageId": 21, "content": "사용자 입력" }
-  ],
-  "assistantMessages": [
-    { "messageId": 22, "content": "봇 출력" }
-  ]
-}
-```
-
-ReviewTurn 구성 규칙은 다음과 같다.
-
-- 한 CHAT Generation과 현재 그 Generation에 연결된 실제 Message를 하나의 ReviewTurn으로 묶는다.
-- debounce로 여러 사용자 Message가 한 CHAT Generation에 들어갔다면 같은 ReviewTurn에 둔다.
-- 하나의 ReviewTurn을 두 Conversation으로 나누지 않는다.
-- CHAT이 `FAILED` 또는 `CANCELLED`여도 실제 사용자 Message가 있으면 포함한다.
-- Generation에 연결되지 않은 사용자 Message는 `generationId: null`인 독립 ReviewTurn으로 포함한다.
-- 실제로 저장된 Message를 기준으로 구성하며, 취소된 Generation의 오래된 `input` 스냅샷 때문에 같은 사용자 Message를 중복 포함하지 않는다.
-- 사용자 입력 없이 실행된 cron이나 retry CHAT은 기본적으로 제외한다. 특정 사용자 대화의 일부로 처리해야 하면 호출자가 명시적인 출처를 기록한다.
-- IMAGE, VOICE, EMBEDDING, CONVERSATION_REVIEW Generation은 첫 버전의 경계 입력에서 제외한다.
-
-ReviewTurn은 첫 버전에는 별도 DB 모델로 만들지 않는다. Review 시작 시 Message와 CHAT Generation에서 구성한 스냅샷을 Review Generation의 `input`에 저장한다.
-
-## 6. 데이터 모델
-
-핵심 모델은 다음과 같다. 관계 이름과 migration 세부 사항은 Prisma 검증 단계에서 확정한다.
-
-```prisma
-model Channel {
-  id String @id @default(cuid())
-
-  // 기존 필드
-
-  conversationReviewWindows ConversationReviewWindow[]
-  conversations             Conversation[]
-}
-
-model ConversationReviewWindow {
-  id String @id @default(cuid())
-
-  channelId String
-  channel   Channel @relation(fields: [channelId], references: [id])
-
-  lastUserMessageAt DateTime
-  nextReviewAt       DateTime
-  pendingSinceAt     DateTime?
+# 장기 기억 생성·검색·답변 반영 개발 계획
 
-  activeKey        String?   @default("ACTIVE")
-  reviewClaimedAt  DateTime?
-  reviewClaimToken String?
-  closedAt         DateTime?
+| 항목 | 내용 |
+| --- | --- |
+| 작성일 | 2026-09-07 |
+| 상태 | 구현 전 계획. 아래 기본 정책을 기준으로 단계별 검증 후 구현한다. |
+| 목표 | 몇 달 전의 사실과 함께 나눈 경험을 필요한 순간에 떠올리고, 사용자와 봇 양쪽의 설정·관계·경험을 일관되게 유지한다. |
+| 범위 | 근거 보존 → 추출 → 갱신 → 검색 → 실제 답변 반영 → 재생성·실패 복구 |
 
-  reviewGenerations Generation[] @relation("ReviewWindowGenerations")
+## 1. 제품 목표와 확정된 전제
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+이번 기능은 긴 대화를 압축하는 것만을 목표로 하지 않는다. 비연속적으로 이어지는 대화에서 과거 정보를 다시 사용하는 것이 중심이다.
 
-  @@index([nextReviewAt, reviewClaimedAt])
-  @@unique([channelId, activeKey])
-}
+- 네 달 전 사용자가 땅콩 알레르기를 말했다면 오늘 땅콩샌드위치를 이야기할 때 반영한다.
+- 지난봄 함께 이야기했던 여행을 다시 꺼내면 관련 경험을 떠올린다.
+- 봇이 대화 중 자신의 거주지를 부산으로 만들었다면 다음 달에도 같은 설정을 유지한다.
+- 사용자 정정이나 답변 재생성으로 폐기된 내용을 현재 사실로 사용하지 않는다.
 
-model Conversation {
-  id String @id @default(cuid())
+확정된 전제:
 
-  channelId String
-  channel   Channel @relation(fields: [channelId], references: [id])
-
-  messages        Message[]
-  chatGenerations Generation[] @relation("ConversationChatGenerations")
-  memories        Memory[]
+1. 현재는 1:1 대화를 기준으로 한다. 향후 n:1 대화 지원은 예정되어 있다.
+2. 하나의 Node.js 프로세스에서 여러 provider의 입출력이 동시에 진행될 수 있다. 같은 DB에 여러 애플리케이션 프로세스를 붙이지 않는다.
+3. Message는 플랫폼 기록의 캐시이고 Generation은 실행 로그다. 어느 하나도 영구적인 기억 원본으로 간주하지 않는다.
+4. 사용자 발언과 실제로 전달된 봇 발언 모두 기억 추출 대상이다.
+5. 봇은 identity.md에 없는 자기 설정을 대화 중 자연스럽게 만들 수 있다. 이는 의도된 캐릭터 창작이다.
+6. 기존 메모리 기능은 사용 실적이 없는 구현 잔재로 본다. 기존 구조와의 호환성을 새 설계의 목표로 삼지 않는다.
+7. 비용·지연 최적화보다 기능 완성을 우선한다. 무한 호출·무제한 입력·종료 불능은 처음부터 방지한다.
 
-  reviewGenerationId Int
-  reviewGeneration   Generation @relation(
-    "ProducedConversations",
-    fields: [reviewGenerationId],
-    references: [id]
-  )
+## 2. 설계 선택과 MVP 범위
 
-  summary   String
-  startedAt DateTime
-  endedAt   DateTime
+대화가 의미상 끝났는지 판정하지 않고, 새로 인지한 발언을 크기가 제한된 묶음으로 처리한다. 한 묶음에서 사실 기억과 경험 기억을 함께 만든다.
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
+| 요소 | 결정과 이유 |
+| --- | --- |
+| 의미상 Conversation 경계 | 도입하지 않는다. 사실과 경험을 기억하기 위해 대화 종료를 확정할 필요는 없다. |
+| Pending tail, 24시간 mustFinalize | 도입하지 않는다. 미답변 질문과 미완료 계획은 기억 내용으로 표현한다. |
+| 사용자·봇 별도 기억 시스템 | 만들지 않는다. 같은 참여자 식별자, Memory, 추출·갱신·검색 서비스를 사용한다. |
+| 실행 기록 | Generation에 MEMORY_EXTRACT 등 기억 작업 타입을 추가한다. CHAT과 구분한다. |
+| 다중 worker claim | 도입하지 않는다. 프로세스 내부 단일 기억 처리 담당 작업과 조건부 저장을 사용한다. |
+| 검색 | 핵심 기억 직접 제공 + 의미 검색 + 단어 검색을 구현하고 실제 답변까지 연결한다. |
+| 별도 벡터DB | MVP에서는 도입하지 않는다. SQLite에 벡터를 저장하고 애플리케이션에서 유사도를 계산한다. |
 
-model Generation {
-  id Int @id @default(autoincrement())
+별도 벡터DB는 큰 데이터에서 검색을 빠르게 할 수 있지만 저장소 동기화와 운영 부담이 생긴다. 초기에는 검색 품질과 규모를 측정한다. 전체 벡터 비교가 병목으로 확인되면 검색 저장소를 교체한다. Memory와 근거는 검색 인덱스와 독립적으로 유지한다.
 
-  // 기존 필드
+요약만 반복 갱신하는 설계는 채택하지 않는다. 경험 요약과 별개로 중요한 사실을 보존해야 네 달 전 정보를 다시 찾을 수 있다.
 
-  conversationId String?
-  conversation   Conversation? @relation(
-    "ConversationChatGenerations",
-    fields: [conversationId],
-    references: [id]
-  )
-
-  reviewWindowId String?
-  reviewWindow   ConversationReviewWindow? @relation(
-    "ReviewWindowGenerations",
-    fields: [reviewWindowId],
-    references: [id]
-  )
-
-  producedConversations Conversation[] @relation("ProducedConversations")
-
-  messages Message[]
-}
-
-model Message {
-  id Int @id @default(autoincrement())
-
-  // 기존 필드
-
-  conversationId String?
-  conversation   Conversation? @relation(
-    fields: [conversationId],
-    references: [id]
-  )
-}
-
-model Memory {
-  id Int @id @default(autoincrement())
-
-  // 기존 필드
-
-  conversationId String?
-  conversation   Conversation? @relation(
-    fields: [conversationId],
-    references: [id]
-  )
-
-  @@unique([userId, content])
-}
-```
-
-`Generation.conversationId`는 CHAT Generation이 어느 확정 Conversation에 속하는지를 나타낸다. `CONVERSATION_REVIEW` Generation 하나는 여러 Conversation을 만들 수 있으므로 이 관계를 사용하지 않고 `Conversation.reviewGenerationId`로 산출 관계를 기록한다.
-
-`Message.conversationId`와 CHAT `Generation.conversationId`는 Review 확정 전까지 `null`이다. 사용자 메시지는 Generation 생성 전에 저장되고 Generation이 실패할 수 있으므로 Message의 Conversation 소속을 Generation 관계만으로 추론하지 않는다.
-
-`activeKey`는 열린 ReviewWindow일 때 `"ACTIVE"`, 완전히 처리되어 닫힐 때 `null`이다. SQLite는 복합 UNIQUE 제약에서 `null` 중복을 허용하므로 Channel마다 열린 ReviewWindow가 하나만 존재하도록 한다.
-
-`reviewClaimToken`은 오래된 worker 결과가 새 claim 상태를 덮어쓰는 것을 막는다. Review 결과 저장 트랜잭션은 읽었던 token과 현재 token이 같은지 확인한다.
-
-## 7. ReviewWindow 활동과 Review 시점
-
-기본 설정은 다음과 같다.
-
-```json
-{
-  "conversation": {
-    "reviewIdleTimeout": 21600000,
-    "pendingMaxAge": 86400000,
-    "reviewPollInterval": 60000,
-    "shutdownGraceTimeout": 10000
-  }
-}
-```
-
-사람의 메시지를 저장하는 트랜잭션에서 다음 작업을 함께 처리한다.
-
-1. Message를 저장한다.
-2. 같은 Channel의 열린 ReviewWindow를 조회하거나 생성한다.
-3. `lastUserMessageAt`을 Message 시각으로 갱신한다.
-4. `nextReviewAt`을 `lastUserMessageAt + reviewIdleTimeout`으로 갱신한다.
-
-Message 저장과 ReviewWindow 활동 갱신 사이에 부분 성공이 없어야 한다. 동시 생성이 고유 제약에 걸리면 트랜잭션을 다시 실행해 이미 생성된 ReviewWindow를 갱신한다.
-
-worker는 다음 조건을 모두 만족할 때 ReviewWindow를 claim할 수 있다.
-
-1. `closedAt == null && activeKey == "ACTIVE"`다.
-2. `nextReviewAt <= now`다.
-3. `reviewClaimedAt == null`이다.
-4. 해당 Channel에 `PROCESSING` 또는 `GENERATED` 상태의 사용자 입력 CHAT Generation이 없다.
-5. Conversation에 아직 속하지 않은 ReviewTurn이 하나 이상 있다.
-
-claim에 성공한 worker는 현재 시점까지의 미확정 ReviewTurn ID와 내용을 고정해 Review Generation의 `input`에 저장한다. 스냅샷의 마지막 활동 시각은 `snapshotCutoffAt`으로 metadata에 기록한다. 이후 도착한 Message와 Generation은 이 스냅샷에 추가하지 않는다.
-
-## 8. AI 경계 출력과 검증
-
-Review 출력은 경계 판정, Summary, Memory 후보를 함께 반환한다.
-
-```json
-{
-  "conversations": [
-    {
-      "endTurnIndex": 3,
-      "summary": "첫 번째 대화의 간결한 요약",
-      "memoryCandidates": [
-        {
-          "content": "사용자에 대한 지속성 있는 사실",
-          "category": "fact",
-          "importance": 3
-        }
-      ]
-    },
-    {
-      "endTurnIndex": 5,
-      "summary": "두 번째 대화의 간결한 요약",
-      "memoryCandidates": []
-    }
-  ],
-  "pendingFromTurnIndex": 6
-}
-```
-
-Generation #3부터 #10이 `turnIndex` 0부터 7에 대응한다면 위 출력은 다음과 같다.
-
-```text
-turnIndex 0 ~ 3 → Generation #3 ~ #6 → Conversation #1
-turnIndex 4 ~ 5 → Generation #7 ~ #8 → Conversation #2
-turnIndex 6 ~ 7 → Generation #9 ~ #10 → Pending tail
-```
-
-애플리케이션은 AI 응답을 저장하기 전에 다음 조건을 모두 검증한다.
+## 3. 참여자: 봇과 사용자를 같은 위치에 둔다
 
-- `endTurnIndex`는 입력 범위 안에서 엄격히 증가한다.
-- 각 Conversation은 하나 이상의 ReviewTurn을 가진다.
-- 첫 번째 ReviewTurn부터 마지막 확정 경계까지 누락과 중복이 없다.
-- `pendingFromTurnIndex`가 있으면 마지막 확정 경계 바로 다음 위치다.
-- Pending은 하나의 연속된 suffix이며 중간 Pending은 허용하지 않는다.
-- Pending이 없으면 마지막 Conversation이 마지막 ReviewTurn까지 포함한다.
-- `mustFinalize` 입력이면 `pendingFromTurnIndex`는 `null`이어야 한다.
-- 확정 Conversation의 Summary는 비어 있지 않다.
-- `memoryCandidates`와 각 필드가 정해진 스키마를 만족한다.
-
-정상 응답이지만 확정할 Conversation이 없으면 `conversations`는 빈 배열이고 `pendingFromTurnIndex`는 `0`일 수 있다. 기억할 내용이 없는 확정 Conversation의 `memoryCandidates`는 빈 배열이다.
+서비스 입력은 사용자·봇별 전용 인수가 아니라 participants와 statements로 통일한다.
 
-## 9. Pending 처리
+- 내부 참여자 ID는 기존 User.id를 사용한다. 기존 구조에서도 봇 계정은 User → PlatformAccount → Message를 사용한다.
+- PlatformAccount는 provider별 계정이다. 같은 참여자의 여러 계정은 하나의 User에 연결한다.
+- 같은 characterId의 봇 계정은 동일한 User로 연결한다. 제안: User에 선택적인 고유 characterId를 추가하고 계정 초기화 시 이를 기준으로 조회한다.
+- 사람의 다른 provider 계정은 명시적으로 연결된 경우만 같은 참여자로 취급한다. 이름이나 말투로 합치지 않는다.
+- 모델에는 이번 입력의 참여자 목록과 짧은 별칭을 제공한다. 반환된 별칭은 애플리케이션이 ID로 변환한다. 모델이 새 DB ID를 만들게 하지 않는다.
 
-Review 결과에 Pending tail이 있으면 다음과 같이 처리한다.
+MemoryService, MemoryExtractor, MemoryRetriever에 BotMemory 전용 경로를 만들지 않는다. 자기 발언, 타인의 주장, 설정 문서처럼 근거의 성격을 공통 규칙으로 평가한다. 캐릭터 설정을 불러오는 어댑터만 봇에게 존재하는 추가 입력이다.
 
-1. Pending 앞의 Conversation만 확정한다.
-2. Pending ReviewTurn의 Message와 Generation은 `conversationId == null`로 유지한다.
-3. ReviewWindow의 `pendingSinceAt`이 없다면 현재 시각을 기록한다.
-4. `nextReviewAt`을 기본적으로 `pendingSinceAt + pendingMaxAge`로 설정한다.
-5. 그 전에 새 사용자 메시지가 들어오면 `nextReviewAt`을 새 메시지 시각부터 6시간 뒤로 갱신한다.
-6. 다음 Review에는 기존 Pending과 그 이후의 신규 ReviewTurn을 함께 넣는다.
+현재 BotAccountService는 provider별 초기화에서 서로 다른 User를 만들 수 있다. 기존 계정을 연결할 때는 확인된 characterId 매핑을 사용한다. 다른 캐릭터까지 합치거나 사용자의 계정을 추정으로 연결하지 않는다.
 
-Review 실행 중 `lastUserMessageAt > snapshotCutoffAt`인 새 입력이 생겼다면 결과 저장 트랜잭션은 새 입력이 계산한 `nextReviewAt`을 Pending 기본값으로 덮어쓰지 않는다.
+## 4. 기억의 종류와 자기 설정 정책
 
-`pendingMaxAge`가 지나 실행하는 Review에는 `mustFinalize: true`를 전달한다. AI가 이때도 Pending을 반환하면 스키마 위반으로 처리하고 저장하지 않는다.
+### 4.1 사실 기억과 경험 기억
 
-Review 결과가 모든 스냅샷을 확정했더라도 Review 실행 중 새 Message가 도착했으면 ReviewWindow를 닫지 않는다. 새 Message가 없고 미확정 ReviewTurn도 남지 않았을 때만 `closedAt`을 기록하고 `activeKey`를 `null`로 만든다.
+둘 다 Memory에 저장하고 kind로 구분한다. 별도 Summary나 BotMemory 테이블은 만들지 않는다.
 
-이 정책은 지연 응답을 가능한 한 기존 Pending과 함께 볼 수 있게 하지만, 확정된 Conversation을 무기한 다시 여는 것은 허용하지 않는다. 24시간 강제 확정 이후 도착한 응답은 다음 Conversation의 입력이 된다.
+| kind | 예시 | 필요한 정보 |
+| --- | --- | --- |
+| FACT | 민수는 땅콩 알레르기가 있다. / 봇은 부산에 산다. | 대상, 속성, 값, 근거, 확인 시점 |
+| EPISODE | 민수와 봇은 봄 여행지를 골랐고 숙소 예약은 아직 정하지 않았다. | 참여자, 사건, 시점, 미해결 내용, 근거 |
 
-## 10. 후처리 Generation
+모든 잡담을 저장하지 않는다. 지속적인 사실, 취향, 관계, 약속, 중요한 경험을 우선한다. 기억할 내용이 없으면 빈 결과로 정상 완료한다.
 
-후처리 AI 호출도 기존 `Generation`에 기록한다.
+경험을 연속된 메시지 구간 하나에 강제로 대응시키지 않는다. 여러 발언이 하나의 경험을 뒷받침할 수 있고, 하나의 발언이 여러 기억의 근거가 될 수도 있다.
 
-```text
-Generation.type
-- CHAT
-- IMAGE
-- VOICE
-- EMBEDDING
-- CONVERSATION_REVIEW
-```
+### 4.2 봇의 즉석 설정
 
-`Generation`은 결과물이 아니라 결과를 만든 실행 기록이다. 저장 책임은 다음과 같이 구분한다.
+우선순위:
 
-| 데이터                        | 저장 위치                                          |
-| ----------------------------- | -------------------------------------------------- |
-| Review 실행 상태              | `Generation.status`                                |
-| ReviewWindow와 claim 출처      | `Generation.reviewWindowId`, `Generation.metadata` |
-| 사용한 프롬프트               | `Generation.prompt`                                |
-| ReviewTurn 입력 스냅샷        | `Generation.input`                                 |
-| API 원본 요청·응답            | `Generation.apiRequest`, `Generation.apiResponse`  |
-| 모델이 반환한 원본 구조       | `Generation.output`                                |
-| 확정 Conversation의 산출 관계 | `Conversation.reviewGenerationId`                  |
-| 확정된 Summary                | `Conversation.summary`                             |
-| 확정된 Memory                 | `Memory`                                           |
-
-AI 호출은 DB 트랜잭션 밖에서 실행한다. Review Generation의 입력은 실행 전에 완전히 저장하며, 재시도는 새 `CONVERSATION_REVIEW` Generation으로 기록한다.
-
-## 11. 저장, 동시성, 재시도
-
-Review 응답을 검증한 뒤 하나의 트랜잭션에서 다음 작업을 처리한다.
+1. 현재 identity.md와 명시적인 캐릭터 설정.
+2. 기존에 채택되어 유지 중인 자기 설정 기억.
+3. 앞의 두 곳에 없는 사항에 대해 이번 답변에서 새로 만든 자기 설정.
 
-1. ReviewWindow가 열려 있고 `reviewClaimToken`이 현재 worker의 token과 같은지 확인한다.
-2. 입력 스냅샷의 ReviewTurn이 아직 다른 Conversation에 확정되지 않았는지 확인한다.
-3. 확정 구간별 Conversation을 생성한다.
-4. 해당 Message와 CHAT Generation에 `conversationId`를 설정한다.
-5. 검증된 Summary와 Memory를 저장한다.
-6. Review Generation을 `COMPLETED`로 전환한다.
-7. Pending과 Review 중 새 입력 존재 여부에 따라 ReviewWindow를 유지하거나 닫는다.
-8. `reviewClaimedAt`과 `reviewClaimToken`을 비운다.
-
-Conversation, Message·Generation 연결, Summary, Memory, Review 완료 상태 사이에 부분 성공이 없어야 한다. `(userId, content)` 고유 제약과 upsert로 기존 Memory와의 중복을 방지한다.
-
-AI 호출, 응답 검증 또는 저장 트랜잭션이 실패하면 다음과 같이 처리한다.
-
-- Review Generation을 `FAILED`로 기록한다.
-- Conversation, Summary, Memory는 새로 확정하지 않는다.
-- `reviewClaimedAt`과 `reviewClaimToken`을 비운다.
-- 같은 ReviewWindow를 다음 polling에서 다시 시도한다.
-- 프로세스 중단으로 claim이 남으면 시작 시 만료된 claim만 복구한다.
-- 만료된 claim에 연결된 `PROCESSING` Review Generation은 `FAILED`로 바꾼다.
-
-같은 ReviewWindow를 두 worker가 읽더라도 조건부 claim에 성공한 worker만 Review Generation을 만들 수 있다. 오래된 worker가 뒤늦게 응답해도 claim token 검증에 실패하므로 결과를 저장하지 못한다.
-
-## 12. 사용자 경계
-
-Memory는 사용자에게 귀속되므로 Conversation이 Channel에 속한다는 사실만으로 저장 대상을 정하지 않는다. 각 확정 Conversation에 포함된 사용자 Message의 작성자를 조회한다.
-
-- 작성자가 한 명이면 그 사용자의 Memory를 저장한다.
-- 작성자가 없으면 Summary만 저장한다.
-- 작성자가 두 명 이상이면 Summary만 저장하고 Memory는 저장하지 않는다.
-
-여러 사용자가 섞인 경우에는 `mixed_authors`를 Review Generation의 metadata와 로그에 남긴다. 사용자별 Memory가 필요해지면 사용자 입력과 봇 응답의 대응 관계를 별도로 정의한다.
-
-## 13. worker 정상 종료
-
-Conversation Review는 사용자 응답 경로가 아니며 재시도할 수 있으므로, 프로세스 종료 시 무기한 완료를 기다리지 않는다.
-
-정상 종료 순서는 다음과 같다.
-
-1. ConversationReviewWorker의 새 polling과 claim을 중지한다.
-2. 실행 중인 Review AI 요청에 abort signal을 보낸다.
-3. abort된 Review Generation을 `CANCELLED`로 기록하고 claim을 해제한다.
-4. 현재 worker 작업이 정리될 때까지 `shutdownGraceTimeout`만큼 기다린다.
-5. 제한 시간 안에 정리되지 않으면 로그를 남기고 종료를 계속한다.
-6. 일반 CHAT을 포함한 나머지 Generation 종료 처리를 수행한다.
-7. 모든 상태 저장 시도가 끝난 뒤 Prisma 연결을 종료한다.
-
-제한 시간 초과나 강제 종료로 claim 해제가 저장되지 않을 수 있으므로, 시작 시 만료된 claim을 복구하는 절차는 항상 유지한다. 정상 종료에서 명시적으로 취소된 Review는 `CANCELLED`, 예기치 않은 중단 후 복구된 Review는 `FAILED`로 구분한다.
-
-## 14. 기존 Conversation 용어 정리
-
-CLI에서 Channel을 조회·생성하던 `ConversationCatalog`은 이미 `ChannelCatalog`으로 변경했다. 새 도메인 엔티티와 충돌하지 않도록 남은 느슨한 `Conversation` 용례도 별도의 기계적 리팩터링으로 정리한다.
-
-| 현재 이름             | 변경 이름         | 실제 역할                     |
-| --------------------- | ----------------- | ----------------------------- |
-| `ConversationBuffer`  | `ChatDebouncer`   | 채팅 실행 debounce 타이머     |
-| `ConversationRequest` | `ChatRequest`     | 한 번의 ChatFlow 요청         |
-| `RerollConversation`  | `RegenerateReply` | 특정 Generation의 답변 재생성 |
-
-기존 `conversation.*` 설정 중 채팅 실행에 관한 값은 `chat.*`으로 옮긴다.
-
-- `bufferTimeout`
-- `maxContextMessages`
-- `messageBreakTag`
-- `typingDelayMin`
-- `typingDelayMax`
-- `typingDelayPerChar`
-
-ReviewWindow와 Conversation 후처리에 관한 설정만 `conversation.*`에 둔다.
-
-- `reviewIdleTimeout`
-- `pendingMaxAge`
-- `reviewPollInterval`
-- `shutdownGraceTimeout`
-
-이름 변경과 DB 모델 도입을 같은 diff에 섞지 않는다.
-
-## 15. 구현 위치
-
-| 위치                                                     | 변경 내용                                                                  |
-| -------------------------------------------------------- | -------------------------------------------------------------------------- |
-| `prisma/schema.prisma`                                   | ReviewWindow, Conversation과 관계, Memory 고유 제약 추가                   |
-| `src/repositories/ConversationReviewWindowRepository.js` | 활동 갱신, 대상 조회, claim, Pending 유지, 조건부 종료                     |
-| `src/repositories/ConversationRepository.js`             | 확정 Conversation과 Message·Generation·Memory 저장 트랜잭션                |
-| `src/messages/MessageHandler.js`                         | 사용자 Message 저장과 ReviewWindow 활동 갱신 연결                          |
-| `src/repositories/MessageRepository.js`                  | 미확정 Message 조회와 Conversation 연결                                    |
-| `src/repositories/GenerationRepository.js`               | 미확정 CHAT 조회, Review 실행 기록, Conversation 연결                      |
-| `src/memory/ConversationReviewTurnBuilder.js`            | Message와 Generation을 중복 없는 ReviewTurn 스냅샷으로 구성                |
-| `src/memory/ConversationReviewer.js`                     | AI 경계·Summary·Memory 출력 생성과 스키마 검증                             |
-| `src/memory/ConversationReviewWorker.js`                 | ReviewWindow claim, Review 실행, Pending과 재시도 조정                      |
-| `src/memory/registerMemoryPolicy.js`                     | Generation 완료 즉시 Memory를 추출하는 정책 제거                           |
-| `src/core/container.js`                                  | 저장소, Reviewer, worker 의존성 연결                                       |
-| `src/core/shutdown.js`                                   | worker 중지, Review abort, 제한 시간 대기 후 Prisma 종료                    |
-| 플랫폼 시작 코드                                        | worker 시작과 복구 단계 연결                                               |
-
-`CronJob` 테이블과 `CronJobWorker`는 사용하지 않는다. 예약 대화 실행과 Conversation 후처리는 실행 조건과 결과가 다르다.
-
-## 16. 구현 순서
-
-1. 남은 느슨한 Conversation 이름을 Channel·Chat 용어로 변경한다. (`ConversationCatalog` → `ChannelCatalog`은 완료)
-2. Prisma 모델과 migration을 추가한다.
-3. 사용자 Message 저장과 ReviewWindow 활동 갱신을 하나의 저장 연산으로 구현한다.
-4. 미확정 Message와 CHAT Generation으로 ReviewTurn을 구성한다.
-5. AI 경계 출력 스키마와 검증기를 구현한다.
-6. Review Generation 기록과 worker claim·재시도를 구현한다.
-7. 확정 Conversation, 연결, Summary, Memory 저장 트랜잭션을 구현한다.
-8. Pending 재검토와 24시간 `mustFinalize` 정책을 구현한다.
-9. 기존 Generation별 Memory 추출 정책을 제거한다.
-10. worker 시작·복구·정상 종료를 애플리케이션 생명주기에 연결한다.
-
-각 단계는 관련 테스트를 통과한 뒤 다음 단계로 진행한다. Prisma migration은 기존 Memory 중복 여부를 확인하고 정리 기준을 별도로 확정한 뒤 생성한다.
-
-## 17. 테스트
-
-### ReviewWindow 생성과 트리거
-
-- 첫 사용자 Message는 열린 ReviewWindow를 만든다.
-- 후속 Message는 같은 ReviewWindow의 `lastUserMessageAt`과 `nextReviewAt`을 갱신한다.
-- Message 저장과 ReviewWindow 갱신은 함께 성공하거나 롤백된다.
-- 6시간이 지나지 않은 ReviewWindow는 claim하지 않는다.
-- 활성 CHAT Generation이 있으면 Review를 시작하지 않는다.
-- 서로 다른 Channel은 ReviewWindow를 공유하지 않는다.
-
-### ReviewTurn 구성
-
-- CHAT Generation의 실제 사용자·봇 Message를 하나의 ReviewTurn으로 구성한다.
-- debounce된 여러 사용자 Message를 같은 ReviewTurn에 둔다.
-- 실패·취소 CHAT의 실제 사용자 Message를 포함한다.
-- Generation에 연결되지 않은 사용자 Message를 독립 ReviewTurn으로 포함한다.
-- 오래된 Generation input 때문에 같은 Message를 중복 포함하지 않는다.
-- cron, IMAGE, VOICE, EMBEDDING, CONVERSATION_REVIEW Generation은 기본 입력에서 제외한다.
-
-### AI 경계 검증
-
-- 여러 확정 Conversation과 하나의 Pending tail을 허용한다.
-- Pending이 없는 전체 확정을 허용한다.
-- 전체 입력이 Pending인 결과를 허용한다.
-- 누락, 중복, 역순 경계, 빈 Conversation을 거부한다.
-- 중간 Pending과 둘 이상의 Pending 구간을 거부한다.
-- `mustFinalize`에서 Pending을 반환하면 거부한다.
-- 빈 Summary와 잘못된 Memory 후보를 거부한다.
-
-### 확정과 Pending
-
-- 확정 구간별 Conversation과 Summary를 저장한다.
-- Message와 CHAT Generation을 같은 Conversation에 연결한다.
-- Review Generation 하나가 여러 Conversation의 출처가 될 수 있다.
-- Pending Message와 Generation은 `conversationId == null`로 유지한다.
-- 다음 Review는 기존 Pending과 신규 ReviewTurn만 입력으로 사용한다.
-- 확정된 Conversation은 다음 Review에서 변경하지 않는다.
-- 24시간 뒤 `mustFinalize` Review를 실행한다.
-- Review 중 새 Message가 들어오면 해당 Message를 확정하지 않고 ReviewWindow를 유지한다.
-
-### 사용자와 Memory
-
-- 작성자가 한 명이면 해당 사용자의 Memory를 저장한다.
-- 작성자가 없으면 Summary만 저장한다.
-- 작성자가 여러 명이면 Summary만 저장하고 `mixed_authors`를 기록한다.
-- 빈 Memory 후보도 정상 성공으로 처리한다.
-- 이미 존재하는 `(userId, content)` Memory는 중복 저장하지 않는다.
-
-### 실패와 동시성
-
-- LLM 호출이나 응답 검증이 실패하면 Conversation을 확정하지 않는다.
-- Conversation, 연결, Summary, Memory, Review 완료는 함께 성공하거나 롤백된다.
-- 같은 ReviewWindow를 두 worker가 읽어도 활성 Review는 하나만 실행한다.
-- 오래된 claim token의 결과는 저장하지 않는다.
-- 실패한 ReviewWindow는 다음 polling에서 다시 시도한다.
-- 시작 시 만료된 claim과 PROCESSING Review를 복구한다.
-
-### 정상 종료
-
-- 종료가 시작되면 새 polling과 claim을 중지한다.
-- 실행 중 Review에 abort signal을 전달한다.
-- abort된 Review를 `CANCELLED`로 기록하고 claim을 해제한다.
-- 상태 저장 뒤 Prisma 연결을 종료한다.
-- 제한 시간 초과 시 종료가 무기한 멈추지 않는다.
-- 정리되지 않은 claim은 다음 시작 시 복구한다.
-
-## 18. 완료 기준
-
-다음 조건을 모두 충족하면 구현을 완료한다.
-
-1. 6시간 유휴 기준이 Conversation 경계가 아니라 Review 시점으로만 작동한다.
-2. AI가 미확정 ReviewTurn을 여러 Conversation과 최대 하나의 Pending tail로 나눈다.
-3. 경계 출력의 누락·중복·비연속·잘못된 Pending을 저장 전에 거부한다.
-4. 확정된 Conversation은 이후 Review에서 변경되지 않는다.
-5. Pending은 새 입력과 함께 다시 Review되고 24시간 뒤에는 강제 확정된다.
-6. 실패·취소 CHAT과 Generation 없는 사용자 Message가 Review에서 누락되지 않는다.
-7. Review 중 도착한 새 Message가 고정된 스냅샷에 잘못 포함되지 않는다.
-8. 한 Review Generation이 만든 여러 Conversation의 출처가 보존된다.
-9. 확정 Summary는 Conversation에, 확정 Memory는 사용자에게 저장된다.
-10. 여러 사용자의 사실이 한 사용자의 Memory로 저장되지 않는다.
-11. Conversation, Message·Generation 연결, Summary, Memory, Review 완료 사이에 부분 성공이 없다.
-12. 실패, 재시작, 정상 종료 후 미완료 ReviewWindow를 다시 처리할 수 있다.
-13. worker 종료가 무기한 LLM 호출 때문에 멈추지 않는다.
-14. 기존 Generation별 Memory 추출 정책이 제거된다.
-15. 관련 단위 테스트와 전체 테스트가 통과한다.
+예: identity.md와 기존 기억에 거주지가 없다면 봇은 “나는 부산에 살아”라고 답할 수 있다. 실제 전달된 발언을 봇 자신에 관한 FACT로 저장한다. 다음 답변에서는 새 거주지를 다시 만들지 않는다.
+
+- 창작은 CHAT 단계에서 한다. 추출 모델은 대화에 없는 거주지나 사건을 추가하지 않는다.
+- “부산에 살면 좋겠다”, 인용, 가정, 농담을 거주 사실로 확정하지 않는다.
+- “나는 부산에 살아”와 “너 부산 살지?”를 구분한다. 자기 진술과 타인에 관한 추측은 근거가 다르다.
+- 이 대상·근거 규칙은 사용자에게도 동일하게 적용한다. 친구 이야기를 작성자 자신의 정보로 저장하지 않는다.
+- 자기 설정 창작 허용은 사용자나 외부 세계에 관한 사실까지 마음대로 만드는 허용이 아니다.
+- 기존 자기 설정과 다른 발언은 자동으로 덮어쓰지 않는다. 명시적인 정정·변화인지 검사한다.
+- 새 자기 설정을 identity.md에 자동 기록하지 않는다. 사용자 소유 설정 파일과 대화 기억은 별개다.
+
+### 4.3 설정 변경
+
+설정 원문과 편집 가능한 변수의 해시를 버전으로 기록한다. 날짜에 따라 계산되는 나이 같은 값 자체를 설정 편집으로 오인하지 않는다.
+
+설정 변경을 감지하면 관련 자기 기억을 다시 검사한다. identity.md가 거주지를 서울로 명시하면 이전 부산 기억은 현재 거주지로 사용하지 않는다. 그렇다고 “부산에서 서울로 이사했다”는 사건을 만들어내지는 않는다.
+
+검사 중인 자기 기억은 현재 설정과 충돌하는 내용으로 공급하지 않는다. 검사는 모델 호출을 사용할 수 있으므로 실행과 버전을 기록한다. 이전 설정 버전에서 생성 중이던 결과는 새 설정 검사를 거치기 전 적용하지 않는다. 현재 설정을 우선하는 규칙은 CHAT 입력에도 항상 포함한다.
+
+## 5. 기억의 대상과 사용할 수 있는 범위
+
+누구에 관한 기억인지와 어느 대화에서 사용할 수 있는지는 별개다. 이번 계획의 기본값은 다음과 같다.
+
+- 일반 사실과 경험은 획득한 Channel 안에서만 사용한다. 같은 사람이어도 다른 채널의 사적인 경험을 자동으로 옮기지 않는다.
+- 순수한 캐릭터 자기 설정은 같은 characterId의 다른 채널에서도 사용한다. 거주지 같은 설정만 해당한다.
+- 특정 사용자와의 사건·약속·관계, 다른 사람의 정보가 섞인 자기 이야기는 채널 범위를 유지한다.
+- n:1에서도 근거 작성자와 기억 대상을 보존한다. 마지막 발언자에게 모든 기억을 귀속하지 않는다.
+- MVP에서 다인 입력은 해당 채널 범위와 대상이 명확한 기억만 처리한다. 복잡한 제삼자 인물 관리와 채널 간 개인 기억 공유는 미룬다.
+
+scope는 CHANNEL 또는 CHARACTER로 제한한다. CHARACTER는 순수 자기 설정 공유에만 사용한다. 검색 후보를 모델이나 벡터 비교에 넘기기 전에 scope·characterId를 검사한다. 모델이 공개 가능 여부를 최종 결정하지 않는다.
+
+이 기본값은 향후 채널 간 개인 기억 공유 정책이 확정되면 변경할 수 있다. 작성자·대상·출처를 지금 보존하므로 저장된 기억 전체를 추정으로 다시 분류할 필요를 줄인다.
+
+## 6. 기억의 원본: 인지한 발언 스냅샷
+
+MemorySource 저장소를 둔다. Message 캐시 전체를 복제하는 것이 아니라 이 캐릭터가 인지했거나 실제 전달한 발언을 보존한다.
+
+### 6.1 생성 시점과 내용
+
+- 상대 발언은 캐릭터의 채팅 입력으로 채택한 시점에 본문·작성자를 보존한다. 답변 생성이 실패해도 인지한 발언은 남는다.
+- 봇 발언은 플랫폼 전송이 확인된 부분만 보존한다. 생성했지만 보내지 않은 답변과 도구 내부 출력은 제외한다.
+- 과거 플랫폼 내역을 동기화했다는 이유만으로 전부 인지했다고 취급하지 않는다. 채팅 입력으로 채택한 범위가 기준이다.
+- 여러 조각 중 일부만 전달됐다면 전달된 조각만 기록한다. Generation 취소만으로 이미 전달된 조각을 폐기하지 않는다.
+- 첨부파일은 실제로 인지한 텍스트 표현이 있는 범위만 포함한다. 이미지·음성 원본의 새로운 기억 해석 파이프라인은 MVP에서 만들지 않는다.
+
+MemorySource에는 Message FK 없이도 근거를 해석할 수 있는 본문·작성자·플랫폼 원본 식별자·관찰 시각·버전을 저장한다. 원본 Message 삭제가 이를 연쇄 삭제하지 않게 한다.
+
+Message 캐시 저장과 해당 MemorySource 저장은 가능한 같은 DB 트랜잭션으로 묶는다. 외부 전송과 SQLite 저장은 하나의 트랜잭션이 될 수 없다. 전송 후 DB 실패는 플랫폼 메시지 ID로 저장을 재시도한다. 재시작 후 확인 가능한 전송 기록·플랫폼 조회로 보충하고, 확인할 수 없는 전송은 복구 필요 상태를 기록한다. provider별 복구 가능 범위는 구현 시 테스트한다.
+
+### 6.2 삭제·수정·재생성
+
+| 사건 | 처리 |
+| --- | --- |
+| 인지 전 삭제 | 보지 않은 발언을 새로 기억하지 않는다. |
+| 인지 후 일반 삭제 | 기존 근거·기억 유지. 삭제 이벤트 연동 자체는 MVP 필수가 아니다. |
+| 인지 후 수정 | 이전 스냅샷을 덮어쓰지 않는다. 수정본을 다시 인지하면 새 근거 버전으로 기록한다. |
+| 답변 재생성 | 대상 봇 출력 근거를 RETRACTED로 표시하고 의존한 기억을 재검토한다. |
+| 명시적인 기억 철회 | 지정 근거의 파생 기억을 즉시 검색에서 제외하고 재검토한다. 전체 계정 삭제 기능과는 구분한다. |
+
+재생성은 RP 밖의 수정이다. 내부 철회 기록과 관련 기억 제외를 먼저 저장한 다음 플랫폼 정리와 새 CHAT을 진행한다. 실패해도 철회 상태를 유지하고 재생성을 재시도할 수 있게 한다.
+
+봇 답변을 재생성했다고 사용자 발언까지 폐기하지 않는다. 기존 RerollConversation의 Generation 연결 기준 삭제는 작성자와 실제 출력 범위를 구분하도록 바꿔야 한다.
+
+MemoryEvidence로 철회 근거에 의존한 기억을 찾는다. 다른 유효 근거가 남았다면 재검토 후 복원할 수 있다. 재생성 이후의 사용자 발언까지 자동 삭제하거나 대화 전체를 되감지 않는다. 다만 폐기된 봇 발언을 인용한 사용자 발언은 독립적인 사실 확인으로 취급하지 않도록 출처·주변 문맥을 제공한다.
+
+## 7. 논리 데이터 모델
+
+아래는 새 저장 계약이다. 기존 Memory 필드에 맞춰 요구사항을 줄이지 않는다. 실제 Prisma 모델·관계·인덱스는 구현 2단계에서 검증한다.
+
+| 모델 | 필요한 정보 | 이유 |
+| --- | --- | --- |
+| User 확장 | 선택적 고유 characterId | 같은 캐릭터의 provider 계정을 공통 참여자로 연결 |
+| MemorySource | id, characterId, channelId, authorId(User), platformAccountId, sourceKey, 본문, 원본 식별자, sourceRevision, observedAt, generationId, ACTIVE/RETRACTED | 삭제 가능한 캐시와 독립된 근거 |
+| Memory | id, characterId, kind, subjectId, participantIdsJson, scope, scopeKey, content, factKey/valueJson, status, coreReason, occurredAt, lastConfirmedAt, revision, extractionGenerationId, candidateIndex | 사실·경험 공통 저장 및 현재 사용 가능 여부 |
+| MemoryEvidence | memoryId, sourceId, 근거 역할 | 복수 출처 보존, 철회 영향 조회 |
+| MemoryProcessingState | characterId/channelId, lastSourceId, revision, nextAttemptAt, failureCount, paused, repairRequired | 처리 위치·예약·재시작 복구 |
+| Generation 확장 | MEMORY_EXTRACT 등 타입, 고정 입력·검증 출력·모델/프롬프트/설정 버전·비용 | 호출 및 적용 시도 추적 |
+
+Memory에 embeddingJson, embeddingModel, embeddingDimension, embeddingContentRevision을 선택 필드로 둔다. 임베딩이 없어도 본문 기억은 유효하다. 벡터는 다시 만들 수 있는 검색용 데이터다.
+
+저장 규칙:
+
+1. FACT의 subjectId는 필수다. EPISODE는 참여자 목록을 가지며 subjectId는 선택한다. 모두 같은 서비스로 처리한다.
+2. FACT 키는 충돌 후보를 찾기 위한 것이다. 초기 공통 키는 residence, allergy:<대상>, preference:<대상>처럼 좁게 시작한다. 키 일치나 문자열 일치만으로 의미 중복 해결을 보장하지 않는다.
+3. 알레르기·취향처럼 여러 값이 가능한 속성을 거주지처럼 한 칸에 덮어쓰지 않는다.
+4. Memory 상태는 ACTIVE, SUPERSEDED(대체), DISPUTED(충돌 미해결), INVALIDATED(근거 철회·설정 충돌)로 제한한다. ACTIVE만 기본 검색에 사용한다.
+5. coreReason은 NONE, HEALTH_CONSTRAINT, SELF_SETTING이다. 중요도 점수만 높다고 핵심 기억으로 승격하지 않는다.
+6. MemoryEvidence의 (memoryId, sourceId), 생성 후보의 (extractionGenerationId, candidateIndex)는 각각 고유하다. 재시도의 중복 적용을 막는다.
+7. MemorySource의 sourceKey는 캐릭터·플랫폼 원본·관찰한 내용 버전을 식별한다. 같은 원본 재조회로 근거가 계속 늘어나지 않게 고유 제약을 둔다.
+8. 처리 순서는 시간 대신 저장 ID를 쓴다. 스냅샷의 정확한 ID 목록을 기록하고 읽은 범위 끝까지만 처리 위치를 전진시킨다. 철회돼 제외한 항목도 처리한 범위에 포함한다.
+9. 과거 Source 철회는 처리 위치를 되돌리지 않고 repairRequired로 재검토한다. 신규 ID 처리만으로 철회를 발견하려 하지 않는다.
+10. 단일 대상·출처는 FK로 연결한다. 작은 복합 출력·벡터·참여자 목록은 검증한 JSON 문자열로 저장하고, 참여자별 조회가 필요해지면 관계 테이블로 전환한다.
+
+MemorySource는 인지 후 삭제에도 근거를 유지하기 위해, MemoryEvidence는 재생성된 답변의 영향만 제거하기 위해 필요하다. 별도 Conversation, ReviewWindow, BotMemory, Summary 모델은 추가하지 않는다.
+
+## 8. 추출과 기억 갱신
+
+### 8.1 실행 시점과 입력
+
+새 MemorySource가 생기면 예약한다. 초기값은 30초 유휴, 최초 미처리 인지 후 5분 경과, 새 입력 4,000토큰 도달 중 하나를 만족하면 실행한다. 의미상 경계를 판정하는 값이 아니다. 다음 CHAT에서 필요하면 유휴 시간을 기다리지 않고 미처리 자료를 먼저 반영한다.
+
+- 호출당 새 입력 최대 4,000토큰, 이전 발언 참고 최대 2,000토큰으로 시작한다. 설정·기존 기억·출력 공간을 포함해 모델 한도 내에서 조정한다.
+- 긴 단일 발언은 sourceId와 본문 위치를 유지하며 나눈다. 모든 조각 처리 전 해당 sourceId를 완료로 넘기지 않는다. 재시작 가능한 조각 진행 정보를 실행 입력에 기록한다.
+- 이전 참고 발언은 신규 추출 대상이 아니다. 일반 신규·갱신에는 새 근거가 하나 이상 필요하다. 철회 복구는 별도 작업으로 구분한다.
+- 정확한 원본 목록, 내용, 상태, 설정 버전, 비교할 기억 revision을 고정한다.
+- 같은 대상의 같은 FACT 키, 관련 경험, 현재 자기 설정을 함께 제공한다. 기존 기억 자체는 새 사실의 근거로 삼지 않는다.
+
+### 8.2 출력과 검증
+
+모델 출력은 후보별 kind, subject/participants, content, FACT의 factKey/value, evidenceIndexes, assertionType, 기존 기억에 대한 제안 동작이다. assertionType은 자기 진술·타인 보고·추측 등 근거의 성격을 구분한다.
+
+모델이 반환한 내부 ID·scope·갱신 명령을 그대로 실행하지 않는다. 최소 검증:
+
+- 대상과 근거가 입력 목록 안에 있고, 상태가 유효하다.
+- 후보 수·본문 길이·날짜·키·enum이 제한을 만족한다. 초기 상한은 후보 30개, 본문 각각 1,000자다.
+- FACT는 근거에 없는 세부 내용을 추가하지 않고 자기 진술·인용·가정을 구분한다.
+- 캐릭터 범위 자기 설정은 작성자와 대상이 같고 순수 설정에 해당해야 한다.
+- 기존 기억 변경은 같은 대상·범위의 제공된 기억만 참조한다.
+
+형식 검증은 의미 정확성을 보장하지 않는다. 근거와 후보를 대조하는 모델 검사 및 품질 사례로 오귀속·추가 창작을 검증한다. 경계 판정까지 한 호출에 넣지는 않는다.
+
+### 8.3 갱신 규칙
+
+| 상황 | 처리 |
+| --- | --- |
+| 같은 사실 재확인 | 근거 추가, lastConfirmedAt 갱신. 동의어마다 새 행을 만들지 않는다. |
+| 명시적 정정 | 기존 기억 SUPERSEDED, 새 기억 저장. 대체 관계와 근거 보존. |
+| 실제 시간 변화 | 과거 사실과 현재 사실 구분. 이사 같은 변화 근거가 있어야 한다. |
+| 설명 없는 충돌 | 최신 발언으로 자동 덮어쓰지 않는다. 충돌 집합을 DISPUTED로 두고 필요할 때 확인한다. |
+| 봇 초안이 기존 자기 설정과 충돌 | 전송 전 점검에서 초안을 수정한다. 기존 기억을 초안에 맞추지 않는다. |
+| 불확실한 타인 주장 | 확인된 FACT로 승격하지 않는다. 필요하면 “누가 그렇게 말했다”는 EPISODE로 보존한다. |
+
+대체 관계는 Memory의 선택적 supersedesId로 기록한다. 오래됐다는 이유만으로 알레르기나 자기 설정을 삭제하지 않는다. 일시적인 계획은 시점을 보존하고 현재도 유효하다고 추측하지 않는다.
+
+## 9. CHAT 연결과 새 자기 설정의 일관성
+
+흐름:
+
+1. 상대 발언을 인지하고 근거를 보존한다.
+2. 현재 identity, 핵심 기억, 관련 기억을 불러온다.
+3. 최근 원문과 함께 CHAT을 생성한다.
+4. 기존 자기 설정·중요 제약과 초안의 명시적 충돌을 전송 전에 점검한다.
+5. 실제 전달된 봇 발언의 근거를 저장한다.
+6. 새 자기 설정 등 기억을 추출·반영하고 다음 답변에서 재사용한다.
+
+두 provider에서 동시에 다른 거주지를 창작하지 않도록 MVP에서는 캐릭터별 CHAT 생성·전송을 프로세스 내부 큐로 직렬화한다. 메시지 수신은 계속 가능하고 다른 캐릭터는 따로 진행할 수 있다. 비용·지연보다 일관성을 우선하는 초기 선택이다.
+
+다음 답변을 생성하기 전에 이전 출력의 미처리 기억 추출을 완료한다. 예약 작업과 CHAT에서 요청한 즉시 처리는 같은 실행 소유자를 공유한다. CHAT 완료를 기다리는 작업을 해당 CHAT 안에서 다시 기다리는 순환 대기를 만들지 않는다.
+
+추출이 실패하면 제한 시간 내 복구를 시도한다. 실패한 상태로 다른 provider에서 새 자기 설정을 만들게 하지 않고 해당 CHAT을 기술적 재시도 대상으로 둔다. 캐릭터가 “설정에 없어서 모른다”고 말하게 하는 해결책은 사용하지 않는다. 이로 인한 응답 지연과 실패 횟수는 측정한다.
+
+전송 전 점검에는 현재 identity, 유지 중인 자기 설정, 핵심 제약과 초안을 제공한다. 새로운 자기 설정은 허용하고 기존 설정과의 충돌은 수정한다. 수정 재생성은 최대 한 번으로 제한한다. 계속 실패하면 자동 반복을 중단한다. 모델 점검은 절대적인 보장이 아니므로 반복 평가로 실패율을 측정한다.
+
+## 10. 검색과 프롬프트 반영
+
+### 10.1 두 검색 경로
+
+- 핵심 기억: 현재 참여자의 명시적 건강 제약과 현재 캐릭터의 유지 중인 기본 자기 설정을 직접 조회한다.
+- 관련 기억: 현재 발언과 최근 몇 발언으로 사실·경험을 함께 찾는다.
+
+핵심 기억을 중요도 상위 N개로 자르지 않는다. 초기 예산은 2,000토큰이며 초과하면 항목 손실 없이 표현을 압축한다. 그래도 넘으면 입력 예산 재배분 또는 명시적 작업 실패로 처리한다. 필수 제약을 조용히 누락하지 않는다. 모든 경험·취향을 핵심으로 분류하지 않는다.
+
+### 10.2 의미 검색과 단어 검색
+
+임베딩은 의미 검색에 사용하는 숫자 배열이다. Memory의 내용·대상·시간을 일정한 형식으로 변환해 저장한다.
+
+- 허용 범위의 ACTIVE 기억을 페이지 단위로 읽어 애플리케이션에서 벡터를 비교한다. 최근 일부만 잘라 네 달 전 기록을 후보에서 제거하지 않는다.
+- 같은 모델·차원의 벡터끼리 비교한다. 모델 변경 시 재생성하고 서로 다른 모델 벡터를 섞지 않는다.
+- 이름·장소·표현 일치에 대한 단어 검색 후보도 합친다. 한국어를 공백으로 나누는 것만으로 검색 품질을 보장하지 않는다.
+- 각 경로 후보 상한은 초기 30개다. 중복 제거 후 관련성을 재평가하고 최종 관련 기억 예산 3,000토큰 안에서 선택한다.
+- “그때”, “지난번 여행”은 최근 원문으로 질의를 보완한다. 질의 확장이 새 기억을 만들지는 않는다.
+- 임베딩 생성 실패 시 기억 본문은 유지하고 단어 검색을 사용한다. 벡터 생성은 별도로 재시도한다.
+- embeddingContentRevision과 본문 revision이 다르면 벡터를 사용하지 않는다. 오래된 임베딩 콜백이 새 본문에 결과를 덮어쓰지 않게 한다.
+
+### 10.3 실제 입력과 답변
+
+identity 및 운영 지시, 유효 기억, 최근 원문, 현재 입력을 구분한다. 기억을 발언자가 방금 말한 새 메시지나 시스템 명령으로 위장하지 않는다. 기억 안의 지시문을 실행하지 않는 규칙을 시스템 지시에 둔다.
+
+기억에는 대상·내용·시점·출처 성격을 포함한다. 철회·대체·충돌 상태는 기본 입력에서 제외한다. 지금 사용자의 명시적 정정은 저장 전이라도 이전 기억보다 우선하도록 문맥을 제공한다.
+
+사용한 Memory ID·revision, 검색 질의·경로·선택 이유를 CHAT Generation metadata에 기록한다. 관련 없는 과거 정보를 매번 억지로 언급하는 것도 품질 실패다.
+
+벡터 검색만으로 필수 기억 반영을 보장하지 않는다. 땅콩 알레르기 사례는 핵심 조회·실제 입력·전송 전 점검·최종 답변까지 연결해 검사한다.
+
+## 11. 저장·재시도·재시작
+
+기억 처리 담당 작업은 container에서 프로세스당 하나만 만든다. worker는 이 백그라운드 작업을 뜻하며 별도 서버가 아니다. provider마다 중복 생성하지 않는다.
+
+처리 순서:
+
+1. 처리 상태와 입력 목록을 읽고 MEMORY_EXTRACT Generation에 고정 입력을 저장한다.
+2. AI 호출과 검증은 DB 트랜잭션 밖에서 수행한다.
+3. 검증된 출력을 실행 기록에 저장한다. 아직 Memory 적용 완료는 아니다.
+4. 짧은 트랜잭션에서 처리 revision, 근거 상태, 기존 기억 revision, 설정 버전을 재확인한다.
+5. Memory·MemoryEvidence·대체 상태·처리 위치·Generation COMPLETED를 함께 저장한다.
+6. 임베딩은 본문 저장과 분리하고 해당 본문 revision에만 연결한다.
+
+새 Source는 다음 처리에 남는다. 철회나 설정 변경이 끼어들면 오래된 결과를 적용하지 않고 재구성한다. 동일 결과 재적용 여부는 실행 ID로 확인한다. DB 충돌 재시도에서 읽었던 전제가 달라지면 무조건 덮어쓰지 않는다.
+
+AI·임베딩 호출과 벡터 비교를 SQLite 트랜잭션 안에 넣지 않는다. 입력 묶음과 저장량을 제한해 채팅 메시지 쓰기를 오래 막지 않는다.
+
+실패 정책:
+
+- 호출 제한 시간 초기값 60초. 실패 후 자동 재시도는 1분·5분·15분의 최대 3회, 이후 paused로 두고 명시적인 재시도를 제공한다.
+- 입력 초과·모델 거부·반복 형식 오류·네트워크·DB 오류를 구분한다. 입력 초과는 크기 조정으로 처리한다.
+- 검증 출력이 저장돼 있고 전제가 유효하면 DB 적용만 다시 시도한다. AI를 재호출하지 않는다.
+- 후보 수 초과를 조용히 잘라 성공 처리하지 않는다. 입력 분할 또는 명시적인 실패로 처리한다.
+- 예약 작업은 실패한 채널을 건너뛰어 다른 채널을 계속 처리한다. 같은 캐릭터의 미처리 출력이 있으면 §9의 CHAT 일관성 제한은 적용한다.
+
+시작·종료:
+
+- 시작 시 미완료 실행을 조회한다. 검증 출력이 있으면 적용 복구, 없으면 중단된 시도를 종료 처리하고 새 시도를 만든다. claim 만료를 기다리지 않는다.
+- 종료 시 새 CHAT·기억 작업 접수를 멈추고 진행 중 호출에 abort를 전달한다. 정리 대기는 기본 10초다.
+- 성공 적용·취소 모두 현재 실행 상태를 조건으로 갱신한다. COMPLETED를 뒤늦게 CANCELLED로 바꾸지 않는다.
+- 늦게 도착한 콜백은 실행 ID·현재 상태를 검증한다. 종료·시간 초과 후 새 시도의 상태를 덮어쓰지 않는다.
+- 상태 저장 시도 후 DB를 닫는다. 강제 종료 후 재처리가 가능해야 한다.
+
+## 12. 오류 수정과 재처리
+
+Memory는 수정 가능한 결과이고 MemorySource는 근거다. 잘못된 기억은 원본에서 다시 만들 수 있어야 한다.
+
+| 변경 | 복구 |
+| --- | --- |
+| 특정 Source 철회 | 관련 기억 즉시 제외, 유효 근거로 재검토 |
+| 특정 Memory 오류 | 결과 제외, 해당 근거 재추출, 수정 사유 기록 |
+| 추출 모델·프롬프트 변경 | 새 버전 기록, 지정 범위 재처리. 무조건 전량 자동 실행하지 않음 |
+| 임베딩 모델 변경 | 본문 유지, 벡터만 재생성. 전환 중 핵심 조회·단어 검색 유지 |
+| identity 변경 | §4.3의 설정 충돌 검사·버전 확인 |
+
+관리자용 실행 함수 또는 CLI로 범위 재처리, paused 재시도, 근거 철회를 제공한다. 관리자 UI나 결과 버전 비교 화면은 만들지 않는다.
+
+범위 재구축은 해당 범위의 관련 결과를 일시 제외하고 원본 순서대로 다시 만드는 유지보수 작업으로 시작한다. 실패하면 불완전 상태를 완료로 노출하지 않는다. 기존 기억을 참조한 다른 기억의 근거 목록도 실제 Source로 유지해, 폐기된 요약만을 근거로 다시 살아나는 일을 막는다.
+
+## 13. 구현 위치
+
+아래 기존 경로는 문서 작성 시 확인했다. 신규 이름은 제안이며 작은 책임은 합칠 수 있다.
+
+| 기존 위치 | 연결할 변경 |
+| --- | --- |
+| prisma/schema.prisma | 공통 기억·근거·처리 상태 및 캐릭터 계정 식별 |
+| src/accounts/BotAccountService.js | 같은 characterId의 공통 참여자로 계정 초기화 |
+| src/messages/HistoryService.js | 인지 대상으로 채택한 작성자 포함 원문 제공 |
+| src/messages/MessageService.js | 캐시와 전달된 근거 저장 연결 |
+| src/messages/MessageSender.js | 실제 전송 조각만 근거 생성, DB 실패 복구 |
+| src/chat/ChatFlow.js | 캐릭터별 직렬 실행, 이전 출력 기억 반영, 전송 전 점검 |
+| src/chat/ChatGenerationLifecycle.js | 실행 상태와 입력 채택·출력 기록 연결 |
+| src/chat/context/ChatContextPreparer.js | 공통 기억 검색과 실제 채팅 입력 반영 |
+| src/chat/context/SequenceBuilder.js | 기억을 원문·운영 지시와 구분해 조립 |
+| src/character/CharacterContextBuilder.js | 현재 설정과 안정적인 설정 버전 제공 |
+| src/application/RerollConversation.js | 봇 출력 철회, 사용자 근거 보존, 재검토 |
+| src/core/container.js, src/core/shutdown.js | 공유 작업 생성·복구·종료 |
+
+신규 책임:
+
+- MemorySourceRepository: 근거 생성·중복 방지·철회.
+- MemoryRepository: 기억·근거 연결·상태·벡터 및 조건부 적용.
+- MemoryExtractor: 공통 참여자 발언에서 후보 추출·검증.
+- MemoryService: 비교·갱신·복구 조정.
+- MemoryRetriever: 핵심 조회·단어/의미 검색·입력 구성.
+- MemoryWorker: 예약·재시도·중단. 의미상 대화 경계는 판단하지 않음.
+
+기존 메모리 호출은 구현 시 확인해 새 흐름으로 교체한다. 이중 추출·이중 주입을 막되 기존 API 유지 자체를 목표로 삼지 않는다. 이번 기능과 무관한 ConversationBuffer 등의 용어 변경은 하지 않는다.
+
+## 14. 구현 순서와 단계별 통과 기준
+
+| 단계 | 결과물 | 통과 기준 |
+| --- | --- | --- |
+| 1 | 시간 간격이 있는 평가 대화와 기대 기억·답변 | §15 사례의 성공·실패 조건 작성 |
+| 2 | Prisma 모델, 격리 DB migration, 계정 매핑·저장소 | 실제 SQLite에서 관계·고유 제약·근거 보존·중복 방지 검증 |
+| 3 | 입력 채택·전송 근거·재생성 연결 | 미전송 출력 제외, 일반 삭제 보존, reroll 사용자 발언 유지 |
+| 4 | FACT/EPISODE 추출·갱신 | 봇과 사용자 동일 서비스로 기대 기억 생성·정정 |
+| 5 | 핵심·단어·벡터 검색 | 오래된 기억 조회, 공개 범위 격리, 모델 혼합 방지 |
+| 6 | CHAT 입력·자기 설정·점검 연결 | 실제 답변과 동시 provider 설정 일관성 검증 |
+| 7 | 예약·재시도·종료·재처리 도구 | 중간 종료·저장 실패·철회 경쟁에서 중복·누락·부활 없음 |
+| 8 | 전체 테스트와 실제 모델 평가 | 기준 충족, 결과·한계 기록 |
+
+Prisma 모델은 실제 validate와 격리된 DB migration으로 검증한다. 실사용 .env, 로컬 SQLite DB, 사용자 content는 임의 수정하지 않는다. 새 프롬프트는 구현 산출물로 작성하고 적용할 대상만 명시적으로 연결한다. 기존 Memory의 사용 실적이 없다는 전제는 자동 삭제 권한이 아니다. DB 변경 시 현황 확인과 보존·적용 절차를 기록한다.
+
+## 15. 테스트·운영·완료 기준
+
+### 제품 품질 사례
+
+1. 네 달 전 땅콩 알레르기를 최근 문맥에서 제거한 뒤 샌드위치 질문에 반영한다.
+2. 지난봄 여행 경험을 표현이 다른 질문으로 찾는다.
+3. identity에 없는 거주지는 새로 만들 수 있고 이후 다른 지역으로 바꾸지 않는다.
+4. identity에 있는 거주지는 즉석 설정으로 덮어쓰지 않는다.
+5. identity 변경 후 기존 거주지를 현재로 사용하거나 가상의 이사를 만들지 않는다.
+6. 자기 진술·친구 이야기·가정을 구분한다. 작성자가 봇이어도 동일하다.
+7. 명시적 정정은 반영하고 모순은 최신값으로 무조건 바꾸지 않는다.
+8. 재생성으로 폐기한 설정·약속이 새 답변에 다시 등장하지 않는다.
+9. 사적 경험은 다른 채널로 옮기지 않고 순수 자기 설정만 캐릭터 범위로 공유한다.
+10. n:1 입력에서 대상이 섞이지 않는다. 모호하면 기억을 만들지 않는다.
+11. 기억 안의 지시문을 운영 명령으로 실행하지 않는다.
+12. 관련 없는 옛 이야기를 매번 억지로 꺼내지 않는다.
+
+### 저장·동시성 테스트
+
+- 스냅샷 처리 중 새 Source가 도착해도 처리 완료로 잘못 표시되지 않는다.
+- 원본 재조회·결과 저장 재시도에서 중복이 없다.
+- 철회·설정 변경과 추출이 겹쳐도 오래된 결과가 부활하지 않는다.
+- 재생성·일반 삭제·부분 전송 취소를 구분한다.
+- 같은 캐릭터의 계정 초기화 경쟁에서 서로 다른 공통 참여자가 생기지 않는다.
+- 두 provider의 동시 질문에서 최초 자기 설정이 충돌하지 않는다.
+- DB 실패 후 AI 재호출 없이 검증 출력을 적용한다.
+- 성공 저장과 종료 경쟁에서 COMPLETED를 CANCELLED로 바꾸지 않는다.
+- 임베딩 생성 중 본문 변경 시 오래된 벡터를 적용하지 않는다.
+- 재시작·긴 단일 발언 분할·반복 오류에서도 누락과 무한 반복이 없다.
+
+저장·상태 전이는 node:test와 주입 모델로 검증한다. 실제 모델 평가는 별도 명령으로 실행한다. 기본 npm test에 키가 필요한 네트워크 호출을 섞지 않는다.
+
+초기 평가셋은 30개 이상이며 알레르기·자기 설정·재생성·대상 오귀속 사례를 포함한다. 중요 사례는 같은 입력으로 5회 반복하고 한 번이라도 필수 제약 누락·오귀속·철회 내용 부활이 나오면 통과로 보지 않는다. 일반 경험 검색은 기대 기억의 최종 후보 포함률 90% 이상을 초기 목표로 삼고 최종 답변 적절성도 따로 평가한다. 고정 평가셋 통과를 실제 모든 대화의 보장으로 표현하지 않는다.
+
+### 최소 운영 지표
+
+- 가장 오래된 미처리 근거의 나이, 미처리 입력량, paused 수.
+- 호출 모델·프롬프트·설정 버전, 토큰·비용·지연·실패·재시도.
+- 후보 채택·거부·충돌·대체 수, 자기 설정 생성·충돌 수.
+- 검색 후보·사용 Memory ID, 검색 경로, 벡터 미생성·버전 불일치 수.
+- 필수 기억 누락, 대상 오귀속, 철회 기억 부활, 불필요한 회상.
+- 전송 후 저장 실패, 재시작 복구 실패, 수동 재처리 필요 건수.
+
+일반 로그에 원문을 반복하지 않고 식별자로 실행·근거 기록을 연결한다. 근거 삭제·보관 기간 변경은 재생성 능력에 영향을 주므로 별도 데이터 관리 정책으로 다룬다.
+
+완료 조건은 테이블 생성이나 검색 성공이 아니다. 봇과 사용자 공통 처리, 실제 전달된 자기 설정 유지, 오래된 사실·경험의 답변 반영, 설정·정정·재생성 우선순위, 캐시 삭제와 근거 보존, 단일 프로세스 동시 provider와 재시작 복구를 모두 검증한다. 관련 단위 테스트·전체 npm test·별도 모델 평가 결과와 남은 한계를 기록한다.
+
+## 16. 이후로 미루는 범위
+
+- 의미상 Conversation 재분할·병합, Pending, mustFinalize.
+- 여러 애플리케이션 프로세스와 분산 worker.
+- 별도 벡터DB 운영과 대규모 검색 최적화.
+- n:1의 복잡한 제삼자 관계 추론, 채널 간 개인 기억 자동 공유.
+- 사용자 계정 자동 매칭, 과거 기록 전체의 자동 역산.
+- 관리자 UI, 결과 버전 비교 화면, 자동 identity.md 편집.
+- 플랫폼 전체 아카이브와 모든 수정·삭제 이벤트 동기화.
+
+초기 과거 자료는 자동으로 인지한 것으로 만들지 않는다. 실제 인지 범위를 증명할 수 있는 자료 또는 별도로 선택한 가져오기 범위만 MemorySource로 변환한다. 네 달 전 장기 회상 평가는 명시적인 테스트 자료로 주입한다.
