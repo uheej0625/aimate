@@ -28,28 +28,73 @@ export class MessageRepository {
       generationId = null,
     } = messageData;
 
-    return await prisma.message.upsert({
-      where: {
+    return await prisma.$transaction(async (tx) => {
+      const where = {
         platform_platformId: {
           platform,
           platformId,
         },
-      },
-      update: {
+      };
+      const existing = await tx.message.findUnique({ where });
+      const update = {
         content,
         attachmentsJson,
-        generationId,
-      },
-      create: {
-        platform,
-        platformId,
-        serverId,
-        channelId,
-        authorId,
-        content,
-        attachmentsJson,
-        generationId,
-      },
+        ...(generationId !== null ? { generationId } : {}),
+      };
+      const changed =
+        !existing ||
+        existing.content !== content ||
+        existing.attachmentsJson !== attachmentsJson ||
+        (generationId !== null && existing.generationId !== generationId);
+
+      if (!changed) return { message: existing, changed: false };
+
+      const message = await tx.message.upsert({
+        where,
+        update,
+        create: {
+          platform,
+          platformId,
+          serverId,
+          channelId,
+          authorId,
+          content,
+          attachmentsJson,
+          generationId,
+        },
+      });
+
+      return { message, changed };
+    });
+  }
+
+  /**
+   * Update the mutable content of an existing platform message.
+   * Missing and unchanged messages are reported without writing.
+   * @param {string} platform
+   * @param {string} platformId
+   * @param {string} content
+   * @returns {Promise<{message: Object|null, changed: boolean}>}
+   */
+  async updateContent(platform, platformId, content) {
+    return await prisma.$transaction(async (tx) => {
+      const where = {
+        platform_platformId: {
+          platform,
+          platformId,
+        },
+      };
+      const existing = await tx.message.findUnique({ where });
+
+      if (!existing || existing.content === content) {
+        return { message: existing, changed: false };
+      }
+
+      const message = await tx.message.update({
+        where,
+        data: { content },
+      });
+      return { message, changed: true };
     });
   }
 
@@ -149,6 +194,21 @@ export class MessageRepository {
         generation: true,
         author: true,
       },
+    });
+  }
+
+  /**
+   * Find messages by their platform IDs, including their authors.
+   * @param {string} platform
+   * @param {string[]} platformIds
+   * @returns {Promise<Array>}
+   */
+  async findManyByPlatformIds(platform, platformIds) {
+    if (!platformIds.length) return [];
+
+    return await prisma.message.findMany({
+      where: { platform, platformId: { in: platformIds } },
+      include: { author: true },
     });
   }
 

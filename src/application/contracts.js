@@ -44,6 +44,15 @@
  */
 
 /**
+ * Request delivered when one or more platform messages are deleted.
+ * @typedef {Object} MessageDeletionRequest
+ * @property {string} platform
+ * @property {string[]} platformMessageIds
+ * @property {ChannelPort} channel
+ * @property {string} botId
+ */
+
+/**
  * A request to generate a response for one conversation.
  *
  * @typedef {Object} ConversationRequest

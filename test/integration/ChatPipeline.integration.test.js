@@ -190,6 +190,55 @@ test("chat pipeline persists history and multiple model-free replies", async () 
   assert.ok(messages.every(({ generationId }) => generationId !== null));
 });
 
+test("message persistence updates only known changed messages", async () => {
+  const harness = createHarness({
+    generateTextFn: async () => fakeTextResult("# response\n\n## messages\nreply"),
+  });
+  const original = createUserMessage(harness, {
+    id: "current-message-state",
+    content: "before",
+  });
+
+  const created = await harness.messageService.saveMessage(original);
+  const duplicate = await harness.messageService.saveMessage(original);
+  const updated = await harness.messageService.updateMessage({
+    ...original,
+    content: "after",
+  });
+  const unchanged = await harness.messageService.updateMessage({
+    ...original,
+    content: "after",
+  });
+  const missing = await harness.messageService.updateMessage({
+    ...original,
+    platformMessageId: "missing-current-message",
+    content: "ignored",
+  });
+
+  const stored = await harness.messageRepository.findByPlatformId(
+    "cli",
+    original.platformMessageId,
+  );
+
+  assert.strictEqual(created.changed, true);
+  assert.strictEqual(duplicate.changed, false);
+  assert.strictEqual(updated.changed, true);
+  assert.strictEqual(unchanged.changed, false);
+  assert.strictEqual(missing.changed, false);
+  assert.strictEqual(stored.content, "after");
+
+  const { deletedCount } = await harness.messageService.deleteMessages("cli", [
+    original.platformMessageId,
+  ]);
+  const deleted = await harness.messageRepository.findByPlatformId(
+    "cli",
+    original.platformMessageId,
+  );
+
+  assert.strictEqual(deletedCount, 1);
+  assert.strictEqual(deleted, null);
+});
+
 test("chat pipeline marks a failed model call and sends a fallback", async () => {
   const harness = createHarness({
     generateTextFn: async () => {
@@ -445,6 +494,7 @@ function createHarness({ generateTextFn }) {
     generationRepository,
     generationAbortRegistry,
     messageService,
+    messageRepository,
     chatFlow,
     executeChat,
   };

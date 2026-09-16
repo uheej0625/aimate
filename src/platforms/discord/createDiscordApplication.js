@@ -42,6 +42,7 @@ export async function createDiscordApplication({ configManager, client }) {
     storedMessageService: app.storedMessageService,
     getGenerationInfo: app.getGenerationInfo,
     rerollConversation: app.rerollConversation,
+    messageHandler: app.messageHandler,
   });
 
   return app;

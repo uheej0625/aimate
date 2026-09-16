@@ -12,14 +12,18 @@ export default {
    * 메시지를 삭제합니다
    * @param {import("discord.js").MessageContextMenuCommandInteraction} interaction
    */
-  async execute(interaction, { storedMessageService }) {
+  async execute(interaction, { storedMessageService, messageHandler }) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     const targetMessage = interaction.targetMessage;
     // Discord에서 메시지 삭제
+    messageHandler.suppressDeletionBuffer("discord", [targetMessage.id]);
     try {
       await targetMessage.delete();
     } catch (error) {
+      messageHandler.releaseDeletionBufferSuppression("discord", [
+        targetMessage.id,
+      ]);
       logger.error({ err: error }, "Discord 메시지 삭제 실패");
       await interaction.editReply({
         content: "메시지를 삭제할 권한이 없거나 이미 삭제된 메시지입니다.",
@@ -27,7 +31,6 @@ export default {
       return;
     }
 
-    // DB에서 메시지 삭제
     const deleted = await storedMessageService.deleteOne({
       platform: "discord",
       platformMessageId: targetMessage.id,

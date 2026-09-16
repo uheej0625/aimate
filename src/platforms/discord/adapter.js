@@ -59,3 +59,18 @@ export function adaptIncomingMessage(discordMessage) {
     botId: discordMessage.client.user.id,
   };
 }
+
+/**
+ * Discord deletion payloads only need message IDs and channel context.
+ * @param {Iterable<import('discord.js').Message>} discordMessages
+ * @param {import('discord.js').TextBasedChannel} discordChannel
+ * @returns {import('../../application/contracts.js').MessageDeletionRequest}
+ */
+export function adaptMessageDeletion(discordMessages, discordChannel) {
+  return {
+    platform: "discord",
+    platformMessageIds: [...discordMessages].map((message) => message.id),
+    channel: adaptChannel(discordChannel),
+    botId: discordChannel.client.user.id,
+  };
+}

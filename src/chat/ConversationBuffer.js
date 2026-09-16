@@ -49,6 +49,14 @@ export class ConversationBuffer {
   }
 
   /**
+   * @param {import('../application/contracts.js').ChannelPort} channel
+   * @returns {boolean}
+   */
+  has(channel) {
+    return this.buffers.has(this.getKey(channel));
+  }
+
+  /**
    * Clear buffer for a channel immediately (e.g. on manual trigger or command)
    * @param {import('../application/contracts.js').ChannelPort} channel
    */
@@ -58,7 +66,10 @@ export class ConversationBuffer {
     if (this.buffers.has(key)) {
       clearTimeout(this.buffers.get(key));
       this.buffers.delete(key);
+      return true;
     }
+
+    return false;
   }
 
   getKey(channelPort) {

@@ -21,7 +21,16 @@ test("MessageService tests", async (t) => {
   };
 
   const mockMessageRepository = {
-    save: async (data) => ({ id: "msg-123", ...data }),
+    save: async (data) => ({
+      message: { id: "msg-123", ...data },
+      changed: true,
+    }),
+    updateContent: async (_platform, _platformId, content) => ({
+      message: { id: "msg-123", content },
+      changed: true,
+    }),
+    findManyByPlatformIds: async () => [],
+    deleteManyByPlatformIds: async () => 0,
   };
 
   const messageService = new MessageService(
@@ -54,6 +63,7 @@ test("MessageService tests", async (t) => {
       assert.strictEqual(result.message.content, "Hello");
       assert.strictEqual(result.channel.id, "chan-123");
       assert.strictEqual(result.platformAccount.id, "pa-123");
+      assert.strictEqual(result.changed, true);
     },
   );
 
@@ -64,7 +74,10 @@ test("MessageService tests", async (t) => {
       const linkMockMsgRepo = {
         save: async (data) => {
           savedGenerationId = data.generationId;
-          return { ...data, id: "msg-db-2" };
+          return {
+            message: { ...data, id: "msg-db-2" },
+            changed: true,
+          };
         },
       };
 
@@ -94,4 +107,50 @@ test("MessageService tests", async (t) => {
       assert.strictEqual(savedGenerationId, "gen-1");
     },
   );
+
+  await t.test("updateMessage does not create a missing message", async () => {
+    let updateArgs = null;
+    const service = new MessageService(
+      mockUserRepository,
+      mockPlatformAccountRepository,
+      mockChannelRepository,
+      mockServerRepository,
+      {
+        updateContent: async (...args) => {
+          updateArgs = args;
+          return { message: null, changed: false };
+        },
+      },
+    );
+
+    const result = await service.updateMessage({
+      platform: "discord",
+      platformMessageId: "missing",
+      content: "edited",
+    });
+
+    assert.deepStrictEqual(updateArgs, ["discord", "missing", "edited"]);
+    assert.deepStrictEqual(result, { message: null, changed: false });
+  });
+
+  await t.test("deleteMessages returns the rows that existed", async () => {
+    const existing = [{ id: 1 }, { id: 2 }];
+    const service = new MessageService(
+      mockUserRepository,
+      mockPlatformAccountRepository,
+      mockChannelRepository,
+      mockServerRepository,
+      {
+        findManyByPlatformIds: async () => existing,
+        deleteManyByPlatformIds: async () => 2,
+      },
+    );
+
+    const result = await service.deleteMessages("discord", ["one", "two"]);
+
+    assert.deepStrictEqual(result, {
+      deletedCount: 2,
+      deletedMessages: existing,
+    });
+  });
 });

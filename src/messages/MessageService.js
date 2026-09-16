@@ -83,22 +83,56 @@ export class MessageService {
     }
 
     // 4. Save message
-    const savedMessage = await this.messageRepository.save({
-      platform: platform,
-      platformId: message.platformMessageId,
-      serverId: internalServerId,
-      channelId: channel.id,
-      authorId: platformAccount.id,
-      content: message.content,
-      attachmentsJson:
-        attachments.length > 0 ? JSON.stringify(attachments) : null,
-      generationId: generationId,
-    });
+    const { message: savedMessage, changed } =
+      await this.messageRepository.save({
+        platform: platform,
+        platformId: message.platformMessageId,
+        serverId: internalServerId,
+        channelId: channel.id,
+        authorId: platformAccount.id,
+        content: message.content,
+        attachmentsJson:
+          attachments.length > 0 ? JSON.stringify(attachments) : null,
+        generationId: generationId,
+      });
 
     return {
       message: savedMessage,
       channel,
       platformAccount,
+      changed,
     };
+  }
+
+  /**
+   * Update a stored message without creating a missing row.
+   * @param {import('../application/contracts.js').NormalizedMessage} message
+   * @returns {Promise<{message: Object|null, changed: boolean}>}
+   */
+  async updateMessage(message) {
+    return await this.messageRepository.updateContent(
+      message.platform,
+      message.platformMessageId,
+      message.content,
+    );
+  }
+
+  /**
+   * Delete stored platform messages and return the rows that existed.
+   * @param {string} platform
+   * @param {string[]} platformMessageIds
+   * @returns {Promise<{deletedCount: number, deletedMessages: Array}>}
+   */
+  async deleteMessages(platform, platformMessageIds) {
+    const deletedMessages = await this.messageRepository.findManyByPlatformIds(
+      platform,
+      platformMessageIds,
+    );
+    const deletedCount = await this.messageRepository.deleteManyByPlatformIds(
+      platform,
+      platformMessageIds,
+    );
+
+    return { deletedCount, deletedMessages };
   }
 }

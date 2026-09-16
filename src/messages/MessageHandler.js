@@ -1,4 +1,5 @@
 import { createLogger } from "../core/logger.js";
+import { MessageDeletionBufferSuppression } from "./MessageDeletionBufferSuppression.js";
 
 const logger = createLogger("MessageHandler");
 
@@ -15,6 +16,7 @@ export class MessageHandler {
    * @param {import('../chat/ConversationBuffer.js').ConversationBuffer} conversationBuffer
    * @param {import('../repositories/ChannelRepository.js').ChannelRepository} channelRepository
    * @param {import('../chat/ChatGenerationAbortRegistry.js').ChatGenerationAbortRegistry} generationAbortRegistry
+   * @param {MessageDeletionBufferSuppression} [messageDeletionBufferSuppression]
    */
   constructor(
     messageService,
@@ -22,12 +24,14 @@ export class MessageHandler {
     conversationBuffer,
     channelRepository,
     generationAbortRegistry,
+    messageDeletionBufferSuppression = new MessageDeletionBufferSuppression(),
   ) {
     this.messageService = messageService;
     this.generationLifecycle = generationLifecycle;
     this.conversationBuffer = conversationBuffer;
     this.channelRepository = channelRepository;
     this.generationAbortRegistry = generationAbortRegistry;
+    this.messageDeletionBufferSuppression = messageDeletionBufferSuppression;
   }
 
   /**
@@ -40,7 +44,8 @@ export class MessageHandler {
       if (!(await this.shouldHandle(message, botId))) return;
 
       // 2. Save user message immediately and get channel record
-      const channelRecord = await this.saveMessage(message);
+      const { channelRecord, changed } = await this.saveMessage(message);
+      if (!changed) return;
 
       // 3. Cancel any processing generation for this channel
       // (New message interrupts previous generation context conceptually)
@@ -89,11 +94,102 @@ export class MessageHandler {
    */
   async saveMessage(message) {
     try {
-      const { channel } = await this.messageService.saveMessage(message);
-      return channel;
+      const { channel, changed } =
+        await this.messageService.saveMessage(message);
+      return { channelRecord: channel, changed };
     } catch (error) {
       logger.error({ err: error }, "Failed to save message");
       throw error;
     }
+  }
+
+  /**
+   * Update an existing user message and refresh an affected response.
+   * @param {import('../application/contracts.js').IncomingMessageRequest} request
+   */
+  async handleUpdate({ message, channel, botId }) {
+    try {
+      if (message.author.isBot || message.author.platformUserId === botId)
+        return;
+
+      const channelRecord = await this.channelRepository.findByPlatformId(
+        message.platform,
+        message.platformChannelId,
+      );
+      if (!channelRecord) return;
+
+      const { changed } = await this.messageService.updateMessage(message);
+      if (!changed) return;
+
+      this.refreshBufferedResponse({ channel, channelRecord, botId });
+    } catch (error) {
+      logger.error({ err: error }, "MessageHandler update error");
+    }
+  }
+
+  /**
+   * Delete stored messages and refresh an affected response when at least one
+   * deleted message belongs to a user.
+   * @param {import('../application/contracts.js').MessageDeletionRequest} request
+   */
+  async handleDelete({ platform, platformMessageIds, channel, botId }) {
+    try {
+      const suppressedMessageIds =
+        this.messageDeletionBufferSuppression.consume(
+          platform,
+          platformMessageIds,
+        );
+      const channelRecord = await this.channelRepository.findByPlatformId(
+        platform,
+        channel.platformChannelId,
+      );
+      const { deletedCount, deletedMessages } =
+        await this.messageService.deleteMessages(platform, platformMessageIds);
+
+      if (!channelRecord || deletedCount === 0) {
+        return { deletedCount, refreshed: false };
+      }
+
+      const deletedUserMessage = deletedMessages.some(
+        (message) =>
+          message.author?.platformId !== botId &&
+          !suppressedMessageIds.has(message.platformId),
+      );
+      if (!deletedUserMessage) return { deletedCount, refreshed: false };
+
+      const refreshed = this.refreshBufferedResponse({
+        channel,
+        channelRecord,
+        botId,
+      });
+      return { deletedCount, refreshed };
+    } catch (error) {
+      logger.error({ err: error }, "MessageHandler delete error");
+      return { deletedCount: 0, refreshed: false };
+    }
+  }
+
+  suppressDeletionBuffer(platform, platformMessageIds) {
+    this.messageDeletionBufferSuppression.suppress(
+      platform,
+      platformMessageIds,
+    );
+  }
+
+  releaseDeletionBufferSuppression(platform, platformMessageIds) {
+    this.messageDeletionBufferSuppression.release(platform, platformMessageIds);
+  }
+
+  refreshBufferedResponse({ channel, channelRecord, botId }) {
+    const hadBufferedResponse = this.conversationBuffer.clear(channel);
+
+    if (!hadBufferedResponse) return false;
+
+    this.conversationBuffer.add({
+      channelPort: channel,
+      internalChannelId: channelRecord.id,
+      botId,
+    });
+    return true;
   }
 }

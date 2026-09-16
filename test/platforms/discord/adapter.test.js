@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   adaptChannel,
   adaptIncomingMessage,
+  adaptMessageDeletion,
   adaptMessageData,
 } from "../../../src/platforms/discord/adapter.js";
 
@@ -77,14 +78,30 @@ test("adaptMessageData does not retain Discord runtime objects", () => {
   assert.equal("channel" in message, false);
 });
 
+test("Discord deletion adapter keeps only IDs and channel context", () => {
+  const first = createDiscordMessage({ id: "message-1" });
+  const second = createDiscordMessage({ id: "message-2" });
+  const channel = {
+    id: "channel-1",
+    client: { user: { id: "bot-1" } },
+    send: async () => {},
+    sendTyping: async () => {},
+  };
+
+  const request = adaptMessageDeletion([first, second], channel);
+
+  assert.deepEqual(request.platformMessageIds, ["message-1", "message-2"]);
+  assert.equal(request.platform, "discord");
+  assert.equal(request.botId, "bot-1");
+  assert.equal(request.channel.platformChannelId, "channel-1");
+});
+
 function createDiscordMessage(overrides = {}) {
-  const channel =
-    overrides.channel ??
-    {
-      id: "channel-1",
-      send: async () => {},
-      sendTyping: async () => {},
-    };
+  const channel = overrides.channel ?? {
+    id: "channel-1",
+    send: async () => {},
+    sendTyping: async () => {},
+  };
 
   return {
     id: "message-1",

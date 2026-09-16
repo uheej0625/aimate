@@ -26,7 +26,7 @@ test("createDiscordApplication registers commands and events without a service l
   const app = await createDiscordApplication({ configManager, client });
 
   assert.strictEqual(client.commands.size, 5);
-  assert.strictEqual(eventHandlers.size, 2);
+  assert.strictEqual(eventHandlers.size, 5);
   assert.strictEqual(onceHandlers.size, 1);
   assert.strictEqual("services" in client, false);
   assert.strictEqual(
