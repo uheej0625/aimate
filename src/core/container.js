@@ -24,7 +24,6 @@ import { GeneratedImageAttachmentResolver } from "../messages/GeneratedImageAtta
 import { HistoryMessageFormatter } from "../messages/HistoryMessageFormatter.js";
 import { validateAiConfig } from "../config/index.js";
 import { MessageHandler } from "../messages/MessageHandler.js";
-import { MessageDeletionBufferSuppression } from "../messages/MessageDeletionBufferSuppression.js";
 import { ConversationBuffer } from "../chat/ConversationBuffer.js";
 import { MessageSender } from "../messages/MessageSender.js";
 import { ChatFlow } from "../chat/ChatFlow.js";
@@ -71,8 +70,6 @@ export async function createContainer({
   const cronJobScheduler = new CronJobScheduler(cronJobRepository);
   const eventBus = new EventBus();
   const generationAbortRegistry = new ChatGenerationAbortRegistry();
-  const messageDeletionBufferSuppression =
-    new MessageDeletionBufferSuppression();
   registerRetryPolicy({ eventBus, cronJobScheduler });
 
   // Tools (function calling)
@@ -197,7 +194,6 @@ export async function createContainer({
     conversationBuffer,
     channelRepository,
     generationAbortRegistry,
-    messageDeletionBufferSuppression,
   );
 
   const botAccountService = new BotAccountService(

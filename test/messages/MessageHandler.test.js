@@ -294,47 +294,6 @@ test("MessageHandler tests", async (t) => {
     });
   });
 
-  await t.test(
-    "suppressed administrator deletion does not refresh a buffer",
-    async () => {
-      let refreshed = false;
-      const handler = new MessageHandler(
-        {
-          deleteMessages: async () => ({
-            deletedCount: 1,
-            deletedMessages: [
-              { platformId: "message-1", author: { platformId: "user-1" } },
-            ],
-          }),
-        },
-        mockGenerationLifecycle,
-        {
-          clear: () => {
-            refreshed = true;
-            return true;
-          },
-          add: () => {},
-        },
-        mockChannelRepository,
-        mockGenerationAbortRegistry,
-        {
-          consume: () => new Set(["message-1"]),
-          suppress: () => {},
-          release: () => {},
-        },
-      );
-
-      await handler.handleDelete({
-        platform: "discord",
-        platformMessageIds: ["message-1"],
-        channel: { platform: "discord", platformChannelId: "chan-123" },
-        botId: "bot-1",
-      });
-
-      assert.strictEqual(refreshed, false);
-    },
-  );
-
   await t.test("bot deletion does not refresh a response", async () => {
     let refreshed = false;
     const handler = new MessageHandler(

@@ -1,5 +1,4 @@
 import { createLogger } from "../core/logger.js";
-import { MessageDeletionBufferSuppression } from "./MessageDeletionBufferSuppression.js";
 
 const logger = createLogger("MessageHandler");
 
@@ -16,7 +15,6 @@ export class MessageHandler {
    * @param {import('../chat/ConversationBuffer.js').ConversationBuffer} conversationBuffer
    * @param {import('../repositories/ChannelRepository.js').ChannelRepository} channelRepository
    * @param {import('../chat/ChatGenerationAbortRegistry.js').ChatGenerationAbortRegistry} generationAbortRegistry
-   * @param {MessageDeletionBufferSuppression} [messageDeletionBufferSuppression]
    */
   constructor(
     messageService,
@@ -24,14 +22,12 @@ export class MessageHandler {
     conversationBuffer,
     channelRepository,
     generationAbortRegistry,
-    messageDeletionBufferSuppression = new MessageDeletionBufferSuppression(),
   ) {
     this.messageService = messageService;
     this.generationLifecycle = generationLifecycle;
     this.conversationBuffer = conversationBuffer;
     this.channelRepository = channelRepository;
     this.generationAbortRegistry = generationAbortRegistry;
-    this.messageDeletionBufferSuppression = messageDeletionBufferSuppression;
   }
 
   /**
@@ -134,11 +130,6 @@ export class MessageHandler {
    */
   async handleDelete({ platform, platformMessageIds, channel, botId }) {
     try {
-      const suppressedMessageIds =
-        this.messageDeletionBufferSuppression.consume(
-          platform,
-          platformMessageIds,
-        );
       const channelRecord = await this.channelRepository.findByPlatformId(
         platform,
         channel.platformChannelId,
@@ -151,9 +142,7 @@ export class MessageHandler {
       }
 
       const deletedUserMessage = deletedMessages.some(
-        (message) =>
-          message.author?.platformId !== botId &&
-          !suppressedMessageIds.has(message.platformId),
+        (message) => message.author?.platformId !== botId,
       );
       if (!deletedUserMessage) return { deletedCount, refreshed: false };
 
@@ -167,17 +156,6 @@ export class MessageHandler {
       logger.error({ err: error }, "MessageHandler delete error");
       return { deletedCount: 0, refreshed: false };
     }
-  }
-
-  suppressDeletionBuffer(platform, platformMessageIds) {
-    this.messageDeletionBufferSuppression.suppress(
-      platform,
-      platformMessageIds,
-    );
-  }
-
-  releaseDeletionBufferSuppression(platform, platformMessageIds) {
-    this.messageDeletionBufferSuppression.release(platform, platformMessageIds);
   }
 
   refreshBufferedResponse({ channel, channelRecord, botId }) {
