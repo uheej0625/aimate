@@ -135,6 +135,7 @@ test("MessageService tests", async (t) => {
 
   await t.test("deleteMessages returns the rows that existed", async () => {
     const existing = [{ id: 1 }, { id: 2 }];
+    let deleteArgs = null;
     const service = new MessageService(
       mockUserRepository,
       mockPlatformAccountRepository,
@@ -142,15 +143,27 @@ test("MessageService tests", async (t) => {
       mockServerRepository,
       {
         findManyByPlatformIds: async () => existing,
-        deleteManyByPlatformIds: async () => 2,
+        deleteManyByPlatformIds: async (...args) => {
+          deleteArgs = args;
+          return 2;
+        },
       },
     );
 
-    const result = await service.deleteMessages("discord", ["one", "two"]);
+    const result = await service.deleteMessages(
+      "discord",
+      ["one", "two"],
+      "channel-1",
+    );
 
     assert.deepStrictEqual(result, {
       deletedCount: 2,
       deletedMessages: existing,
     });
+    assert.deepStrictEqual(deleteArgs, [
+      "discord",
+      ["one", "two"],
+      "channel-1",
+    ]);
   });
 });

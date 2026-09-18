@@ -261,12 +261,16 @@ test("MessageHandler tests", async (t) => {
   await t.test("user deletion refreshes an existing buffer", async () => {
     const channel = { platform: "discord", platformChannelId: "chan-123" };
     let bufferedRequest = null;
+    let deleteArgs = null;
     const handler = new MessageHandler(
       {
-        deleteMessages: async () => ({
-          deletedCount: 1,
-          deletedMessages: [{ author: { platformId: "user-1" } }],
-        }),
+        deleteMessages: async (...args) => {
+          deleteArgs = args;
+          return {
+            deletedCount: 1,
+            deletedMessages: [{ author: { platformId: "user-1" } }],
+          };
+        },
       },
       mockGenerationLifecycle,
       {
@@ -287,6 +291,7 @@ test("MessageHandler tests", async (t) => {
     });
 
     assert.strictEqual(result.refreshed, true);
+    assert.deepStrictEqual(deleteArgs, ["discord", ["message-1"], "chan-123"]);
     assert.deepStrictEqual(bufferedRequest, {
       channelPort: channel,
       internalChannelId: "chan-123",

@@ -164,6 +164,10 @@ test("chat pipeline persists history and multiple model-free replies", async () 
     where: { channelId: channel.id },
     orderBy: { id: "asc" },
   });
+  const events = await prisma.event.findMany({
+    where: { channelId: channel.id },
+    orderBy: { id: "asc" },
+  });
 
   assert.strictEqual(generations.length, 2);
   assert.ok(generations.every(({ characterId }) => characterId === "fixture"));
@@ -188,11 +192,30 @@ test("chat pipeline persists history and multiple model-free replies", async () 
     1,
   );
   assert.ok(messages.every(({ generationId }) => generationId !== null));
+  assert.strictEqual(events.length, 5);
+  assert.ok(events.every(({ characterId }) => characterId === "fixture"));
+  assert.ok(
+    events
+      .filter(
+        ({ snapshotContent }) =>
+          snapshotContent === "안녕" || snapshotContent === "아까 뭐라고 했지?",
+      )
+      .every(({ generationId }) => generationId === null),
+  );
+  assert.ok(
+    events
+      .filter(
+        ({ snapshotContent }) =>
+          !["안녕", "아까 뭐라고 했지?"].includes(snapshotContent),
+      )
+      .every(({ generationId }) => generationId !== null),
+  );
 });
 
 test("message persistence updates only known changed messages", async () => {
   const harness = createHarness({
-    generateTextFn: async () => fakeTextResult("# response\n\n## messages\nreply"),
+    generateTextFn: async () =>
+      fakeTextResult("# response\n\n## messages\nreply"),
   });
   const original = createUserMessage(harness, {
     id: "current-message-state",
@@ -208,6 +231,10 @@ test("message persistence updates only known changed messages", async () => {
   const unchanged = await harness.messageService.updateMessage({
     ...original,
     content: "after",
+  });
+  const reverted = await harness.messageService.updateMessage({
+    ...original,
+    content: "before",
   });
   const missing = await harness.messageService.updateMessage({
     ...original,
@@ -225,18 +252,199 @@ test("message persistence updates only known changed messages", async () => {
   assert.strictEqual(updated.changed, true);
   assert.strictEqual(unchanged.changed, false);
   assert.strictEqual(missing.changed, false);
-  assert.strictEqual(stored.content, "after");
+  assert.strictEqual(reverted.changed, true);
+  assert.strictEqual(stored.content, "before");
 
-  const { deletedCount } = await harness.messageService.deleteMessages("cli", [
-    original.platformMessageId,
-  ]);
+  const { deletedCount } = await harness.messageService.deleteMessages(
+    "cli",
+    [original.platformMessageId],
+    created.channel.id,
+  );
+  const lateUpdate = await harness.messageService.updateMessage({
+    ...original,
+    content: "late update",
+  });
+  const lateSave = await harness.messageService.saveMessage({
+    ...original,
+    content: "late create",
+  });
+  const repeatedDelete = await harness.messageService.deleteMessages(
+    "cli",
+    [original.platformMessageId],
+    created.channel.id,
+  );
   const deleted = await harness.messageRepository.findByPlatformId(
     "cli",
     original.platformMessageId,
   );
 
   assert.strictEqual(deletedCount, 1);
+  assert.strictEqual(lateUpdate.changed, false);
+  assert.strictEqual(lateSave.changed, false);
+  assert.strictEqual(repeatedDelete.deletedCount, 0);
+  assert.deepStrictEqual(repeatedDelete.deletedMessages, []);
   assert.strictEqual(deleted, null);
+
+  const events = await prisma.event.findMany({
+    where: {
+      platform: "cli",
+      platformMessageId: original.platformMessageId,
+    },
+    include: { message: { include: { author: { include: { user: true } } } } },
+    orderBy: { id: "asc" },
+  });
+  assert.deepStrictEqual(
+    events.map(({ operation, snapshotContent }) => [operation, snapshotContent]),
+    [
+      ["CREATE", "before"],
+      ["UPDATE", "after"],
+      ["UPDATE", "before"],
+      ["DELETE", "before"],
+    ],
+  );
+  for (const event of events) {
+    assert.strictEqual(event.messageId, created.message.id);
+    assert.strictEqual(event.message.content, "before");
+    assert.ok(event.message.deletedAt instanceof Date);
+    assert.strictEqual(event.message.author.id, created.platformAccount.id);
+    assert.strictEqual(
+      event.message.author.user.id,
+      created.platformAccount.userId,
+    );
+  }
+  assert.ok(events.every(({ generationId }) => generationId === null));
+
+  const unknownId = `unknown-delete-${randomUUID()}`;
+  await harness.messageService.deleteMessages(
+    "cli",
+    [unknownId],
+    created.channel.id,
+  );
+  await harness.messageService.deleteMessages(
+    "cli",
+    [unknownId],
+    created.channel.id,
+  );
+  const unknownDeleteEvents = await prisma.event.findMany({
+    where: { platform: "cli", platformMessageId: unknownId },
+  });
+  assert.strictEqual(unknownDeleteEvents.length, 1);
+  assert.strictEqual(unknownDeleteEvents[0].operation, "DELETE");
+  assert.strictEqual(unknownDeleteEvents[0].snapshotContent, null);
+  assert.strictEqual(unknownDeleteEvents[0].messageId, null);
+  const lateUnknown = await harness.messageService.saveMessage({
+    ...original,
+    platformMessageId: unknownId,
+  });
+  assert.strictEqual(lateUnknown.changed, false);
+  assert.strictEqual(lateUnknown.message, null);
+});
+
+test("soft deletion preserves references and hides messages from current queries", async (t) => {
+  for (const mode of ["single", "batch", "channel"]) {
+    await t.test(mode, async () => {
+      const harness = createHarness({
+        generateTextFn: async () => fakeTextResult("reply"),
+      });
+      const original = createUserMessage(harness, {
+        id: `soft-delete-${randomUUID()}`,
+        content: "retained content",
+      });
+      const attachments = [{ name: "example.txt", text: "retained attachment" }];
+      const created = await harness.messageService.saveMessage(
+        original,
+        null,
+        attachments,
+      );
+      const generation = await harness.generationRepository.create({
+        channelId: created.channel.id,
+        status: "PROCESSING",
+      });
+      await harness.messageRepository.addGenerationId(
+        created.message.id,
+        generation.id,
+      );
+      const memory = await prisma.memory.create({
+        data: {
+          userId: created.platformAccount.userId,
+          messageId: created.message.id,
+          content: "retained memory",
+          category: "fact",
+        },
+      });
+      const deleteMessage = () => {
+        if (mode === "single") {
+          return harness.messageRepository.deleteByPlatformId(
+            "cli",
+            original.platformMessageId,
+          );
+        }
+        if (mode === "batch") {
+          return harness.messageRepository.deleteManyByPlatformIds(
+            "cli",
+            [original.platformMessageId],
+            created.channel.id,
+          );
+        }
+        return harness.messageRepository.deleteByChannel(created.channel.id);
+      };
+
+      assert.strictEqual(await deleteMessage(), mode === "single" ? true : 1);
+      assert.strictEqual(await deleteMessage(), mode === "single" ? false : 0);
+      const retained = await prisma.message.findUnique({
+        where: { id: created.message.id },
+        include: {
+          events: { orderBy: { id: "asc" } },
+          memories: true,
+          author: true,
+        },
+      });
+      assert.ok(retained.deletedAt instanceof Date);
+      assert.strictEqual(retained.content, original.content);
+      assert.strictEqual(retained.attachmentsJson, JSON.stringify(attachments));
+      assert.strictEqual(retained.author.id, created.platformAccount.id);
+      assert.strictEqual(retained.memories[0].id, memory.id);
+      assert.deepStrictEqual(
+        retained.events.map(({ operation }) => operation),
+        ["CREATE", "DELETE"],
+      );
+      assert.ok(
+        retained.events.every(
+          (event) =>
+            event.snapshotAttachmentsJson === JSON.stringify(attachments),
+        ),
+      );
+
+      const repo = harness.messageRepository;
+      assert.strictEqual(await repo.findById(created.message.id), null);
+      assert.strictEqual(
+        await repo.findByPlatformId("cli", original.platformMessageId),
+        null,
+      );
+      assert.deepStrictEqual(
+        await repo.findManyByPlatformIds("cli", [original.platformMessageId]),
+        [],
+      );
+      assert.deepStrictEqual(await repo.getHistory(created.channel.id), []);
+      assert.deepStrictEqual(
+        await repo.getHistoryByPlatformChannelId("cli", original.platformChannelId),
+        [],
+      );
+      assert.deepStrictEqual(await repo.findByGenerationId(generation.id), []);
+
+      await assert.rejects(
+        harness.generationRepository.recordInputWithMessages(generation.id, {
+          inputMessages: [original.content],
+          messageIds: [created.message.id],
+        }),
+        /one or more messages are missing/,
+      );
+      assert.strictEqual(
+        (await harness.generationRepository.findById(generation.id)).input,
+        null,
+      );
+    });
+  }
 });
 
 test("chat pipeline marks a failed model call and sends a fallback", async () => {
