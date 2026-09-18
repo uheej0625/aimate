@@ -81,17 +81,19 @@ AI: 다 봤거든?!
 | --- | --- |
 | `id` | 자동 증가하는 관찰 순서 ID |
 | `characterId`, `channelId` | 관찰 주체와 대화 범위 |
-| 메시지·작성자 식별자 | Message 연결과 원문 작성자 구분 |
+| `messageId`, 플랫폼 메시지 식별자 | Message 연결. 작성자는 `Message.author.user`로 조회하며 Event에 중복 저장하지 않음 |
 | `kind` | READ, EDIT, DELETE, SENT |
 | `observedAt` | 애플리케이션이 관찰한 시각 |
 | 확인한 본문 스냅샷 | 이후 Message가 바뀌어도 유지할 내용 |
-| 이전 관찰 참조·확인한 이전 본문 | 변경 전후를 연결하되 모르는 원문을 노출하지 않음 |
+| 메시지별 Event 순서 | 같은 메시지의 Event를 ID 순서로 비교하되 모르는 원문을 노출하지 않음 |
 | `batchId` | 대량 삭제 묶음에만 사용 |
 | `generationId` | SENT의 실제 출력 생성 연결 |
 
 `READ`는 사용자 발언을 읽은 사건, `EDIT`와 `DELETE`는 목격한 변화, `SENT`는 확인된 봇 출력이다. READ에는 실시간 수신인지 과거 내역을 현재 읽은 것인지 구분할 정보를 둔다. 후자를 방금 사용자가 새로 말한 것처럼 표현하지 않는다.
 
 Event에는 `appliedInGenerationId`, 처리 완료 boolean, 주시 상태를 넣지 않는다. 최소 조회 인덱스는 `(characterId, channelId, id)`와 메시지별 관찰 조회 인덱스다. 특정 필드가 컬럼인지 JSON인지는 조회 필요에 따라 정하되, 순서와 범위 필터는 컬럼으로 둔다.
+
+`messageId`는 nullable이다. 저장된 Message가 없는 삭제 ID를 기록할 때는 플랫폼 메시지 식별자만 남기고 작성자는 미상으로 둔다. 일반 삭제는 Message를 soft delete하므로 기존 Event의 작성자 조회와 Memory 참조는 유지된다.
 
 원문 스냅샷은 DB의 이전 값과 AI가 이전에 본 값을 구별한다. 예를 들어 AI가 A를 본 뒤 비주시 중 B로 바뀌고, 다시 주시 중 삭제됐다면 B를 읽었다고 기록하지 않는다. 삭제를 관찰한 사실과 이전에 A를 읽은 사실만 제공한다. 주시 중 처음 보는 메시지의 수정은 새 본문을 제공할 수 있지만, 이전 원문은 확인되지 않았으면 미상으로 둔다.
 

@@ -45,18 +45,18 @@
 
 | 저장소 | 책임 |
 | --- | --- |
-| Message | 플랫폼 메시지의 현재 상태. 수정하면 갱신하고 일반 삭제 시 행을 제거한다. |
+| Message | 플랫폼 메시지의 현재 상태. 수정하면 갱신하고 일반 삭제 시 `deletedAt`을 설정해 행과 참조를 보존한다. |
 | Event | 수신한 발언과 수정·삭제 관찰. Message 삭제와 독립적으로 보존한다. |
 | Fact | 현재 알고 있는 사실·취향·자기 설정·대화 선호. 정정되면 현재 값을 갱신한다. |
 | Episode | 함께 겪은 일·결정·약속의 요약과 시점. 대화 전체를 하나의 요약으로 덮어쓰지 않는다. |
 | Generation | CHAT과 MEMORY_REVIEW의 실행 기록. 기억의 근거 그래프 역할은 맡지 않는다. |
 
-Event를 유지하는 이유는 “메시지를 삭제해도 이미 경험한 일은 사라지지 않는다”는 정책 때문이다. Message만 사용하면 삭제 전 발언과 수정 전 경험을 보존할 수 없다. Event를 통해 임의 시점의 DB 전체를 복원하는 이벤트 소싱 시스템까지 만들지는 않는다.
+Event를 유지하는 이유는 “메시지를 삭제해도 이미 경험한 일은 사라지지 않는다”는 정책 때문이다. 최신 상태만 저장하는 Message로는 수정 전 내용과 관찰 순서를 보존할 수 없다. Event를 통해 임의 시점의 DB 전체를 복원하는 이벤트 소싱 시스템까지 만들지는 않는다.
 
 ### 메시지 수정과 일반 삭제
 
 - 현재 대화 대상으로 수신한 사용자 발언은 즉시 Event로 기록한다. 답변 전 수정·삭제도 경험에 포함한다.
-- 수정은 새 Event다. 확인한 변경 내용과 이전 Event 참조를 남기며, 과거 Event 본문을 덮어쓰지 않는다.
+- 수정은 새 Event다. 확인한 변경 내용을 남기며, 과거 Event 본문을 덮어쓰지 않는다.
 - 삭제도 새 Event다. 일반 삭제는 기억 삭제나 약속 취소를 뜻하지 않는다.
 - 이전 내용을 모르면 모르는 상태로 기록한다. 작성자·본문·삭제 의도를 추측하지 않는다.
 - Message 변경과 Event 추가는 같은 트랜잭션으로 저장한다. 같은 플랫폼 메시지의 변경은 순서대로 적용한다.
@@ -143,7 +143,7 @@ N은 모델의 하드 입력 한도보다 충분히 작게 잡는다. Review에�
 
 | 모델 | 최소 정보 |
 | --- | --- |
-| Event | 순서 ID, characterId, channelId, User 작성자와 플랫폼 계정, 플랫폼 메시지 식별자, CREATE/UPDATE/DELETE, 관찰 시각, 확인한 내용, 이전 버전 참조, 중복·순서 판별 정보, 봇 출력의 generationId |
+| Event | 순서 ID, characterId, channelId, messageId(작성자는 Message 관계로 조회), 플랫폼 메시지 식별자, CREATE/UPDATE/DELETE, 관찰 시각, `snapshotContent`·`snapshotAttachmentsJson`, 중복·순서 판별 정보, 봇 출력의 generationId |
 | Fact | ID, characterId, subjectId, factKey, content, 용도(coreReason), 확인 시각 |
 | Episode | ID, characterId, 참여자 ID 목록, content, 사건 시점, 갱신 시각 |
 | MemoryProcessingState | characterId/channelId 고유 키, 마지막 정리 Event ID, 실패 횟수, 다음 시도 시각 |

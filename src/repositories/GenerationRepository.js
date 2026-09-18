@@ -75,7 +75,7 @@ export class GenerationRepository {
       if (messageIds.length === 0) return true;
 
       const messages = await tx.message.updateMany({
-        where: { id: { in: messageIds } },
+        where: { id: { in: messageIds }, deletedAt: null },
         data: { generationId },
       });
 

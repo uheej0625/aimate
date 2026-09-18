@@ -66,6 +66,7 @@ model Channel {
   messages    Message[]
   generations Generation[]
   cronJobs    CronJob[]
+  events      Event[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -95,11 +96,41 @@ model Message {
   generation   Generation? @relation(fields: [generationId], references: [id])
 
   memories Memory[]
+  events   Event[]
+
+  deletedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([platform, platformId])
+}
+
+model Event {
+  id Int @id @default(autoincrement())
+
+  characterId String
+
+  channelId String
+  channel   Channel @relation(fields: [channelId], references: [id])
+
+  messageId Int?
+  message   Message? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+  platform          String
+  platformMessageId String
+  operation         String // "CREATE", "UPDATE", "DELETE"
+
+  snapshotContent         String?
+  snapshotAttachmentsJson String?
+
+  generationId Int?
+  generation   Generation? @relation(fields: [generationId], references: [id])
+
+  observedAt DateTime @default(now())
+
+  @@index([characterId, channelId, id])
+  @@index([platform, platformMessageId, id])
 }
 
 model Generation {
@@ -130,6 +161,7 @@ model Generation {
   metadata String?
 
   messages Message[]
+  events   Event[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

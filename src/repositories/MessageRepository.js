@@ -11,6 +11,10 @@ export class MessageRepository {
   constructor(configManager) {
     this.configManager = configManager;
   }
+
+  get characterId() {
+    return this.configManager.get("character");
+  }
   /**
    * Save a Discord message to the database.
    * @param {Object} messageData - Message data to save
@@ -36,6 +40,16 @@ export class MessageRepository {
         },
       };
       const existing = await tx.message.findUnique({ where });
+      if (existing?.deletedAt) return { message: existing, changed: false };
+
+      const latestEvent = await this.findLatestEvent(
+        tx,
+        platform,
+        platformId,
+      );
+      if (!existing && latestEvent?.operation === "DELETE") {
+        return { message: null, changed: false };
+      }
       const update = {
         content,
         attachmentsJson,
@@ -64,13 +78,33 @@ export class MessageRepository {
         },
       });
 
+      const observedContentChanged =
+        !existing ||
+        existing.content !== content ||
+        existing.attachmentsJson !== attachmentsJson;
+
+      if (observedContentChanged) {
+        await this.createEvent(tx, {
+          platform,
+          platformId,
+          channelId,
+          messageId: message.id,
+          operation: existing ? "UPDATE" : "CREATE",
+          snapshotContent: content,
+          snapshotAttachmentsJson: attachmentsJson,
+          generationId: existing
+            ? (latestEvent?.generationId ?? null)
+            : generationId,
+        });
+      }
+
       return { message, changed };
     });
   }
 
   /**
    * Update the mutable content of an existing platform message.
-   * Missing and unchanged messages are reported without writing.
+   * Missing, deleted and unchanged messages are reported without writing.
    * @param {string} platform
    * @param {string} platformId
    * @param {string} content
@@ -84,15 +118,32 @@ export class MessageRepository {
           platformId,
         },
       };
-      const existing = await tx.message.findUnique({ where });
+      const existing = await tx.message.findUnique({
+        where,
+      });
 
-      if (!existing || existing.content === content) {
+      if (!existing || existing.deletedAt || existing.content === content) {
         return { message: existing, changed: false };
       }
 
       const message = await tx.message.update({
         where,
         data: { content },
+      });
+      const latestEvent = await this.findLatestEvent(
+        tx,
+        platform,
+        platformId,
+      );
+      await this.createEvent(tx, {
+        platform,
+        platformId,
+        channelId: existing.channelId,
+        messageId: existing.id,
+        operation: "UPDATE",
+        snapshotContent: content,
+        snapshotAttachmentsJson: existing.attachmentsJson,
+        generationId: latestEvent?.generationId ?? null,
       });
       return { message, changed: true };
     });
@@ -116,7 +167,7 @@ export class MessageRepository {
     limit = this.configManager.get("conversation.maxContextMessages"),
   ) {
     const messages = await prisma.message.findMany({
-      where: { channelId },
+      where: { channelId, deletedAt: null },
       orderBy: { createdAt: "desc" },
       take: limit,
       include: {
@@ -145,6 +196,7 @@ export class MessageRepository {
   ) {
     const messages = await prisma.message.findMany({
       where: {
+        deletedAt: null,
         channel: {
           platform,
           platformId: platformChannelId,
@@ -166,7 +218,7 @@ export class MessageRepository {
 
   async addGenerationId(messageId, generationId) {
     await prisma.message.update({
-      where: { id: messageId },
+      where: { id: messageId, deletedAt: null },
       data: { generationId },
     });
   }
@@ -177,7 +229,7 @@ export class MessageRepository {
    */
   async findById(messageId) {
     return await prisma.message.findUnique({
-      where: { id: messageId },
+      where: { id: messageId, deletedAt: null },
     });
   }
 
@@ -189,7 +241,7 @@ export class MessageRepository {
    */
   async findByPlatformId(platform, platformId) {
     return await prisma.message.findFirst({
-      where: { platform, platformId },
+      where: { platform, platformId, deletedAt: null },
       include: {
         generation: true,
         author: true,
@@ -207,37 +259,33 @@ export class MessageRepository {
     if (!platformIds.length) return [];
 
     return await prisma.message.findMany({
-      where: { platform, platformId: { in: platformIds } },
+      where: { platform, platformId: { in: platformIds }, deletedAt: null },
       include: { author: true },
     });
   }
 
   /**
-   * Delete messages for a specific channel.
-   * Memory records linked to the messages will have their messageId cleared first.
+   * Soft delete messages for a specific channel, preserving their references.
    * @param {string} channelId - Channel ID
    * @returns {Promise<number>} Number of deleted messages
    */
   async deleteByChannel(channelId) {
-    const messages = await prisma.message.findMany({
-      where: { channelId },
-      select: { id: true },
+    return await prisma.$transaction(async (tx) => {
+      const messages = await tx.message.findMany({
+        where: { channelId, deletedAt: null },
+      });
+
+      if (!messages.length) return 0;
+      const ids = messages.map((message) => message.id);
+
+      await this.createDeleteEvents(tx, messages);
+      const result = await tx.message.updateMany({
+        where: { id: { in: ids }, deletedAt: null },
+        data: { deletedAt: new Date() },
+      });
+
+      return result.count;
     });
-
-    if (!messages.length) return 0;
-    const ids = messages.map((m) => m.id);
-
-    const [_, result] = await prisma.$transaction([
-      prisma.memory.updateMany({
-        where: { messageId: { in: ids } },
-        data: { messageId: null },
-      }),
-      prisma.message.deleteMany({
-        where: { channelId },
-      }),
-    ]);
-
-    return result.count;
   }
 
   /**
@@ -247,68 +295,140 @@ export class MessageRepository {
    */
   async findByGenerationId(generationId) {
     return await prisma.message.findMany({
-      where: { generationId },
+      where: { generationId, deletedAt: null },
       orderBy: { createdAt: "asc" },
     });
   }
 
   /**
-   * Delete a single message by platform and platformId.
-   * Memory records linked to the message will have their messageId cleared first.
+   * Soft delete a message by platform and platformId, preserving its references.
    * @param {string} platform - Platform name (e.g. "discord")
    * @param {string} platformId - Platform-specific message ID
    * @returns {Promise<boolean>} true if deleted, false if not found
    */
   async deleteByPlatformId(platform, platformId) {
-    const message = await prisma.message.findFirst({
-      where: { platform, platformId },
-    });
+    return await prisma.$transaction(async (tx) => {
+      const message = await tx.message.findFirst({
+        where: { platform, platformId, deletedAt: null },
+      });
 
-    if (!message) return false;
+      if (!message) return false;
 
-    // Memory 관계 해제 후 메시지 삭제
-    await prisma.$transaction([
-      prisma.memory.updateMany({
-        where: { messageId: message.id },
-        data: { messageId: null },
-      }),
-      prisma.message.delete({
+      await this.createDeleteEvents(tx, [message]);
+      await tx.message.update({
         where: { id: message.id },
-      }),
-    ]);
+        data: { deletedAt: new Date() },
+      });
 
-    return true;
+      return true;
+    });
   }
 
   /**
-   * Delete multiple messages by platform and platformIds.
+   * Soft delete multiple messages by platform and platformIds.
    * @param {string} platform - Platform name (e.g. "discord")
    * @param {string[]} platformIds - Array of platform-specific message IDs
    * @returns {Promise<number>} Number of deleted messages
    */
-  async deleteManyByPlatformIds(platform, platformIds) {
+  async deleteManyByPlatformIds(platform, platformIds, channelId = null) {
     if (!platformIds.length) return 0;
 
-    const messages = await prisma.message.findMany({
-      where: { platform, platformId: { in: platformIds } },
-      select: { id: true },
+    return await prisma.$transaction(async (tx) => {
+      const messages = await tx.message.findMany({
+        where: { platform, platformId: { in: platformIds } },
+      });
+      const activeMessages = messages.filter((message) => !message.deletedAt);
+      const ids = activeMessages.map((message) => message.id);
+
+      await this.createDeleteEvents(tx, activeMessages);
+
+      if (channelId) {
+        const foundIds = new Set(messages.map((message) => message.platformId));
+        for (const platformId of platformIds) {
+          if (foundIds.has(platformId)) continue;
+
+          const latestEvent = await this.findLatestEvent(
+            tx,
+            platform,
+            platformId,
+          );
+          if (latestEvent?.operation === "DELETE") continue;
+
+          await this.createEvent(tx, {
+            platform,
+            platformId,
+            channelId,
+            operation: "DELETE",
+          });
+        }
+      }
+
+      if (!ids.length) return 0;
+
+      const result = await tx.message.updateMany({
+        where: { id: { in: ids }, deletedAt: null },
+        data: { deletedAt: new Date() },
+      });
+
+      return result.count;
     });
+  }
 
-    if (!messages.length) return 0;
+  async createDeleteEvents(tx, messages) {
+    for (const message of messages) {
+      const latestEvent = await this.findLatestEvent(
+        tx,
+        message.platform,
+        message.platformId,
+      );
+      if (latestEvent?.operation === "DELETE") continue;
 
-    const ids = messages.map((m) => m.id);
+      await this.createEvent(tx, {
+        platform: message.platform,
+        platformId: message.platformId,
+        channelId: message.channelId,
+        messageId: message.id,
+        operation: "DELETE",
+        snapshotContent: message.content,
+        snapshotAttachmentsJson: message.attachmentsJson,
+        generationId: latestEvent?.generationId ?? null,
+      });
+    }
+  }
 
-    const [_, result] = await prisma.$transaction([
-      prisma.memory.updateMany({
-        where: { messageId: { in: ids } },
-        data: { messageId: null },
-      }),
-      prisma.message.deleteMany({
-        where: { id: { in: ids } },
-      }),
-    ]);
+  async findLatestEvent(tx, platform, platformId) {
+    return await tx.event.findFirst({
+      where: { platform, platformMessageId: platformId },
+      orderBy: { id: "desc" },
+    });
+  }
 
-    return result.count;
+  async createEvent(
+    tx,
+    {
+      platform,
+      platformId,
+      channelId,
+      messageId = null,
+      operation,
+      snapshotContent = null,
+      snapshotAttachmentsJson = null,
+      generationId = null,
+    },
+  ) {
+    return await tx.event.create({
+      data: {
+        characterId: this.characterId,
+        channelId,
+        messageId,
+        platform,
+        platformMessageId: platformId,
+        operation,
+        snapshotContent,
+        snapshotAttachmentsJson,
+        generationId,
+      },
+    });
   }
 
   async findGenerationInputsByIds(generationIds) {

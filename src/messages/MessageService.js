@@ -31,7 +31,7 @@ export class MessageService {
    * @param {import('../application/contracts.js').NormalizedMessage} message
    * @param {number} [generationId] - Optional generation ID to link message to
    * @param {Array} [attachments] - Optional structured attachment metadata
-   * @returns {Promise<{message: Object, channel: Object, platformAccount: Object}>}
+   * @returns {Promise<{message: Object|null, channel: Object, platformAccount: Object, changed: boolean}>}
    */
   async saveMessage(message, generationId = null, attachments = []) {
     const platform = message.platform;
@@ -121,9 +121,10 @@ export class MessageService {
    * Delete stored platform messages and return the rows that existed.
    * @param {string} platform
    * @param {string[]} platformMessageIds
+   * @param {string|null} [channelId]
    * @returns {Promise<{deletedCount: number, deletedMessages: Array}>}
    */
-  async deleteMessages(platform, platformMessageIds) {
+  async deleteMessages(platform, platformMessageIds, channelId = null) {
     const deletedMessages = await this.messageRepository.findManyByPlatformIds(
       platform,
       platformMessageIds,
@@ -131,6 +132,7 @@ export class MessageService {
     const deletedCount = await this.messageRepository.deleteManyByPlatformIds(
       platform,
       platformMessageIds,
+      channelId,
     );
 
     return { deletedCount, deletedMessages };

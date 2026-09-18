@@ -135,7 +135,11 @@ export class MessageHandler {
         channel.platformChannelId,
       );
       const { deletedCount, deletedMessages } =
-        await this.messageService.deleteMessages(platform, platformMessageIds);
+        await this.messageService.deleteMessages(
+          platform,
+          platformMessageIds,
+          channelRecord?.id ?? null,
+        );
 
       if (!channelRecord || deletedCount === 0) {
         return { deletedCount, refreshed: false };
