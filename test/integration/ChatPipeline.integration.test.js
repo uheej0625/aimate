@@ -54,6 +54,9 @@ const { ServerRepository } = await import(
 const { MessageRepository } = await import(
   "../../src/repositories/MessageRepository.js"
 );
+const { EventRepository } = await import(
+  "../../src/repositories/EventRepository.js"
+);
 const { GenerationRepository } = await import(
   "../../src/repositories/GenerationRepository.js"
 );
@@ -374,19 +377,19 @@ test("soft deletion preserves references and hides messages from current queries
       });
       const deleteMessage = () => {
         if (mode === "single") {
-          return harness.messageRepository.deleteByPlatformId(
+          return harness.messageService.deleteMessage(
             "cli",
             original.platformMessageId,
           );
         }
         if (mode === "batch") {
-          return harness.messageRepository.deleteManyByPlatformIds(
+          return harness.messageService.deleteMessages(
             "cli",
             [original.platformMessageId],
             created.channel.id,
-          );
+          ).then(({ deletedCount }) => deletedCount);
         }
-        return harness.messageRepository.deleteByChannel(created.channel.id);
+        return harness.messageService.deleteMessagesByChannel(created.channel.id);
       };
 
       assert.strictEqual(await deleteMessage(), mode === "single" ? true : 1);
@@ -623,6 +626,7 @@ function createHarness({ generateTextFn }) {
   const channelRepository = new ChannelRepository();
   const serverRepository = new ServerRepository();
   const messageRepository = new MessageRepository(configManager);
+  const eventRepository = new EventRepository();
   const generationRepository = new GenerationRepository(configManager);
   const eventBus = new EventBus();
   const messageService = new MessageService(
@@ -631,6 +635,8 @@ function createHarness({ generateTextFn }) {
     channelRepository,
     serverRepository,
     messageRepository,
+    eventRepository,
+    configManager,
   );
   const historyService = new HistoryService(
     messageRepository,

@@ -1,4 +1,5 @@
 import { MessageRepository } from "../repositories/MessageRepository.js";
+import { EventRepository } from "../repositories/EventRepository.js";
 import { UserRepository } from "../repositories/UserRepository.js";
 import { PlatformAccountRepository } from "../repositories/PlatformAccountRepository.js";
 import { ChannelRepository } from "../repositories/ChannelRepository.js";
@@ -60,6 +61,7 @@ export async function createContainer({
   // Repositories (data layer)
   const historyMessageFormatter = new HistoryMessageFormatter();
   const messageRepository = new MessageRepository(configManager);
+  const eventRepository = new EventRepository();
   const userRepository = new UserRepository();
   const platformAccountRepository = new PlatformAccountRepository();
   const channelRepository = new ChannelRepository();
@@ -124,6 +126,8 @@ export async function createContainer({
     channelRepository,
     serverRepository,
     messageRepository,
+    eventRepository,
+    configManager,
   );
 
   // Message delivery
@@ -169,10 +173,11 @@ export async function createContainer({
     channelRepository,
     serverRepository,
   );
-  const storedMessageService = new StoredMessageService(messageRepository);
+  const storedMessageService = new StoredMessageService(messageService);
   const getGenerationInfo = new GetGenerationInfo(messageRepository);
   const rerollConversation = new RerollConversation(
     messageRepository,
+    messageService,
     chatFlow,
   );
   const channelCatalog = new ChannelCatalog(

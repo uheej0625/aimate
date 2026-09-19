@@ -2,21 +2,22 @@
  * Provides message deletion operations to platform entrypoints.
  */
 export class StoredMessageService {
-  constructor(messageRepository) {
-    this.messageRepository = messageRepository;
+  constructor(messageService) {
+    this.messageService = messageService;
   }
 
   async deleteOne({ platform, platformMessageId }) {
-    return await this.messageRepository.deleteByPlatformId(
+    return await this.messageService.deleteMessage(
       platform,
       platformMessageId,
     );
   }
 
   async deleteMany({ platform, platformMessageIds }) {
-    return await this.messageRepository.deleteManyByPlatformIds(
+    const { deletedCount } = await this.messageService.deleteMessages(
       platform,
       platformMessageIds,
     );
+    return deletedCount;
   }
 }

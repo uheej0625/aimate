@@ -2,8 +2,9 @@
  * Coordinates stored-message cleanup and conversation regeneration.
  */
 export class RerollConversation {
-  constructor(messageRepository, chatFlow) {
+  constructor(messageRepository, messageService, chatFlow) {
     this.messageRepository = messageRepository;
+    this.messageService = messageService;
     this.chatFlow = chatFlow;
   }
 
@@ -34,11 +35,10 @@ export class RerollConversation {
   }
 
   async execute({ platform, platformMessageIds, conversationRequest }) {
-    const deletedCount =
-      await this.messageRepository.deleteManyByPlatformIds(
-        platform,
-        platformMessageIds,
-      );
+    const { deletedCount } = await this.messageService.deleteMessages(
+      platform,
+      platformMessageIds,
+    );
 
     await this.chatFlow.execute(conversationRequest);
     return { deletedCount };

@@ -47,13 +47,13 @@ test("ActivateChannel resolves a server and activates its channel", async () => 
 test("StoredMessageService delegates platform-neutral deletion requests", async () => {
   const calls = [];
   const service = new StoredMessageService({
-    deleteByPlatformId: async (...args) => {
+    deleteMessage: async (...args) => {
       calls.push(["one", ...args]);
       return true;
     },
-    deleteManyByPlatformIds: async (...args) => {
+    deleteMessages: async (...args) => {
       calls.push(["many", ...args]);
-      return 2;
+      return { deletedCount: 2 };
     },
   });
 
@@ -127,9 +127,11 @@ test("RerollConversation prepares cleanup and reruns the conversation", async ()
         { platformId: "reply-1" },
         { platformId: "reply-2" },
       ],
-      deleteManyByPlatformIds: async (...args) => {
+    },
+    {
+      deleteMessages: async (...args) => {
         deleted.push(args);
-        return 2;
+        return { deletedCount: 2 };
       },
     },
     {
