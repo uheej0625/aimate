@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { getRequiredCharacterId } from "../character/config.js";
 
 /**
@@ -41,7 +42,12 @@ export class MessageService {
    * @param {Array} [attachments] - Optional structured attachment metadata
    * @returns {Promise<{message: Object|null, channel: Object, platformAccount: Object, changed: boolean}>}
    */
-  async saveMessage(message, generationId = null, attachments = []) {
+  async saveMessage(
+    message,
+    generationId = null,
+    attachments = [],
+    observation = {},
+  ) {
     const platform = message.platform;
 
     // 1. Ensure server exists (if message is in a guild)
@@ -92,17 +98,22 @@ export class MessageService {
 
     // 4. Save message
     const { message: savedMessage, changed } =
-      await this.recordMessageObservation({
-        platform,
-        platformId: message.platformMessageId,
-        serverId: internalServerId,
-        channelId: channel.id,
-        authorId: platformAccount.id,
-        content: message.content,
-        attachmentsJson:
-          attachments.length > 0 ? JSON.stringify(attachments) : null,
-        generationId,
-      });
+      await this.recordMessageObservation(
+        {
+          platform,
+          platformId: message.platformMessageId,
+          serverId: internalServerId,
+          channelId: channel.id,
+          authorId: platformAccount.id,
+          content: message.content,
+          attachmentsJson:
+            attachments.length > 0 ? JSON.stringify(attachments) : null,
+          generationId,
+          editedAt: message.editedAt ?? null,
+          isBot: message.author.isBot,
+        },
+        observation,
+      );
 
     return {
       message: savedMessage,
@@ -112,94 +123,100 @@ export class MessageService {
     };
   }
 
-  /**
-   * Update a stored message without creating a missing row.
-   * @param {import('../application/contracts.js').NormalizedMessage} message
-   * @returns {Promise<{message: Object|null, changed: boolean}>}
-   */
-  async updateMessage(message) {
-    return await this.messageRepository.transaction(async (tx) => {
-      const existing = await this.messageRepository.findByPlatformIdInTransaction(
-        tx,
-        message.platform,
-        message.platformMessageId,
-      );
-      if (
-        !existing ||
-        existing.deletedAt ||
-        existing.content === message.content
-      ) {
+  async updateMessage(
+    message,
+    { observed = false, observedAt = new Date() } = {},
+  ) {
+    const result = await this.messageRepository.transaction(async (tx) => {
+      const existing =
+        await this.messageRepository.findByPlatformIdInTransaction(
+          tx,
+          message.platform,
+          message.platformMessageId,
+        );
+      if (!existing || existing.deletedAt || isOlder(message, existing)) {
         return { message: existing, changed: false };
       }
-
-      const latestEvent = await this.findLatestEvent(tx, message);
+      const changed = existing.content !== message.content;
+      const editedAt = message.editedAt ?? existing.editedAt;
+      if (!changed && sameDate(existing.editedAt, editedAt)) {
+        return { message: existing, changed: false };
+      }
       const updated = await this.messageRepository.updateContentInTransaction(
         tx,
         existing.id,
         message.content,
+        editedAt,
       );
-      await this.createEvent(tx, {
-        channelId: existing.channelId,
-        messageId: existing.id,
-        platform: message.platform,
-        platformMessageId: message.platformMessageId,
-        operation: "UPDATE",
-        snapshotContent: message.content,
-        snapshotAttachmentsJson: existing.attachmentsJson,
-        generationId: latestEvent?.generationId ?? null,
-      });
-      return { message: updated, changed: true };
+      if (observed && changed) {
+        const latest = await this.findLatestEvent(tx, existing);
+        await this.createEvent(tx, {
+          ...this.eventIdentity(existing),
+          kind: "EDIT",
+          snapshotContent: message.content,
+          snapshotAttachmentsJson: existing.attachmentsJson,
+          previousContent: latest?.snapshotContent ?? null,
+          generationId: latest?.generationId ?? null,
+          editedAt,
+          observedAt,
+        });
+      }
+      return { message: updated, changed };
+    });
+    if (result.message !== null) return result;
+    // A complete update can be the first time this application sees a message.
+    return await this.saveMessage(message, null, [], {
+      observed,
+      observedAt,
+      kind: "EDIT",
     });
   }
 
-  /**
-   * Delete stored platform messages and return the rows that existed.
-   * @param {string} platform
-   * @param {string[]} platformMessageIds
-   * @param {string|null} [channelId]
-   * @returns {Promise<{deletedCount: number, deletedMessages: Array}>}
-   */
-  async deleteMessages(platform, platformMessageIds, channelId = null) {
+  async deleteMessages(
+    platform,
+    platformMessageIds,
+    channelId = null,
+    { observed = false, observedAt = new Date() } = {},
+  ) {
+    const ids = [...new Set(platformMessageIds)];
     return await this.messageRepository.transaction(async (tx) => {
       const deletedMessages =
         await this.messageRepository.findActiveByPlatformIdsInTransaction(
           tx,
           platform,
-          platformMessageIds,
+          ids,
         );
-      await this.recordDeleteEvents(tx, deletedMessages);
-
-      if (channelId) {
-        const foundIds = new Set(
-          deletedMessages.map((message) => message.platformId),
-        );
-        for (const platformMessageId of platformMessageIds) {
-          if (foundIds.has(platformMessageId)) continue;
-
-          const latestEvent = await this.eventRepository.findLatestForMessage(
-            tx,
-            {
-              characterId: this.characterId,
-              platform,
-              platformMessageId,
-            },
-          );
-          if (latestEvent?.operation === "DELETE") continue;
-
+      const batchId = ids.length > 1 ? randomUUID() : null;
+      if (observed) {
+        for (const message of deletedMessages) {
+          const latest = await this.findLatestEvent(tx, message);
           await this.createEvent(tx, {
-            channelId,
-            platform,
-            platformMessageId,
-            operation: "DELETE",
+            ...this.eventIdentity(message),
+            kind: "DELETE",
+            // The latest database content may never have been seen.
+            snapshotContent: latest?.snapshotContent ?? null,
+            snapshotAttachmentsJson: latest?.snapshotAttachmentsJson ?? null,
+            generationId: latest?.generationId ?? null,
+            batchId,
+            observedAt,
           });
         }
       }
-
       const deletedCount =
         await this.messageRepository.softDeleteByIdsInTransaction(
           tx,
           deletedMessages.map((message) => message.id),
         );
+      if (channelId) {
+        for (const id of ids) {
+          await this.messageRepository.rememberDeletion(
+            tx,
+            platform,
+            id,
+            channelId,
+          );
+        }
+      }
       return { deletedCount, deletedMessages };
     });
   }
@@ -218,7 +235,6 @@ export class MessageService {
           tx,
           channelId,
         );
-      await this.recordDeleteEvents(tx, messages);
       return await this.messageRepository.softDeleteByIdsInTransaction(
         tx,
         messages.map((message) => message.id),
@@ -226,70 +242,52 @@ export class MessageService {
     });
   }
 
-  async recordMessageObservation(messageData) {
+  async recordMessageObservation(
+    messageData,
+    {
+      observed = true,
+      observedAt = new Date(),
+      kind = messageData.isBot ? "SENT" : "READ",
+    } = {},
+  ) {
     return await this.messageRepository.transaction(async (tx) => {
-      const existing = await this.messageRepository.findByPlatformIdInTransaction(
-        tx,
-        messageData.platform,
-        messageData.platformId,
-      );
-      if (existing?.deletedAt) return { message: existing, changed: false };
-
-      const latestEvent = await this.findLatestEvent(tx, messageData);
-      if (!existing && latestEvent?.operation === "DELETE") {
-        return { message: null, changed: false };
-      }
-
-      const changed =
-        !existing ||
-        existing.content !== messageData.content ||
-        existing.attachmentsJson !== messageData.attachmentsJson ||
-        (messageData.generationId !== null &&
-          existing.generationId !== messageData.generationId);
-      if (!changed) return { message: existing, changed: false };
-
+      const existing =
+        await this.messageRepository.findByPlatformIdInTransaction(
+          tx,
+          messageData.platform,
+          messageData.platformId,
+        );
+      // A CREATE delivery is not an update; late duplicates cannot roll back edits.
+      const confirmedDeletedOutput =
+        messageData.isBot && existing?.deletedAt && !existing.authorId;
+      if (existing && !confirmedDeletedOutput)
+        return { message: existing, changed: false };
       const saved = await this.messageRepository.upsertInTransaction(
         tx,
         messageData,
       );
-      const contentChanged =
-        !existing ||
-        existing.content !== messageData.content ||
-        existing.attachmentsJson !== messageData.attachmentsJson;
-      if (contentChanged) {
+      if (observed) {
         await this.createEvent(tx, {
-          channelId: messageData.channelId,
-          messageId: saved.id,
-          platform: messageData.platform,
-          platformMessageId: messageData.platformId,
-          operation: existing ? "UPDATE" : "CREATE",
+          ...this.eventIdentity(saved),
+          kind,
           snapshotContent: messageData.content,
           snapshotAttachmentsJson: messageData.attachmentsJson,
-          generationId: existing
-            ? (latestEvent?.generationId ?? null)
-            : messageData.generationId,
+          generationId: messageData.isBot ? messageData.generationId : null,
+          editedAt: messageData.editedAt,
+          observedAt,
         });
       }
       return { message: saved, changed: true };
     });
   }
 
-  async recordDeleteEvents(tx, messages) {
-    for (const message of messages) {
-      const latestEvent = await this.findLatestEvent(tx, message);
-      if (latestEvent?.operation === "DELETE") continue;
-
-      await this.createEvent(tx, {
-        channelId: message.channelId,
-        messageId: message.id,
-        platform: message.platform,
-        platformMessageId: message.platformId,
-        operation: "DELETE",
-        snapshotContent: message.content,
-        snapshotAttachmentsJson: message.attachmentsJson,
-        generationId: latestEvent?.generationId ?? null,
-      });
-    }
+  eventIdentity(message) {
+    return {
+      channelId: message.channelId,
+      messageId: message.id,
+      platform: message.platform,
+      platformMessageId: message.platformId,
+    };
   }
 
   async findLatestEvent(tx, { platform, platformId }) {
@@ -306,4 +304,17 @@ export class MessageService {
       ...eventData,
     });
   }
+}
+
+function sameDate(a, b) {
+  return (
+    (a ? new Date(a).getTime() : null) === (b ? new Date(b).getTime() : null)
+  );
+}
+
+function isOlder(message, existing) {
+  return (
+    existing.editedAt &&
+    (!message.editedAt || new Date(message.editedAt) < existing.editedAt)
+  );
 }

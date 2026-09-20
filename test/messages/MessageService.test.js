@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert";
+const observedAt = new Date("2026-09-20T00:00:00Z");
+
 import { MessageService } from "../../src/messages/MessageService.js";
 
 function createService({ messageRepository = {}, eventRepository = {} } = {}) {
@@ -70,6 +72,7 @@ test("MessageService saves a message and records its observed state", async () =
     normalizedMessage(),
     "generation-1",
     [{ name: "note.txt" }],
+    { observedAt },
   );
 
   assert.strictEqual(result.message.content, "Hello");
@@ -84,22 +87,25 @@ test("MessageService saves a message and records its observed state", async () =
       messageId: 1,
       platform: "discord",
       platformMessageId: "message-1",
-      operation: "CREATE",
+      kind: "READ",
+      editedAt: null,
+      observedAt,
       snapshotContent: "Hello",
       snapshotAttachmentsJson: JSON.stringify([{ name: "note.txt" }]),
-      generationId: "generation-1",
+      generationId: null,
     },
   ]);
 });
 
-test("MessageService does not update a missing message", async () => {
+test("MessageService stores the current state of a first-seen edit without inventing an observation", async () => {
   const { service, events } = createService();
 
   const result = await service.updateMessage(
     normalizedMessage({ platformMessageId: "missing", content: "edited" }),
   );
 
-  assert.deepStrictEqual(result, { message: null, changed: false });
+  assert.equal(result.changed, true);
+  assert.equal(result.message.content, "edited");
   assert.deepStrictEqual(events, []);
 });
 
@@ -107,6 +113,9 @@ test("MessageService records an update with the post-update snapshot", async () 
   const existing = {
     id: 1,
     channelId: "channel-123",
+    platform: "discord",
+    platformId: "message-1",
+    editedAt: null,
     content: "before",
     attachmentsJson: "[]",
     generationId: "generation-1",
@@ -127,6 +136,7 @@ test("MessageService records an update with the post-update snapshot", async () 
 
   const result = await service.updateMessage(
     normalizedMessage({ content: "after" }),
+    { observed: true, observedAt },
   );
 
   assert.strictEqual(result.changed, true);
@@ -137,7 +147,10 @@ test("MessageService records an update with the post-update snapshot", async () 
       messageId: 1,
       platform: "discord",
       platformMessageId: "message-1",
-      operation: "UPDATE",
+      kind: "EDIT",
+      previousContent: null,
+      editedAt: null,
+      observedAt,
       snapshotContent: "after",
       snapshotAttachmentsJson: "[]",
       generationId: "generation-1",
@@ -175,7 +188,10 @@ test("MessageService soft deletes rows after recording delete events", async () 
     },
   });
 
-  const result = await service.deleteMessages("discord", ["one", "two"]);
+  const result = await service.deleteMessages("discord", ["one", "two"], null, {
+    observed: true,
+    observedAt,
+  });
 
   assert.deepStrictEqual(result, {
     deletedCount: 2,
@@ -183,10 +199,10 @@ test("MessageService soft deletes rows after recording delete events", async () 
   });
   assert.deepStrictEqual(deletedIds, [1, 2]);
   assert.deepStrictEqual(
-    events.map((event) => [event.operation, event.snapshotContent]),
+    events.map((event) => [event.kind, event.snapshotContent]),
     [
-      ["DELETE", "first"],
-      ["DELETE", "second"],
+      ["DELETE", null],
+      ["DELETE", null],
     ],
   );
 });

@@ -63,10 +63,11 @@ model Channel {
   serverId String?
   server   Server? @relation(fields: [serverId], references: [id])
 
-  messages    Message[]
-  generations Generation[]
-  cronJobs    CronJob[]
-  events      Event[]
+  messages           Message[]
+  generations        Generation[]
+  cronJobs           CronJob[]
+  events             Event[]
+  conversationStates ConversationState[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -80,8 +81,8 @@ model Message {
   platform   String
   platformId String
 
-  authorId String
-  author   PlatformAccount @relation(fields: [authorId], references: [id])
+  authorId String?
+  author   PlatformAccount? @relation(fields: [authorId], references: [id])
 
   serverId String?
   server   Server? @relation(fields: [serverId], references: [id])
@@ -99,6 +100,8 @@ model Message {
   events   Event[]
 
   deletedAt DateTime?
+  editedAt  DateTime?
+  isBot     Boolean   @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -119,10 +122,14 @@ model Event {
 
   platform          String
   platformMessageId String
-  operation         String // "CREATE", "UPDATE", "DELETE"
+  kind              String // READ, EDIT, DELETE, SENT
+  source            String @default("LIVE") // LIVE or HISTORY
 
   snapshotContent         String?
   snapshotAttachmentsJson String?
+  previousContent         String?
+  editedAt                DateTime?
+  batchId                 String?
 
   generationId Int?
   generation   Generation? @relation(fields: [generationId], references: [id])
@@ -133,11 +140,20 @@ model Event {
   @@index([platform, platformMessageId, id])
 }
 
+model ConversationState {
+  characterId           String
+  channelId             String
+  channel               Channel @relation(fields: [channelId], references: [id])
+  handledThroughEventId Int     @default(0)
+
+  @@id([characterId, channelId])
+}
+
 model Generation {
   id Int @id @default(autoincrement())
 
   characterId String
-  type String @default("CHAT") // "CHAT", "IMAGE", "VOICE", "EMBEDDING"
+  type        String @default("CHAT") // "CHAT", "IMAGE", "VOICE", "EMBEDDING"
 
   channelId String
   channel   Channel @relation(fields: [channelId], references: [id])
@@ -158,7 +174,9 @@ model Generation {
   output String?
 
   // 도메인별 선택적 부가 데이터 (없으면 null)
-  metadata String?
+  metadata    String?
+  sentAt      DateTime?
+  discardedAt DateTime?
 
   messages Message[]
   events   Event[]

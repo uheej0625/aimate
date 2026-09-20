@@ -36,6 +36,8 @@ export class MessageRepository {
       content,
       attachmentsJson,
       generationId,
+      editedAt = null,
+      isBot = false,
     } = messageData;
     const where = {
       platform_platformId: {
@@ -49,6 +51,9 @@ export class MessageRepository {
       update: {
         content,
         attachmentsJson,
+        editedAt,
+        authorId,
+        isBot,
         ...(generationId !== null ? { generationId } : {}),
       },
       create: {
@@ -60,14 +65,16 @@ export class MessageRepository {
         content,
         attachmentsJson,
         generationId,
+        editedAt,
+        isBot,
       },
     });
   }
 
-  async updateContentInTransaction(tx, messageId, content) {
+  async updateContentInTransaction(tx, messageId, content, editedAt = null) {
     return await tx.message.update({
       where: { id: messageId },
-      data: { content },
+      data: { content, editedAt },
     });
   }
 
@@ -98,6 +105,20 @@ export class MessageRepository {
       data: { deletedAt: new Date() },
     });
     return result.count;
+  }
+
+  async rememberDeletion(tx, platform, platformId, channelId) {
+    return await tx.message.upsert({
+      where: { platform_platformId: { platform, platformId } },
+      update: {},
+      create: {
+        platform,
+        platformId,
+        channelId,
+        content: "",
+        deletedAt: new Date(),
+      },
+    });
   }
 
   async getHistory(
