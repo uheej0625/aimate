@@ -126,7 +126,7 @@ export class SequenceBuilder {
         }
         for (const msg of pendingMessages) {
           context.push({
-            role: "user",
+            role: msg.authorPlatformId === botId ? "assistant" : "user",
             content: msg.content,
           });
         }

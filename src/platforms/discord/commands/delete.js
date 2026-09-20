@@ -1,6 +1,8 @@
 import { ApplicationCommandType, MessageFlags } from "discord.js";
 import { createLogger } from "../../../core/logger.js";
 
+import { adaptChannel } from "../adapter.js";
+
 const logger = createLogger("Discord:Delete");
 
 export default {
@@ -28,7 +30,8 @@ export default {
     }
 
     const deleted = await storedMessageService.deleteOne({
-      platform: "discord",
+      channel: adaptChannel(interaction.channel),
+      botId: interaction.client.user.id,
       platformMessageId: targetMessage.id,
     });
 

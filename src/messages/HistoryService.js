@@ -1,101 +1,127 @@
 import { HistoryMessageFormatter } from "./HistoryMessageFormatter.js";
 
+/** Builds model context from immutable experiences, not the latest message rows. */
 export class HistoryService {
-  /**
-   * @param {import('../repositories/MessageRepository.js').MessageRepository} messageRepository
-   * @param {HistoryMessageFormatter} [historyMessageFormatter]
-   */
   constructor(
+    eventRepository,
     messageRepository,
     historyMessageFormatter = new HistoryMessageFormatter(),
   ) {
+    this.eventRepository = eventRepository;
     this.messageRepository = messageRepository;
     this.historyMessageFormatter = historyMessageFormatter;
   }
 
-  /**
-   * DB에서 히스토리를 로드하고 메타데이터를 추출한다.
-   * @param {string} channelId - Internal channel ID
-   * @param {string} botId - Bot's platform user ID (platformId)
-   * @returns {Promise<{history: Array, messageIds: Array<number>, inputMessages: Array<string>, lastUserPlatformAccountId: string|null}>}
-   */
-  async fetchHistoryData(channelId, botId) {
-    const history = await this.loadModelHistory(channelId);
-    const { historyMessages, pendingMessages } = this.splitHistoryAndPending(
-      history,
-      botId,
+  async fetchHistoryData(channelId, botId, rerollGenerationId = null) {
+    const snapshot = await this.eventRepository.snapshot(
+      channelId,
+      rerollGenerationId,
     );
-    const messageIds = pendingMessages.map((m) => m.id);
-    const inputMessages = pendingMessages.map((m) => m.content);
-
-    let lastUserPlatformAccountId = null;
-    for (let i = history.length - 1; i >= 0; i--) {
-      if (history[i].authorPlatformId !== botId) {
-        lastUserPlatformAccountId = history[i].authorId;
-        break;
-      }
+    const livePending = snapshot.events.filter(
+      (event) =>
+        event.id > snapshot.fromExclusive && this.isInput(event, botId),
+    );
+    const replayEvents = snapshot.replay?.events ?? [];
+    const replayIds = new Set(replayEvents.map((event) => event.id));
+    const events = [
+      ...replayEvents,
+      ...snapshot.events.filter((event) => !replayIds.has(event.id)),
+    ];
+    events.sort((a, b) => a.id - b.id);
+    const pendingIds = new Set(livePending.map((event) => event.id));
+    for (const event of replayEvents) {
+      if (snapshot.replay.inputEventIds.includes(event.id))
+        pendingIds.add(event.id);
     }
-
+    const imageRecords = events.map((event) => ({
+      attachmentsJson: event.snapshotAttachmentsJson,
+    }));
+    const generationIds =
+      this.historyMessageFormatter.extractGeneratedImageGenerationIds(
+        imageRecords,
+      );
+    const imagePrompts =
+      await this.messageRepository.findGenerationInputsByIds(generationIds);
+    const rendered = events.map((event) => this.render(event, imagePrompts));
+    const boundary = Math.min(
+      snapshot.fromExclusive,
+      ...[...pendingIds].map((id) => id - 1),
+    );
+    // Keep delivered chunks and historical reads in their actual event order.
+    // Only the selected user events count as input requiring a response.
+    const pendingMessages = rendered.filter(
+      (event) => event.eventId > boundary,
+    );
+    const historyMessages = rendered.filter(
+      (event) => event.eventId <= boundary,
+    );
+    const input = rendered.filter((event) => pendingIds.has(event.eventId));
+    const lastUser = events.findLast(
+      (event) => !event.isBot && event.authorPlatformId !== botId,
+    );
     return {
-      history,
       historyMessages,
       pendingMessages,
-      messageIds,
-      inputMessages,
-      lastUserPlatformAccountId,
+      messageIds: input.map((message) => message.id),
+      inputMessages: input.map((message) => message.content),
+      lastUserPlatformAccountId: lastUser?.authorId ?? null,
+      eventSnapshot: {
+        ...snapshot,
+        replay: undefined,
+        events,
+        inputEventIds: [...pendingIds],
+      },
     };
   }
 
-  async loadModelHistory(internalChannelId) {
-    if (
-      typeof this.messageRepository.getHistoryRecords !== "function" ||
-      typeof this.messageRepository.findGenerationInputsByIds !== "function"
-    ) {
-      return await this.messageRepository.getHistory(internalChannelId);
-    }
-
-    const records =
-      await this.messageRepository.getHistoryRecords(internalChannelId);
-    const generationIds =
-      this.historyMessageFormatter.extractGeneratedImageGenerationIds(records);
-    const promptByGenerationId =
-      await this.messageRepository.findGenerationInputsByIds(generationIds);
-
-    return this.historyMessageFormatter.format(records, promptByGenerationId);
+  isInput(event, botId) {
+    return (
+      event.source === "LIVE" &&
+      !event.isBot &&
+      event.authorPlatformId !== botId &&
+      ["READ", "EDIT", "DELETE"].includes(event.kind)
+    );
   }
 
-  /**
-   * 히스토리를 이미 답변된 메시지와 아직 답변되지 않은 메시지로 나눈다.
-   * @param {Array} history
-   * @param {string} botId
-   * @returns {{ historyMessages: Array, pendingMessages: Array }}
-   */
-  splitHistoryAndPending(history, botId) {
-    let lastBotIndex = -1;
-    for (let i = history.length - 1; i >= 0; i--) {
-      if (history[i].authorPlatformId === botId) {
-        lastBotIndex = i;
-        break;
-      }
+  render(event, imagePrompts) {
+    const body = this.historyMessageFormatter.renderContentForAI(
+      {
+        content: event.snapshotContent,
+        attachmentsJson: event.snapshotAttachmentsJson,
+      },
+      imagePrompts,
+    );
+    let content = body;
+    const reference = `메시지 #${event.messageId ?? event.platformMessageId}`;
+    if (event.kind === "EDIT") {
+      content =
+        `[${reference}의 수정 목격]\n` +
+        (event.previousContent !== null
+          ? `이전에 읽은 내용: ${JSON.stringify(event.previousContent)}\n`
+          : "이전에 읽은 내용: 미상\n") +
+        `현재 내용: ${JSON.stringify(body)}`;
+    } else if (event.kind === "DELETE") {
+      content =
+        `[${reference}의 삭제 목격${event.batchId ? `; 일괄 삭제 ${event.batchId}` : ""}]\n` +
+        (event.snapshotContent !== null
+          ? `이전에 읽은 내용: ${JSON.stringify(body)}`
+          : "이전에 읽은 내용: 미상") +
+        "\n삭제 실행자와 이유는 알 수 없음.";
+    } else if (event.source === "HISTORY") {
+      content = `[현재 과거 내역에서 읽은 ${reference}${event.editedAt ? "; 수정됨 표시 있음, 편집 시점은 목격하지 않음" : ""}]\n${body}`;
+    } else if (event.kind === "READ" && event.editedAt) {
+      content = `[${reference}; 수정됨 표시 있음]\n${body}`;
     }
-
-    if (lastBotIndex === -1) {
-      return { historyMessages: [], pendingMessages: [...history] };
-    }
-
     return {
-      historyMessages: history.slice(0, lastBotIndex + 1),
-      pendingMessages: history.slice(lastBotIndex + 1),
+      id: event.messageId,
+      eventId: event.id,
+      authorId: event.authorId,
+      authorPlatformId:
+        event.kind === "SENT" || event.kind === "READ"
+          ? event.authorPlatformId
+          : null,
+      content,
+      createdAt: event.observedAt,
     };
-  }
-
-  /**
-   * 아직 답변되지 않은 user 메시지 목록을 추출한다.
-   * @param {Array} history
-   * @param {string} botId
-   * @returns {Array}
-   */
-  extractPendingMessages(history, botId) {
-    return this.splitHistoryAndPending(history, botId).pendingMessages;
   }
 }

@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert";
+import { ConversationSession } from "../../src/chat/ConversationSession.js";
 import { ChatFlow } from "../../src/chat/ChatFlow.js";
 import { AppEvents, EventBus } from "../../src/core/EventBus.js";
 import { ChatGenerationFailureHandler } from "../../src/chat/ChatGenerationFailureHandler.js";
@@ -9,9 +10,6 @@ import { prisma } from "../../src/database/client.js";
 test("ChatFlow tests", async (t) => {
   t.after(async () => {
     await prisma.$disconnect();
-    setTimeout(() => {
-      process.exit(0);
-    }, 10);
   });
 
   const baseChannelRecord = {
@@ -25,6 +23,7 @@ test("ChatFlow tests", async (t) => {
   };
 
   const baseGenerationLifecycle = {
+    cancelActiveForChannel: async () => {},
     startChatGeneration: async () => ({ id: "gen-123" }),
     recordInput: async () => {},
     canGenerate: async () => true,
@@ -48,7 +47,10 @@ test("ChatFlow tests", async (t) => {
   };
 
   const baseMessageSender = {
-    sendChunk: async () => true,
+    sendChunk: async (_channel, _text, _id, delivery) => {
+      delivery?.onDelivered?.();
+      return true;
+    },
   };
 
   function createChatFlow({
@@ -74,6 +76,7 @@ test("ChatFlow tests", async (t) => {
       failureHandler,
       eventBus,
       generationAbortRegistry,
+      conversationSession: new ConversationSession(),
     });
   }
 
@@ -194,7 +197,8 @@ test("ChatFlow tests", async (t) => {
     async () => {
       let sentMessage = null;
       const messageSender = {
-        sendChunk: async (_channel, message) => {
+        sendChunk: async (_channel, message, _id, delivery) => {
+          delivery.onDelivered();
           sentMessage = message;
           return true;
         },
@@ -260,10 +264,7 @@ test("ChatFlow tests", async (t) => {
       await chatFlow.execute(createRequest());
 
       assert.strictEqual(generateCalled, false);
-      assert.strictEqual(
-        cancellationReason,
-        "cancelled_before_input_record",
-      );
+      assert.strictEqual(cancellationReason, "cancelled_before_input_record");
     },
   );
 

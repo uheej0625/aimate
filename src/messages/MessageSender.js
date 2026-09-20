@@ -37,7 +37,18 @@ export class MessageSender {
    * @param {string} generationId - Generation ID to check for cancellation
    * @returns {Promise<boolean>}
    */
-  async sendChunk(channel, text, generationId) {
+  async sendChunk(
+    channel,
+    text,
+    generationId,
+    {
+      run = (operation) => operation(),
+      isCurrent = () => true,
+      onDelivered = () => {},
+      allowFailure = false,
+    } = {},
+  ) {
+    if (!isCurrent()) return false;
     if (!text) return true;
 
     const { cleanText, files, generatedImageAttachments } =
@@ -51,30 +62,53 @@ export class MessageSender {
     const delay = this._calculateDelay(cleanText);
     await new Promise((resolve) => setTimeout(resolve, delay));
 
-    if (generationId) {
-      const generation = await this.generationRepository.findById(generationId);
-      if (!generation || generation.status === "CANCELLED") {
-        logger.debug(
-          { generationId },
-          "Generation cancelled, stopping message send",
-        );
-        return false;
+    const started = await run(async () => {
+      if (!isCurrent()) return null;
+      if (generationId) {
+        const generation =
+          await this.generationRepository.findById(generationId);
+        const allowed = allowFailure ? ["FAILED"] : ["GENERATED"];
+        if (!generation || !allowed.includes(generation.status)) {
+          logger.debug(
+            { generationId },
+            "Generation cancelled, stopping message send",
+          );
+          return null;
+        }
       }
-    }
 
-    // 전송 옵션 구성
-    const sendOptions = {};
-    if (cleanText) sendOptions.content = cleanText;
-    if (files.length > 0) sendOptions.files = files;
+      // 전송 옵션 구성
+      const sendOptions = {};
+      if (cleanText) sendOptions.content = cleanText;
+      if (files.length > 0) sendOptions.files = files;
 
-    const message = await channel.send(sendOptions);
+      // Release the queue once delivery has started; its network round trip is slow.
+      return { delivery: channel.send(sendOptions) };
+    });
+    if (!started) return false;
+    const message = await started.delivery;
+    const observedAt = new Date();
+    onDelivered();
 
     // Save message with all related entities
-    await this.messageService.saveMessage(
-      message,
-      generationId,
-      generatedImageAttachments,
-    );
+    const save = () =>
+      run(() =>
+        this.messageService.saveMessage(
+          message,
+          generationId,
+          generatedImageAttachments,
+          { observedAt },
+        ),
+      );
+    try {
+      await save();
+    } catch (error) {
+      logger.warn(
+        { err: error, platformMessageId: message.platformMessageId },
+        "Retrying storage of confirmed delivery",
+      );
+      await save();
+    }
 
     return true;
   }
@@ -114,5 +148,4 @@ export class MessageSender {
       ),
     );
   }
-
 }

@@ -18,12 +18,16 @@ export class ChatGenerationLifecycle {
     });
   }
 
-  async recordInput(generationId, { inputMessages, messageIds }) {
+  async recordInput(
+    generationId,
+    { inputMessages, messageIds, eventSnapshot },
+  ) {
     return await this.generationRepository.recordInputWithMessages(
       generationId,
       {
         inputMessages,
         messageIds,
+        eventSnapshot,
       },
     );
   }
@@ -35,6 +39,10 @@ export class ChatGenerationLifecycle {
 
   async cancelActiveForChannel(channelId) {
     return await this.generationRepository.cancelProcessing(channelId, "CHAT");
+  }
+
+  async discard(generationId) {
+    return await this.generationRepository.discard(generationId);
   }
 
   async recordGeneratedOutput(generationId, aiResult) {
@@ -66,12 +74,8 @@ export class ChatGenerationLifecycle {
     return { shouldProceed: updated };
   }
 
-  async complete(generationId) {
-    return await this.generationRepository.updateStatusIfCurrent(
-      generationId,
-      "GENERATED",
-      "COMPLETED",
-    );
+  async complete(generationId, sentAt = new Date()) {
+    return await this.generationRepository.completeChat(generationId, sentAt);
   }
 
   async cancel(generationId) {

@@ -51,12 +51,16 @@ export class GenerationRepository {
    * @param {{inputMessages: string[], messageIds: number[]}} input
    * @returns {Promise<boolean>} False when the generation was cancelled first.
    */
-  async recordInputWithMessages(generationId, { inputMessages, messageIds }) {
+  async recordInputWithMessages(
+    generationId,
+    { inputMessages, messageIds, eventSnapshot },
+  ) {
     const input = JSON.stringify({
       messages: inputMessages.map((content, index) => ({
         id: messageIds[index] ?? null,
         content,
       })),
+      eventSnapshot,
     });
 
     return await prisma.$transaction(async (tx) => {
@@ -72,20 +76,66 @@ export class GenerationRepository {
         return false;
       }
 
-      if (messageIds.length === 0) return true;
+      const ids = [...new Set(messageIds.filter((id) => id !== null))];
+      if (ids.length === 0) return true;
 
       const messages = await tx.message.updateMany({
-        where: { id: { in: messageIds }, deletedAt: null },
+        where: { id: { in: ids } },
         data: { generationId },
       });
 
-      if (messages.count !== messageIds.length) {
+      if (messages.count !== ids.length) {
         throw new Error(
           `Cannot record input for generation ${generationId} because one or more messages are missing.`,
         );
       }
 
       return true;
+    });
+  }
+
+  async completeChat(generationId, sentAt) {
+    return await prisma.$transaction(async (tx) => {
+      const generation = await tx.generation.findUnique({
+        where: { id: generationId },
+      });
+      if (generation?.status !== "GENERATED") return false;
+      const result = await tx.generation.updateMany({
+        where: { id: generationId, status: "GENERATED" },
+        data: { status: "COMPLETED", sentAt },
+      });
+      if (result.count !== 1) return false;
+      const snapshot = generation.input
+        ? JSON.parse(generation.input).eventSnapshot
+        : null;
+      if (snapshot) {
+        const { characterId, channelId } = generation;
+        await tx.conversationState.upsert({
+          where: { characterId_channelId: { characterId, channelId } },
+          create: {
+            characterId,
+            channelId,
+            handledThroughEventId: snapshot.throughInclusive,
+          },
+          update: {},
+        });
+        await tx.conversationState.updateMany({
+          where: {
+            characterId,
+            channelId,
+            handledThroughEventId: { lt: snapshot.throughInclusive },
+          },
+          data: { handledThroughEventId: snapshot.throughInclusive },
+        });
+      }
+      return true;
+    });
+  }
+
+  async discard(generationId) {
+    await prisma.generation.update({
+      where: { id: generationId },
+      data: { discardedAt: new Date() },
     });
   }
 

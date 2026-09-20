@@ -1,6 +1,8 @@
 import { ApplicationCommandType, MessageFlags } from "discord.js";
 import { createLogger } from "../../../core/logger.js";
 
+import { adaptChannel } from "../adapter.js";
+
 const logger = createLogger("Discord:DeleteAfter");
 
 /** 대상 메세지 포함, 이후의 모든 메세지를 수집합니다 */
@@ -44,10 +46,13 @@ async function deleteDiscordMessages(channel, messages) {
   let deleted = 0;
   let skipped = 0;
   let failed = 0;
+  const deletedIds = [];
 
-  const countResult = (result) => {
-    if (result === "deleted") deleted++;
-    else if (result === "skipped") skipped++;
+  const countResult = (result, id) => {
+    if (result === "deleted") {
+      deleted++;
+      deletedIds.push(id);
+    } else if (result === "skipped") skipped++;
     else failed++;
   };
 
@@ -58,20 +63,21 @@ async function deleteDiscordMessages(channel, messages) {
       try {
         const result = await channel.bulkDelete(batch, true);
         deleted += result.size;
+        deletedIds.push(...result.keys());
         // bulkDelete에서 제외된 오래된 메세지는 개별 삭제
         for (const msg of batch) {
-          if (!result.has(msg.id)) countResult(await deleteSingle(msg));
+          if (!result.has(msg.id)) countResult(await deleteSingle(msg), msg.id);
         }
       } catch (error) {
         logger.error({ err: error }, "bulkDelete 실패, 개별 삭제로 전환");
-        for (const msg of batch) countResult(await deleteSingle(msg));
+        for (const msg of batch) countResult(await deleteSingle(msg), msg.id);
       }
     }
   } else {
-    for (const msg of messages) countResult(await deleteSingle(msg));
+    for (const msg of messages) countResult(await deleteSingle(msg), msg.id);
   }
 
-  return { deleted, skipped, failed };
+  return { deleted, skipped, failed, deletedIds };
 }
 
 function buildResultMessage({ total, deleted, skipped, failed, dbDeleted }) {
@@ -107,14 +113,13 @@ export default {
       channel,
       interaction.targetMessage,
     );
-    const { deleted, skipped, failed } = await deleteDiscordMessages(
-      channel,
-      messages,
-    );
+    const { deleted, skipped, failed, deletedIds } =
+      await deleteDiscordMessages(channel, messages);
 
     const dbDeleted = await storedMessageService.deleteMany({
-      platform: "discord",
-      platformMessageIds: messages.map((m) => m.id),
+      channel: adaptChannel(channel),
+      botId: interaction.client.user.id,
+      platformMessageIds: deletedIds,
     });
 
     await interaction.editReply({

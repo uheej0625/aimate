@@ -1,23 +1,26 @@
-/**
- * Provides message deletion operations to platform entrypoints.
- */
+/** Routes confirmed command deletions through the same observation policy as platform events. */
 export class StoredMessageService {
-  constructor(messageService) {
-    this.messageService = messageService;
+  constructor(messageHandler) {
+    this.messageHandler = messageHandler;
   }
 
-  async deleteOne({ platform, platformMessageId }) {
-    return await this.messageService.deleteMessage(
-      platform,
-      platformMessageId,
+  async deleteOne({ platformMessageId, channel, botId }) {
+    return (
+      (await this.deleteMany({
+        platformMessageIds: [platformMessageId],
+        channel,
+        botId,
+      })) > 0
     );
   }
 
-  async deleteMany({ platform, platformMessageIds }) {
-    const { deletedCount } = await this.messageService.deleteMessages(
-      platform,
+  async deleteMany({ platformMessageIds, channel, botId }) {
+    const result = await this.messageHandler.handle({
+      kind: "DELETE",
       platformMessageIds,
-    );
-    return deletedCount;
+      channel,
+      botId,
+    });
+    return result.deletedCount ?? 0;
   }
 }

@@ -3,23 +3,8 @@ import { createLogger } from "../core/logger.js";
 
 const logger = createLogger("ChatFlow");
 
-/**
- * Core business logic for generating a response in a conversation.
- * Coordinates Context -> AI generation -> Sender.
- * Side effects that do not control the main response path are emitted as events.
- */
+/** Coordinates one owned turn. Slow generation and delivery never hold the queue. */
 export class ChatFlow {
-  /**
-   * @param {Object} dependencies
-   * @param {import('./context/ChatContextPreparer.js').ChatContextPreparer} dependencies.chatContextPreparer
-   * @param {import('../repositories/ChannelRepository.js').ChannelRepository} dependencies.channelRepository
-   * @param {import('../ai/ChatGenerator.js').ChatGenerator} dependencies.chatGenerator
-   * @param {import('../messages/MessageSender.js').MessageSender} dependencies.messageSender
-   * @param {import('./ChatGenerationLifecycle.js').ChatGenerationLifecycle} dependencies.generationLifecycle
-   * @param {import('./ChatGenerationFailureHandler.js').ChatGenerationFailureHandler} dependencies.failureHandler
-   * @param {import('../core/EventBus.js').EventBus} dependencies.eventBus
-   * @param {import('./ChatGenerationAbortRegistry.js').ChatGenerationAbortRegistry} dependencies.generationAbortRegistry
-   */
   constructor({
     chatContextPreparer,
     channelRepository,
@@ -29,226 +14,190 @@ export class ChatFlow {
     failureHandler,
     eventBus,
     generationAbortRegistry,
+    conversationSession,
   }) {
-    this.chatContextPreparer = chatContextPreparer;
-    this.channelRepository = channelRepository;
-    this.chatGenerator = chatGenerator;
-    this.messageSender = messageSender;
-    this.generationLifecycle = generationLifecycle;
-    this.failureHandler = failureHandler;
-    this.eventBus = eventBus;
-    this.generationAbortRegistry = generationAbortRegistry;
+    Object.assign(this, {
+      chatContextPreparer,
+      channelRepository,
+      chatGenerator,
+      messageSender,
+      generationLifecycle,
+      failureHandler,
+      eventBus,
+      generationAbortRegistry,
+      conversationSession,
+    });
   }
 
-  /**
-   * Execute the conversation logic.
-   * @param {import('../application/contracts.js').ConversationRequest} request
-   */
-  async execute({ channelPort, internalChannelId, botId, cronMessage = null }) {
+  async execute({
+    channelPort,
+    internalChannelId,
+    botId,
+    cronMessage = null,
+    turnId = null,
+    rerollGenerationId = null,
+  }) {
+    const session = this.conversationSession;
+    const key = session.key(channelPort);
+    const run = (operation) => session.run(key, operation);
+    const isCurrent = () =>
+      session.isCurrent(key, turnId) && !abortSignal?.aborted;
     let generation;
     let channelRecord;
     let abortSignal;
+    let deliveredAt;
+    let sentAt;
+    let settled = false;
+    const payload = () => ({
+      generation,
+      channelRecord,
+      platform: channelPort.platform,
+    });
+    const cancel = async (reason) => {
+      if (generation) await this.generationLifecycle.cancel(generation.id);
+      await this.eventBus.emitAsync(AppEvents.GenerationCancelled, {
+        ...payload(),
+        reason,
+      });
+    };
+    const delivery = {
+      run,
+      isCurrent,
+      onDelivered: () => {
+        deliveredAt = session.now();
+        sentAt = new Date();
+      },
+    };
 
     try {
-      // 0. Load the latest internal channel state
-      const platform = channelPort.platform;
-      channelRecord = await this.channelRepository.findById(internalChannelId);
-      if (!channelRecord) {
-        throw new Error(`Channel ${internalChannelId} no longer exists.`);
-      }
-
-      // 1. Start Generation Tracking
-      generation =
-        await this.generationLifecycle.startChatGeneration(channelRecord);
-      abortSignal = this.generationAbortRegistry.register(
-        channelRecord.id,
-        generation.id,
-      );
+      const started = await run(async () => {
+        if (turnId && !isCurrent()) return false;
+        turnId ??= session.begin(key);
+        channelRecord =
+          await this.channelRepository.findById(internalChannelId);
+        if (!channelRecord)
+          throw new Error(`Channel ${internalChannelId} no longer exists.`);
+        this.generationAbortRegistry.abortChannel(internalChannelId);
+        await this.generationLifecycle.cancelActiveForChannel(
+          internalChannelId,
+        );
+        generation =
+          await this.generationLifecycle.startChatGeneration(channelRecord);
+        abortSignal = this.generationAbortRegistry.register(
+          internalChannelId,
+          generation.id,
+        );
+        return true;
+      });
+      if (!started) return;
       await this.eventBus.emitAsync(AppEvents.GenerationStarted, {
-        generation,
-        channelRecord,
-        platform,
+        ...payload(),
         cronMessage,
       });
 
-      // 2. Prepare Context
-      const { context, systemInstruction, messageIds, inputMessages } =
-        await this.chatContextPreparer.prepare(
-          channelRecord.id,
+      const prepared = await run(async () => {
+        if (!isCurrent()) return null;
+        const input = await this.chatContextPreparer.prepare(
+          internalChannelId,
           botId,
           channelRecord,
           cronMessage,
+          rerollGenerationId,
         );
-
-      // 3. Update Generation with input details
-      const inputRecorded = await this.generationLifecycle.recordInput(
-        generation.id,
-        {
-          inputMessages,
-          messageIds,
-        },
-      );
-
-      if (inputRecorded === false) {
-        logger.info(
-          { generationId: generation.id },
-          "Generation cancelled before input was recorded",
-        );
-        await this.eventBus.emitAsync(AppEvents.GenerationCancelled, {
-          generation,
-          channelRecord,
-          platform,
-          reason: "cancelled_before_input_record",
-        });
-        return;
-      }
-
-      // 4. Check Cancellation before generating
-      const canGenerate = await this.generationLifecycle.canGenerate(
-        generation.id,
-      );
-
-      if (!canGenerate) {
-        logger.info({ generationId: generation.id }, "Generation cancelled");
-        await this.eventBus.emitAsync(AppEvents.GenerationCancelled, {
-          generation,
-          channelRecord,
-          platform,
-          reason: "status_changed",
-        });
-        return;
-      }
-
-      // 5. Generate and parse the response
-      let aiResult;
-      try {
-        aiResult = await this.chatGenerator.generate(
-          context,
-          systemInstruction,
-          channelPort.platform,
-          channelRecord,
-          { abortSignal },
-        );
-      } catch (error) {
-        if (!abortSignal.aborted) throw error;
-
-        try {
-          await this.generationLifecycle.cancel(generation.id);
-        } catch (cancelError) {
-          logger.error(
-            { err: cancelError, generationId: generation.id },
-            "Failed to cancel aborted generation",
-          );
-        }
-
-        logger.info({ generationId: generation.id }, "Generation aborted");
-        await this.eventBus.emitAsync(AppEvents.GenerationCancelled, {
-          generation,
-          channelRecord,
-          platform,
-          reason: "aborted_during_generation",
-        });
-        return;
-      }
-
-      if (abortSignal.aborted) {
-        try {
-          await this.generationLifecycle.cancel(generation.id);
-        } catch (cancelError) {
-          logger.error(
-            { err: cancelError, generationId: generation.id },
-            "Failed to cancel aborted generation",
-          );
-        }
-
-        logger.info({ generationId: generation.id }, "Generation aborted");
-        await this.eventBus.emitAsync(AppEvents.GenerationCancelled, {
-          generation,
-          channelRecord,
-          platform,
-          reason: "aborted_during_generation",
-        });
-        return;
-      }
-
-      // 6. Save AI response details (including raw API req/res)
-      const recorded = await this.generationLifecycle.recordGeneratedOutput(
-        generation.id,
-        aiResult,
-      );
-      if (!recorded.shouldProceed) {
-        logger.info(
-          { generationId: generation.id },
-          "Generation cancelled during model execution",
-        );
-        await this.eventBus.emitAsync(AppEvents.GenerationCancelled, {
-          generation,
-          channelRecord,
-          platform,
-          reason: "cancelled_during_generation",
-        });
-        return;
-      }
-
-      // 7. Send each message chunk
-      for (const message of aiResult.messages) {
-        const sent = await this.messageSender.sendChunk(
-          channelPort,
-          message,
+        const recorded = await this.generationLifecycle.recordInput(
           generation.id,
+          input,
         );
-        if (!sent) {
-          logger.info(
-            { generationId: generation.id },
-            "Generation cancelled during send",
-          );
-          await this.eventBus.emitAsync(AppEvents.GenerationCancelled, {
-            generation,
-            channelRecord,
-            platform,
-            reason: "send_cancelled",
-          });
-          return;
+        return recorded === false ? null : input;
+      });
+      if (!prepared) return await cancel("cancelled_before_input_record");
+      if (
+        !isCurrent() ||
+        !(await this.generationLifecycle.canGenerate(generation.id))
+      ) {
+        return await cancel("status_changed");
+      }
+      const aiResult = await this.chatGenerator.generate(
+        prepared.context,
+        prepared.systemInstruction,
+        channelPort.platform,
+        channelRecord,
+        { abortSignal },
+      );
+      if (!isCurrent()) return await cancel("aborted_during_generation");
+      const accepted = await run(async () => {
+        if (!isCurrent()) return false;
+        return (
+          await this.generationLifecycle.recordGeneratedOutput(
+            generation.id,
+            aiResult,
+          )
+        ).shouldProceed;
+      });
+      if (!accepted) return await cancel("cancelled_during_generation");
+
+      for (const message of aiResult.messages) {
+        if (
+          !isCurrent() ||
+          !(await this.messageSender.sendChunk(
+            channelPort,
+            message,
+            generation.id,
+            delivery,
+          ))
+        ) {
+          return await cancel("send_cancelled");
         }
       }
-
-      // 8. Mark as COMPLETED after all messages sent
-      const completed = await this.generationLifecycle.complete(generation.id);
-      if (!completed) {
-        logger.info(
-          { generationId: generation.id },
-          "Generation cancelled before completion",
+      if (!sentAt)
+        throw new Error(
+          "The generated response contained no deliverable messages.",
         );
-        await this.eventBus.emitAsync(AppEvents.GenerationCancelled, {
-          generation,
-          channelRecord,
-          platform,
-          reason: "cancelled_before_completion",
-        });
-        return;
-      }
-
+      const completed = await run(async () => {
+        if (!isCurrent()) return false;
+        const result = await this.generationLifecycle.complete(
+          generation.id,
+          sentAt,
+        );
+        if (result) {
+          session.settle(key, turnId, deliveredAt);
+          settled = true;
+        }
+        return result;
+      });
+      if (!completed) return await cancel("cancelled_before_completion");
+      // Consumers receive the same fixed input that was used by this generation.
+      generation.input = JSON.stringify({
+        messages: prepared.inputMessages.map((content, index) => ({
+          id: prepared.messageIds[index],
+          content,
+        })),
+        eventSnapshot: prepared.eventSnapshot,
+      });
       await this.eventBus.emitAsync(AppEvents.GenerationCompleted, {
-        generation,
-        channelRecord,
-        platform,
+        ...payload(),
         aiResult,
       });
     } catch (error) {
-      logger.error({ err: error }, "Error processing response");
-      await this.failureHandler.handle({
-        error,
-        generation,
-        channelRecord,
-        channel: channelPort,
-      });
+      if (generation && !isCurrent()) {
+        await cancel("aborted_during_generation");
+      } else {
+        logger.error({ err: error }, "Error processing response");
+        await this.failureHandler.handle({
+          error,
+          generation,
+          channelRecord,
+          channel: channelPort,
+          delivery: { run, isCurrent },
+        });
+      }
     } finally {
-      if (generation && channelRecord) {
+      if (generation)
         this.generationAbortRegistry.unregister(
-          channelRecord.id,
+          internalChannelId,
           generation.id,
         );
-      }
+      if (!settled && turnId) await run(() => session.settle(key, turnId));
     }
   }
 }

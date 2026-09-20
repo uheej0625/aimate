@@ -8,10 +8,7 @@ export default {
   name: Events.MessageUpdate,
   async execute(_oldMessage, newMessage, { messageHandler }) {
     try {
-      const message = newMessage.partial
-        ? await newMessage.fetch()
-        : newMessage;
-      await messageHandler.handleUpdate(adaptIncomingMessage(message));
+      await messageHandler.handle(adaptIncomingMessage(newMessage, "UPDATE"));
     } catch (error) {
       logger.error(
         { err: error, messageId: newMessage.id },

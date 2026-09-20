@@ -16,7 +16,7 @@ export class ChatGenerationFailureHandler {
     this.eventBus = eventBus;
   }
 
-  async handle({ error, generation, channelRecord, channel }) {
+  async handle({ error, generation, channelRecord, channel, delivery = {} }) {
     try {
       await this.generationLifecycle.fail(generation?.id);
     } catch (dbError) {
@@ -47,6 +47,7 @@ export class ChatGenerationFailureHandler {
         channel,
         FALLBACK_ERROR_MESSAGE,
         generation?.id,
+        { ...delivery, allowFailure: true },
       );
     } catch (sendError) {
       logger.error({ err: sendError }, "Failed to send error message");

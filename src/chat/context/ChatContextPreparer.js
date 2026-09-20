@@ -29,14 +29,25 @@ export class ChatContextPreparer {
    * @param {string|null} [cronMessage]
    * @returns {Promise<{context: Array, systemInstruction: string, messageIds: Array, inputMessages: Array<string>}>}
    */
-  async prepare(channelId, botId, channelRecord = null, cronMessage = null) {
+  async prepare(
+    channelId,
+    botId,
+    channelRecord = null,
+    cronMessage = null,
+    rerollGenerationId = null,
+  ) {
     const {
       historyMessages = [],
       pendingMessages = [],
       messageIds = [],
       inputMessages = [],
       lastUserPlatformAccountId = null,
-    } = await this.historyService.fetchHistoryData(channelId, botId);
+      eventSnapshot,
+    } = await this.historyService.fetchHistoryData(
+      channelId,
+      botId,
+      rerollGenerationId,
+    );
 
     const promptName = getRequiredChatPromptName(this.configManager);
     const sequenceDef = await this.sequenceBuilder.loadSequence(promptName);
@@ -66,6 +77,7 @@ export class ChatContextPreparer {
       systemInstruction,
       messageIds,
       inputMessages,
+      eventSnapshot,
     };
   }
 }

@@ -23,6 +23,7 @@ test("ChatGenerationLifecycle records chat input messages", async () => {
     {
       inputMessages: ["hello", "again"],
       messageIds: [1, 2],
+      eventSnapshot: undefined,
     },
   ]);
 });
@@ -82,6 +83,10 @@ test("ChatGenerationLifecycle does not overwrite cancelled generations", async (
   const transitions = [];
   const lifecycle = new ChatGenerationLifecycle(
     {
+      completeChat: async (id) => {
+        transitions.push([id, "GENERATED", "COMPLETED"]);
+        return false;
+      },
       updateStatusIfCurrent: async (...args) => {
         transitions.push(args);
         return false;

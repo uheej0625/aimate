@@ -99,16 +99,13 @@ export class CronJobWorker {
     const channel = await dispatcher.resolveChannel(job);
 
     if (!channel) {
-      logger.error(
-        { platformId: job.channel.platformId },
-        "Channel not found",
-      );
+      logger.error({ platformId: job.channel.platformId }, "Channel not found");
       await this.cronJobRepository.updateStatus(job.id, "CANCELLED");
       return;
     }
 
     const botId = (await dispatcher.getBotId(job)) ?? "bot";
-    this.conversationBuffer.add({
+    await this.conversationBuffer.add({
       channelPort: channel,
       internalChannelId: job.channelId,
       botId,
