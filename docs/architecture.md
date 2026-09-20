@@ -47,40 +47,43 @@ Prisma / SQLite
 
 ```mermaid
 flowchart TD
-    User[사용자 메시지] --> Platform[Discord event 또는 CLI]
-    Platform --> Adapter[Platform adapter]
-    Adapter --> Handler[MessageHandler]
-    Handler --> Filter{처리 대상인가?}
-    Filter -- 아니오 --> Stop[종료]
-    Filter -- 예 --> Save[MessageService로 사용자 메시지 저장]
-    Save --> Cancel[이전 진행 Generation 취소]
+    Platform[Discord / CLI] --> Adapter[MessageEvent adapter]
+    Adapter --> Handler[MessageHandler: 채널별 수신 순서]
+    Handler --> State[Message 최신 상태 갱신]
+    State --> Observe{목격한 변화인가?}
+    Observe -- 예 --> Event[Event 스냅샷 저장]
+    Observe -- 아니오 --> Stop[응답 없이 종료]
+    Event --> Respond{사용자 반응 대상인가?}
+    Respond -- 예 --> Cancel[이전 작업 취소와 새 토큰]
     Cancel --> Buffer[ConversationBuffer debounce]
     Buffer --> Flow[ChatFlow]
-    Flow --> Context[히스토리와 프롬프트 조립]
-    Context --> Generate[AI 응답과 도구 실행]
-    Generate --> Record[출력 저장 및 GENERATED 전환]
-    Record --> Sender[MessageSender]
-    Sender --> Channel[ChannelPort.send]
-    Channel --> Reply[플랫폼 답장]
-    Channel --> SaveReply[봇 메시지 저장]
-    SaveReply --> Complete[Generation COMPLETED]
+    Flow --> Context[사건 범위와 생성 입력 고정]
+    Context --> Generate[AI 생성과 도구 실행]
+    Generate --> Sender[작업 확인과 조각 전송]
+    Sender --> Sent[Message와 SENT 저장]
+    Sent --> Complete[COMPLETED와 처리 위치 전진]
+    Complete --> Grace[전송 종료 후 10분 주시]
 ```
 
-`NormalizedMessage`에는 저장과 처리에 필요한 순수 데이터만 포함된다. `ChannelPort`는 `send`와 `sendTyping`만 제공한다. Discord.js의 `Message`, `Client`, `Interaction` 객체는 플랫폼 계층 밖으로 전달하지 않는다.
+`MessageEvent`는 CREATE/UPDATE/DELETE를 공통 계약으로 전달한다. 생성·수정은 `NormalizedMessage`, 삭제는 플랫폼 메시지 ID 목록을 담는다. 부분 메시지 조회는 지연 함수로 제공한다. 플랫폼 SDK 객체는 내부 데이터로 전달하지 않는다.
 
-`ConversationBuffer`는 `platform:platformChannelId`를 키로 사용하므로 서로 다른 플랫폼에서 같은 채널 ID를 사용해도 충돌하지 않는다. 일반 사용자 메시지와 예약 작업 모두 `ConversationRequest`로 `ChatFlow`를 호출한다.
+`ConversationSession`은 주시 여부, 현재 작업 토큰, 채널별 짧은 작업의 순서를 관리한다. `ConversationBuffer`는 debounce만 담당한다. 플랫폼과 채널 ID의 튜플을 키로 사용한다. 일반 입력, 예약 실행, 재생성 모두 같은 세션으로 `ChatFlow`를 실행한다.
 
-각 `Generation`은 하나의 대화 턴 기록 단위다. 버퍼링 전의 사용자 메시지는 즉시 독립 저장하고, 생성이 시작될 때 해당 턴이 소비한 메시지 목록과 입력 스냅샷을 하나의 트랜잭션으로 `Generation`에 연결한다. 모델 출력과 상태 전환도 조건부 갱신으로 함께 기록하며, 전송된 봇 메시지는 동일한 `generationId`로 저장한다.
+`Message`는 최신 상태이고 `Event`는 목격한 경험이다. 주시 중 수정·삭제는 기존 생성을 취소하고 다시 예약한다. 비주시 중 변경은 현재 상태만 갱신한다. 과거 내역을 나중에 읽는 것과 편집 순간을 목격한 것은 별도로 표현한다.
+
+생성 입력은 Event 순서와 처리 위치로 고정한다. 확인된 전송 조각만 SENT로 남기며, 정상 완료와 처리 위치 전진을 한 트랜잭션에서 수행한다. 실패·취소는 이미 목격한 경험을 지우거나 완료 처리하지 않는다. 모델 호출과 플랫폼 전송 대기는 채널 큐 밖에서 실행한다.
+
+세부 정책과 검증 범위는 [메시지 사건과 대화 주시](message-observation-design.md)를 참조한다.
 
 ## Generation 상태
 
 ```mermaid
 stateDiagram-v2
     [*] --> PROCESSING: 생성 시작
-    PROCESSING --> CANCELLED: 새 사용자 메시지
+    PROCESSING --> CANCELLED: 새 사용자 발언 또는 목격한 변화
     PROCESSING --> FAILED: 컨텍스트 또는 모델 오류
     PROCESSING --> GENERATED: 모델 출력 원자적 저장
-    GENERATED --> CANCELLED: 전송 중 새 사용자 메시지
+    GENERATED --> CANCELLED: 전송 중 새 사용자 발언 또는 목격한 변화
     GENERATED --> FAILED: 전송 오류
     GENERATED --> COMPLETED: 모든 chunk 전송 완료
 ```
@@ -97,4 +100,4 @@ stateDiagram-v2
 - 예약 실행: `cronJobWorker`
 - 종료 처리: `conversationBuffer`, `cronJobWorker`
 
-새 플랫폼을 추가할 때는 `NormalizedMessage`, `ChannelPort`, `IncomingMessageRequest` 어댑터와 예약 작업용 dispatcher를 구현한다. 기존 chat, message, repository 계층에 플랫폼별 분기를 추가하지 않는다.
+새 플랫폼을 추가할 때는 `NormalizedMessage`, `ChannelPort`, `MessageEvent` 어댑터와 예약 작업용 dispatcher를 구현한다. 기존 chat, message, repository 계층에 플랫폼별 분기를 추가하지 않는다.
