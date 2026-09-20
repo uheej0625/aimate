@@ -26,6 +26,7 @@ import { HistoryMessageFormatter } from "../messages/HistoryMessageFormatter.js"
 import { validateAiConfig } from "../config/index.js";
 import { MessageHandler } from "../messages/MessageHandler.js";
 import { ConversationBuffer } from "../chat/ConversationBuffer.js";
+import { ConversationSession } from "../chat/ConversationSession.js";
 import { MessageSender } from "../messages/MessageSender.js";
 import { ChatFlow } from "../chat/ChatFlow.js";
 import { ChatGenerationLifecycle } from "../chat/ChatGenerationLifecycle.js";
@@ -61,7 +62,7 @@ export async function createContainer({
   // Repositories (data layer)
   const historyMessageFormatter = new HistoryMessageFormatter();
   const messageRepository = new MessageRepository(configManager);
-  const eventRepository = new EventRepository();
+  const eventRepository = new EventRepository(configManager);
   const userRepository = new UserRepository();
   const platformAccountRepository = new PlatformAccountRepository();
   const channelRepository = new ChannelRepository();
@@ -72,6 +73,7 @@ export async function createContainer({
   const cronJobScheduler = new CronJobScheduler(cronJobRepository);
   const eventBus = new EventBus();
   const generationAbortRegistry = new ChatGenerationAbortRegistry();
+  const conversationSession = new ConversationSession();
   registerRetryPolicy({ eventBus, cronJobScheduler });
 
   // Tools (function calling)
@@ -89,6 +91,7 @@ export async function createContainer({
 
   // Services (business logic layer)
   const historyService = new HistoryService(
+    eventRepository,
     messageRepository,
     historyMessageFormatter,
   );
@@ -167,25 +170,31 @@ export async function createContainer({
     failureHandler,
     eventBus,
     generationAbortRegistry,
+    conversationSession,
   });
 
   const activateChannel = new ActivateChannel(
     channelRepository,
     serverRepository,
   );
-  const storedMessageService = new StoredMessageService(messageService);
   const getGenerationInfo = new GetGenerationInfo(messageRepository);
   const rerollConversation = new RerollConversation(
     messageRepository,
     messageService,
     chatFlow,
+    generationLifecycle,
+    conversationSession,
   );
   const channelCatalog = new ChannelCatalog(
     channelRepository,
     messageRepository,
   );
 
-  const conversationBuffer = new ConversationBuffer(chatFlow, configManager);
+  const conversationBuffer = new ConversationBuffer(
+    chatFlow,
+    configManager,
+    conversationSession,
+  );
 
   const cronJobWorker = new CronJobWorker(
     cronJobRepository,
@@ -199,7 +208,10 @@ export async function createContainer({
     conversationBuffer,
     channelRepository,
     generationAbortRegistry,
+    conversationSession,
   );
+
+  const storedMessageService = new StoredMessageService(messageHandler);
 
   const botAccountService = new BotAccountService(
     userRepository,

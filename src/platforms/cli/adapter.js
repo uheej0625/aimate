@@ -27,6 +27,7 @@ export function adaptMessageData(raw) {
     platformChannelId: raw.channelId,
     platformServerId: raw.guildId ?? null,
     content: raw.content,
+    editedAt: raw.editedAt ?? null,
     author: {
       platformUserId: raw.author.id,
       handle: raw.author.username,
@@ -42,10 +43,11 @@ export function adaptMessageData(raw) {
  * @param {Object} raw
  * @param {import('../../application/contracts.js').ChannelPort} raw.channel
  * @param {{user: {id: string}}} raw.client
- * @returns {import('../../application/contracts.js').IncomingMessageRequest}
+ * @returns {import('../../application/contracts.js').MessageEvent}
  */
 export function adaptIncomingMessage(raw) {
   return {
+    kind: "CREATE",
     message: adaptMessageData(raw),
     channel: raw.channel,
     botId: raw.client.user.id,

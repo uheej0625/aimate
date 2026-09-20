@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert";
+import { ConversationSession } from "../../src/chat/ConversationSession.js";
 import { ConversationBuffer } from "../../src/chat/ConversationBuffer.js";
 
 test("ConversationBuffer tests", async (t) => {
@@ -15,15 +16,29 @@ test("ConversationBuffer tests", async (t) => {
       },
     };
 
-    const buffer = new ConversationBuffer(mockChatFlow, mockConfigManager);
+    const buffer = new ConversationBuffer(
+      mockChatFlow,
+      mockConfigManager,
+      new ConversationSession(),
+    );
     const request = createRequest("cli", "chan-1", "bot-1");
-    buffer.add(request);
+    await buffer.add(request);
 
     assert.strictEqual(executedRequest, null, "Should not execute immediately");
 
     await new Promise((resolve) => setTimeout(resolve, 30));
 
-    assert.strictEqual(executedRequest, request);
+    assert.deepStrictEqual(executedRequest, {
+      ...request,
+      turnId: executedRequest.turnId,
+    });
+    assert.equal(
+      buffer.conversationSession.isCurrent(
+        buffer.getKey(request.channelPort),
+        executedRequest.turnId,
+      ),
+      true,
+    );
   });
 
   await t.test("add should debounce subsequent calls", async () => {
@@ -34,11 +49,15 @@ test("ConversationBuffer tests", async (t) => {
       },
     };
 
-    const buffer = new ConversationBuffer(mockChatFlow, mockConfigManager);
-    buffer.add(createRequest("cli", "chan-2", "bot-1"));
+    const buffer = new ConversationBuffer(
+      mockChatFlow,
+      mockConfigManager,
+      new ConversationSession(),
+    );
+    await buffer.add(createRequest("cli", "chan-2", "bot-1"));
 
     await new Promise((resolve) => setTimeout(resolve, 5));
-    buffer.add(createRequest("cli", "chan-2", "bot-1")); // reset timer
+    await buffer.add(createRequest("cli", "chan-2", "bot-1")); // reset timer
 
     await new Promise((resolve) => setTimeout(resolve, 30));
 
@@ -55,9 +74,13 @@ test("ConversationBuffer tests", async (t) => {
         },
       };
 
-      const buffer = new ConversationBuffer(mockChatFlow, mockConfigManager);
-      buffer.add(createRequest("discord", "same-id", "discord-bot"));
-      buffer.add(createRequest("cli", "same-id", "cli-bot"));
+      const buffer = new ConversationBuffer(
+        mockChatFlow,
+        mockConfigManager,
+        new ConversationSession(),
+      );
+      await buffer.add(createRequest("discord", "same-id", "discord-bot"));
+      await buffer.add(createRequest("cli", "same-id", "cli-bot"));
 
       await new Promise((resolve) => setTimeout(resolve, 30));
 
@@ -73,9 +96,13 @@ test("ConversationBuffer tests", async (t) => {
       },
     };
 
-    const buffer = new ConversationBuffer(mockChatFlow, mockConfigManager);
+    const buffer = new ConversationBuffer(
+      mockChatFlow,
+      mockConfigManager,
+      new ConversationSession(),
+    );
     const request = createRequest("cli", "chan-3", "bot-1");
-    buffer.add(request);
+    await buffer.add(request);
     assert.strictEqual(buffer.has(request.channelPort), true);
     assert.strictEqual(buffer.clear(request.channelPort), true);
     assert.strictEqual(buffer.has(request.channelPort), false);

@@ -17,6 +17,7 @@ test("Discord adapter returns a platform-neutral incoming message", () => {
     platformChannelId: "channel-1",
     platformServerId: "server-1",
     content: "hello",
+    editedAt: null,
     author: {
       platformUserId: "user-1",
       handle: "user",
@@ -62,6 +63,7 @@ test("Discord channel port sends and normalizes the returned message", async () 
     platformChannelId: "channel-1",
     platformServerId: "server-1",
     content: "reply",
+    editedAt: null,
     author: {
       platformUserId: "bot-1",
       handle: "bot",
@@ -91,7 +93,7 @@ test("Discord deletion adapter keeps only IDs and channel context", () => {
   const request = adaptMessageDeletion([first, second], channel);
 
   assert.deepEqual(request.platformMessageIds, ["message-1", "message-2"]);
-  assert.equal(request.platform, "discord");
+  assert.equal(request.kind, "DELETE");
   assert.equal(request.botId, "bot-1");
   assert.equal(request.channel.platformChannelId, "channel-1");
 });
@@ -108,6 +110,7 @@ function createDiscordMessage(overrides = {}) {
     channelId: "channel-1",
     guildId: "server-1",
     content: "hello",
+    editedAt: null,
     author: {
       id: "user-1",
       username: "user",
