@@ -62,7 +62,6 @@ export class MessageHandler {
           if (message.author.isBot || message.author.platformUserId === botId)
             return { changed: false };
           if (kind === "CREATE") {
-            if (!message.content.trim()) return { changed: false };
             ({ changed } = await this.messageService.saveMessage(
               message,
               null,

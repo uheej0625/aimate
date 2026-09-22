@@ -222,6 +222,73 @@ test("chat pipeline persists history and multiple model-free replies", async () 
   );
 });
 
+for (const content of ["", " \n\t"]) {
+  test(`empty or whitespace input ${JSON.stringify(content)} is stored and answered`, async () => {
+    const modelRequests = [];
+    const h = createHarness({
+      generateTextFn: async (request) => {
+        modelRequests.push(request);
+        return fakeTextResult("## messages\nreply to empty input");
+      },
+    });
+    const channelRecord = await h.activate();
+    const message = createUserMessage(h, { id: randomUUID(), content });
+
+    const result = await h.receive("CREATE", { message });
+
+    assert.equal(result.changed, true);
+    assert.equal(result.refreshed, true);
+    assert.equal(h.bufferedRequests.length, 1);
+    await h.flush();
+    assert.deepEqual(h.sentMessages, ["reply to empty input"]);
+    assert.ok(
+      modelRequests[0].messages.some(
+        (entry) => entry.role === "user" && entry.content === content,
+      ),
+    );
+    const stored = await prisma.message.findFirst({
+      where: { channelId: channelRecord.id, isBot: false },
+      include: { events: true, generation: true },
+    });
+    assert.equal(stored.content, content);
+    assert.equal(stored.events[0].kind, "READ");
+    assert.equal(stored.generation.status, "COMPLETED");
+  });
+}
+
+test("bot delivery is stored once and its echoed create events never schedule a reply", async () => {
+  const h = createHarness({
+    generateTextFn: async () => fakeTextResult("## messages\none bot reply"),
+  });
+  const channelRecord = await h.activate();
+  const send = h.channel.send;
+  let sentMessage;
+  h.channel.send = async (options) => {
+    sentMessage = await send(options);
+    const result = await h.receive("CREATE", { message: sentMessage });
+    assert.equal(result.changed, false);
+    return sentMessage;
+  };
+
+  await h.receive("CREATE", {
+    message: createUserMessage(h, { id: randomUUID(), content: "hello" }),
+  });
+  await h.flush();
+  await h.receive("CREATE", { message: sentMessage });
+
+  assert.equal(h.bufferedRequests.length, 1);
+  assert.deepEqual(h.sentMessages, ["one bot reply"]);
+  const replies = await prisma.message.findMany({
+    where: { channelId: channelRecord.id, isBot: true },
+    include: { events: true, generation: true },
+  });
+  assert.equal(replies.length, 1);
+  assert.equal(replies[0].platformId, sentMessage.platformMessageId);
+  assert.equal(replies[0].content, "one bot reply");
+  assert.equal(replies[0].generation.status, "COMPLETED");
+  assert.deepEqual(replies[0].events.map((event) => event.kind), ["SENT"]);
+});
+
 test("message persistence records changes and retains deletion tombstones", async () => {
   const harness = createHarness({
     generateTextFn: async () =>
@@ -480,10 +547,14 @@ test("soft deletion preserves references and hides messages from current queries
   }
 });
 
-test("chat pipeline marks a failed model call and sends a fallback", async () => {
+test("failed input stays pending after a fallback and joins new input on recovery", async () => {
+  const modelRequests = [];
   const harness = createHarness({
-    generateTextFn: async () => {
-      throw new Error("synthetic model failure");
+    generateTextFn: async (request) => {
+      modelRequests.push(request);
+      if (modelRequests.length === 1)
+        throw new Error("synthetic model failure");
+      return fakeTextResult("## messages\nrecovered reply");
     },
   });
   const input = createUserMessage(harness, {
@@ -511,6 +582,40 @@ test("chat pipeline marks a failed model call and sends a fallback", async () =>
   assert.strictEqual(generation.output, null);
   assert.strictEqual(harness.sentMessages.length, 1);
   assert.match(harness.sentMessages[0], /답변 생성 중 오류/);
+  assert.strictEqual(
+    await prisma.conversationState.count({ where: { channelId: channel.id } }),
+    0,
+  );
+
+  const nextInput = createUserMessage(harness, {
+    id: randomUUID(),
+    content: "다시 답해줘",
+  });
+  await harness.messageService.saveMessage(nextInput);
+  await harness.executeChat();
+
+  const recovered = await prisma.generation.findFirst({
+    where: { channelId: channel.id },
+    orderBy: { id: "desc" },
+  });
+  assert.strictEqual(recovered.status, "COMPLETED");
+  assert.deepStrictEqual(
+    JSON.parse(recovered.input).messages.map((message) => message.content),
+    [input.content, nextInput.content],
+  );
+  for (const content of [input.content, nextInput.content]) {
+    assert.ok(
+      modelRequests[1].messages.some(
+        (entry) => entry.role === "user" && entry.content === content,
+      ),
+    );
+  }
+  assert.strictEqual(harness.sentMessages.at(-1), "recovered reply");
+  const history = await harness.historyService.fetchHistoryData(
+    channel.id,
+    harness.botId,
+  );
+  assert.deepStrictEqual(history.inputMessages, []);
 });
 
 test("chat pipeline preserves cancellation before the model call", async () => {

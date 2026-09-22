@@ -72,13 +72,12 @@ test("new input starts watching and cancels active generation before buffering",
   assert.equal(h.session.isCurrent(h.key, h.requests[0].turnId), true);
 });
 
-test("bots, empty creates and duplicate events do not start or prolong watching", async () => {
+test("bots and duplicate events do not start or prolong watching", async () => {
   const h = harness({
     saveMessage: async () => ({ changed: false }),
     updateMessage: async () => ({ changed: false }),
   });
   await h.handle("CREATE");
-  await h.handle("CREATE", { message: { ...h.message, content: " " } });
   await h.handle("CREATE", {
     message: { ...h.message, author: { platformUserId: "bot", isBot: true } },
   });
