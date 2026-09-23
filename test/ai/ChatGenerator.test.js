@@ -63,7 +63,11 @@ test("ChatGenerator creates tool context for the active channel", async () => {
     { abortSignal: abortController.signal },
   );
 
-  assert.deepStrictEqual(contextInput, { platform: "discord", channel });
+  assert.deepStrictEqual(contextInput, {
+    platform: "discord",
+    channel,
+    abortSignal: abortController.signal,
+  });
   assert.deepStrictEqual(registryInput, {
     platform: "discord",
     context: toolContext,

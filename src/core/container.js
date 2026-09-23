@@ -211,6 +211,7 @@ export async function createContainer({
     channelCatalog,
     botAccountService,
     eventBus,
+    generationRepository,
     generationAbortRegistry,
     messageHandler,
     conversationBuffer,

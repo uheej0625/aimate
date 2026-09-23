@@ -62,6 +62,7 @@ export async function generateChatReply({
     result,
     appTools,
     messages,
+    abortSignal,
   );
 
   const toolResults = recoveredTextToolCall
@@ -102,7 +103,7 @@ function collectToolOutputs(result) {
   return (result.toolResults ?? []).map((toolResult) => toolResult.output);
 }
 
-async function recoverTextToolCall(result, appTools, messages) {
+async function recoverTextToolCall(result, appTools, messages, abortSignal) {
   const hasNativeCall =
     result.toolCalls?.length ||
     (result.steps ?? []).some((step) => step.toolCalls?.length);
@@ -130,9 +131,12 @@ async function recoverTextToolCall(result, appTools, messages) {
       { tool: call.name },
       "Model returned a tool call as text; executing the application tool directly",
     );
+    if (abortSignal?.aborted) return null;
     const output = await appTools[call.name].execute(call.arguments, {
       messages,
+      abortSignal,
     });
+    if (abortSignal?.aborted) return null;
     return { toolName: call.name, input: call.arguments, output };
   } catch (_error) {
     return null;

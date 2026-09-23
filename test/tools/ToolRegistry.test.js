@@ -30,6 +30,7 @@ test("ToolRegistry creates AI SDK toolsets with runtime context", async () => {
   const toolSet = registry.createToolSet("cli", {
     platform: "cli",
     imageGenerator: { id: "image-generator" },
+    abortSignal: new AbortController().signal,
   });
 
   assert.ok(toolSet.echo);
@@ -41,5 +42,6 @@ test("ToolRegistry creates AI SDK toolsets with runtime context", async () => {
   assert.deepStrictEqual(output, { value: "hi", platform: "cli" });
   assert.strictEqual(received.context.toolCallId, "call-1");
   assert.strictEqual(received.context.imageGenerator.id, "image-generator");
+  assert.ok(received.context.abortSignal);
   assert.ok(!Object.hasOwn(received.context, "ai"));
 });

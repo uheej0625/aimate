@@ -17,7 +17,12 @@ export class ToolExecutionContextFactory {
     this.characterId = getRequiredCharacterId(configManager);
   }
 
-  create({ platform, channel = null, requestCreatedAt = new Date() }) {
+  create({
+    platform,
+    channel = null,
+    requestCreatedAt = new Date(),
+    abortSignal = undefined,
+  }) {
     return {
       platform,
       platformClient: this.platformClients.get(platform) ?? null,
@@ -28,6 +33,7 @@ export class ToolExecutionContextFactory {
       channel,
       requestCreatedAt,
       characterId: this.characterId,
+      abortSignal,
     };
   }
 }

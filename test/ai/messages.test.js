@@ -124,6 +124,40 @@ test("generateChatReply executes JSON-only pseudo tool calls without another mod
   );
 });
 
+test("generateChatReply passes cancellation to recovered text tool calls", async () => {
+  const controller = new AbortController();
+  let receivedSignal;
+  await generateChatReply({
+    configManager: {
+      get(key) {
+        if (key === "ai.chat") return { provider: "openai", model: "fake" };
+        if (key === "tools.maxSteps") return 5;
+      },
+    },
+    context: [{ role: "user", content: "이미지 만들어줘" }],
+    platform: "cli",
+    toolRegistry: {
+      createToolSet: () => ({
+        image: {
+          execute: async (_input, options) => {
+            receivedSignal = options.abortSignal;
+            return { message: "done" };
+          },
+        },
+      }),
+    },
+    responseParser: { parse: (text) => ({ messages: [text] }) },
+    generateTextFn: async () => ({
+      text: '{"name":"image","arguments":{}}',
+      steps: [],
+    }),
+    createLanguageModelFn: () => ({ provider: "test" }),
+    abortSignal: controller.signal,
+  });
+
+  assert.strictEqual(receivedSignal, controller.signal);
+});
+
 test("generateChatReply does not retry ordinary JSON or completed tool calls", async () => {
   const responses = [
     {

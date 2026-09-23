@@ -221,3 +221,64 @@ test("executeImageGenerationTool does not pass image references when none are re
     await fs.rm(tmpDir, { recursive: true, force: true });
   }
 });
+
+test("executeImageGenerationTool forwards cancellation and never completes an aborted image", async () => {
+  const originalCwd = process.cwd();
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aimate-image-tool-"));
+  process.chdir(tmpDir);
+
+  try {
+    await fs.mkdir(path.join(tmpDir, "content", "prompts", "test", "image"), {
+      recursive: true,
+    });
+    await fs.writeFile(
+      path.join(tmpDir, "content", "prompts", "test", "image", "photo.md"),
+      "Scene={{data.scene}}",
+    );
+    const controller = new AbortController();
+    const statuses = [];
+    let receivedSignal;
+    const generationRepository = {
+      create: async () => ({ id: "gen-cancelled" }),
+      updateDetails: async () => assert.fail("aborted generation must not save output"),
+      updateStatusIfCurrent: async (_id, expected, status) => {
+        assert.equal(expected, "PROCESSING");
+        statuses.push(status);
+        return true;
+      },
+    };
+
+    await assert.rejects(
+      executeImageGenerationTool(
+        { scene: "cancelled" },
+        {
+          imageGenerator: {
+            generate: async (_prompt, options) => {
+              receivedSignal = options.abortSignal;
+              controller.abort();
+              throw new DOMException("Aborted", "AbortError");
+            },
+          },
+          configManager: {
+            get: (key) => (key === "ai.image.prompt" ? "test" : null),
+          },
+          generationRepository,
+          channel: { id: "channel-1" },
+          abortSignal: controller.signal,
+        },
+        {
+          toolName: "generate_photo",
+          templateFile: "photo.md",
+          describe: () => "Generated photo",
+        },
+      ),
+      { name: "AbortError" },
+    );
+
+    assert.strictEqual(receivedSignal, controller.signal);
+    assert.deepEqual(statuses, ["CANCELLED"]);
+  } finally {
+    process.chdir(originalCwd);
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});

@@ -154,7 +154,7 @@ export class ToolRegistry {
                 ...context,
                 toolCallId: options.toolCallId,
                 messages: options.messages,
-                abortSignal: options.abortSignal,
+                abortSignal: options.abortSignal ?? context.abortSignal,
               });
 
               logger.info(

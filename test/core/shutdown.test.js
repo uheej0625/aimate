@@ -1,39 +1,53 @@
 import test from "node:test";
-import assert from "node:assert";
+import assert from "node:assert/strict";
 import { registerShutdown } from "../../src/core/shutdown.js";
 import { ChatGenerationAbortRegistry } from "../../src/chat/ChatGenerationAbortRegistry.js";
 
-test("registerShutdown aborts active model requests before cancelling generations", async () => {
+test("registerShutdown uses injected dependencies in shutdown order", async () => {
   const registry = new ChatGenerationAbortRegistry();
   const signal = registry.register("channel-1", 1);
-  let buffersCleared = false;
+  const calls = [];
   const originalExit = process.exit;
   const originalListeners = process.listeners("SIGINT");
 
   process.removeAllListeners("SIGINT");
-  process.exit = () => {};
+  process.exit = () => calls.push("exit");
 
-  const conversationBuffer = {
-    clearAll: () => {
-      buffersCleared = true;
-    },
-  };
+  try {
+    registerShutdown({
+      conversationBuffer: { clearAll: () => calls.push("buffers") },
+      generationAbortRegistry: {
+        abortAll: () => {
+          calls.push("abort");
+          registry.abortAll();
+          return 1;
+        },
+      },
+      generationRepository: {
+        cancelInProgress: async () => {
+          calls.push("cancel");
+          return 1;
+        },
+      },
+      client: { destroy: () => calls.push("platform") },
+      disconnectDatabase: async () => calls.push("disconnect"),
+    });
 
-  registerShutdown({
-    conversationBuffer,
-    generationAbortRegistry: registry,
-  });
+    process.emit("SIGINT");
+    await new Promise((resolve) => setImmediate(resolve));
 
-  process.emit("SIGINT");
-  await new Promise((resolve) => setTimeout(resolve, 20));
-
-  assert.strictEqual(signal.aborted, true);
-  assert.strictEqual(buffersCleared, true);
-  assert.strictEqual(registry.abortAll(), 0);
-
-  process.removeAllListeners("SIGINT");
-  for (const listener of originalListeners) {
-    process.on("SIGINT", listener);
+    assert.equal(signal.aborted, true);
+    assert.deepEqual(calls, [
+      "buffers",
+      "abort",
+      "cancel",
+      "platform",
+      "disconnect",
+      "exit",
+    ]);
+  } finally {
+    process.removeAllListeners("SIGINT");
+    for (const listener of originalListeners) process.on("SIGINT", listener);
+    process.exit = originalExit;
   }
-  process.exit = originalExit;
 });

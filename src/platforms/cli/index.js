@@ -11,6 +11,7 @@ configureLogger(configManager);
 
 const { createContainer } = await import("../../core/container.js");
 const { registerShutdown } = await import("../../core/shutdown.js");
+const { prisma } = await import("../../database/client.js");
 const { CLI_BOT_ID } = await import("./constants.js");
 const { createMockClient } = await import("./mocks.js");
 const { startRepl } = await import("./repl.js");
@@ -28,6 +29,7 @@ const logger = createLogger("CLI");
     messageHandler,
     botAccountService,
     channelCatalog,
+    generationRepository,
     generationAbortRegistry,
   } = container;
 
@@ -35,7 +37,9 @@ const logger = createLogger("CLI");
   registerShutdown({
     conversationBuffer: container.conversationBuffer,
     generationAbortRegistry,
+    generationRepository,
     configManager,
+    disconnectDatabase: () => prisma.$disconnect(),
   });
 
   logger.info("🤖 Initializing bot platform account...");

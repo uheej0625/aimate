@@ -194,6 +194,15 @@ export class GenerationRepository {
     return result.count;
   }
 
+  /** Cancel every generation that can still produce an external side effect. */
+  async cancelInProgress() {
+    const result = await prisma.generation.updateMany({
+      where: { status: { in: ["PROCESSING", "GENERATED"] } },
+      data: { status: "CANCELLED" },
+    });
+    return result.count;
+  }
+
   /**
    * Find a generation by ID.
    * @param {string} generationId - Generation ID

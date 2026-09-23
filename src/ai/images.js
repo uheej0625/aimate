@@ -30,6 +30,7 @@ export async function generateImageFile(configManager, prompt, options = {}) {
     size: options.size,
     providerOptions: getProviderOptions(settings),
     maxRetries: settings.maxRetries,
+    abortSignal: options.abortSignal,
   });
 
   logger.info(

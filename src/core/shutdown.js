@@ -1,4 +1,3 @@
-import { prisma } from "../database/client.js";
 import { createLogger } from "./logger.js";
 
 const logger = createLogger("Shutdown");
@@ -9,14 +8,18 @@ const logger = createLogger("Shutdown");
  * @param {Object} options
  * @param {import('../chat/ConversationBuffer.js').ConversationBuffer} options.conversationBuffer
  * @param {import('../chat/ChatGenerationAbortRegistry.js').ChatGenerationAbortRegistry} [options.generationAbortRegistry]
+ * @param {{cancelInProgress: () => Promise<number>}} [options.generationRepository]
  * @param {import('../config/ConfigManager.js').default} [options.configManager]
  * @param {import('discord.js').Client|null} [options.client] - Discord 클라이언트 (없으면 무시)
+ * @param {() => Promise<void>} [options.disconnectDatabase]
  */
 export function registerShutdown({
   conversationBuffer,
   generationAbortRegistry = null,
+  generationRepository = null,
   configManager = null,
   client = null,
+  disconnectDatabase = null,
 }) {
   let shuttingDown = false;
 
@@ -40,13 +43,10 @@ export function registerShutdown({
 
     // 3. 진행 중인 Generation들을 CANCELLED로 변경
     try {
-      const result = await prisma.generation.updateMany({
-        where: { status: { in: ["PROCESSING", "GENERATED"] } },
-        data: { status: "CANCELLED" },
-      });
-      if (result.count > 0) {
+      const cancelled = await generationRepository?.cancelInProgress();
+      if (cancelled > 0) {
         logger.info(
-          { count: result.count },
+          { count: cancelled },
           "Cancelled in-progress generations",
         );
       }
@@ -71,11 +71,13 @@ export function registerShutdown({
     }
 
     // 6. Prisma 연결 종료
-    try {
-      await prisma.$disconnect();
-      logger.info("Database connection closed");
-    } catch (error) {
-      logger.error({ err: error }, "Failed to disconnect database");
+    if (disconnectDatabase) {
+      try {
+        await disconnectDatabase();
+        logger.info("Database connection closed");
+      } catch (error) {
+        logger.error({ err: error }, "Failed to disconnect database");
+      }
     }
 
     logger.info("Shutdown complete.");
