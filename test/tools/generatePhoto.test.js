@@ -116,8 +116,7 @@ function buildContext({ generateImage }) {
     },
     generationRepository: {
       create: async () => ({ id: "generation-id" }),
-      updateDetails: async () => {},
-      updateStatus: async () => {},
+      updateDetailsAndStatusIfCurrent: async () => true,
     },
     channel: { id: "channel-id" },
   };

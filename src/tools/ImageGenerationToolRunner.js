@@ -73,15 +73,26 @@ export async function executeImageGenerationTool(args, context, spec) {
     const outputPath = await writeGeneratedImage(filename, imageBuffer);
     throwIfAborted(abortSignal);
 
-    await generationRepository.updateDetails(generationId, {
-      apiRequest: result.request || fallbackApiRequest,
-      apiResponse: result.response || {
-        status: "success",
-        tool: spec.toolName,
-      },
-      output: filename,
-    });
-    await generationRepository.updateStatus(generationId, "COMPLETED");
+    const completed =
+      await generationRepository.updateDetailsAndStatusIfCurrent(
+        generationId,
+        "PROCESSING",
+        "COMPLETED",
+        {
+          apiRequest: result.request || fallbackApiRequest,
+          apiResponse: result.response || {
+            status: "success",
+            tool: spec.toolName,
+          },
+          output: filename,
+        },
+      );
+    if (!completed) {
+      throw new DOMException(
+        "Image generation was cancelled before completion",
+        "AbortError",
+      );
+    }
 
     return {
       status: "success",

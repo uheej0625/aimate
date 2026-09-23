@@ -39,11 +39,20 @@ test("executeImageGenerationTool renders prompts, passes references, and records
         calls.push(["create", data]);
         return { id: "gen-1" };
       },
-      updateDetails: async (generationId, details) => {
-        calls.push(["updateDetails", generationId, details]);
-      },
-      updateStatus: async (generationId, status) => {
-        calls.push(["updateStatus", generationId, status]);
+      updateDetailsAndStatusIfCurrent: async (
+        generationId,
+        expectedStatus,
+        status,
+        details,
+      ) => {
+        calls.push([
+          "complete",
+          generationId,
+          expectedStatus,
+          status,
+          details,
+        ]);
+        return true;
       },
     };
     const generated = Buffer.from("generated image");
@@ -93,17 +102,18 @@ test("executeImageGenerationTool renders prompts, passes references, and records
     ]);
     assert.strictEqual(generateCall[2].size, "1024x1024");
 
-    const updateDetailsCall = calls.find(([name]) => name === "updateDetails");
-    assert.match(updateDetailsCall[2].output, /^[a-f0-9]{8}\.png$/);
+    const completeCall = calls.find(([name]) => name === "complete");
+    assert.match(completeCall[4].output, /^[a-f0-9]{8}\.png$/);
     assert.deepStrictEqual(
       await fs.readFile(
         path.join(tmpDir, "content", "image", result.imageId + ".png"),
       ),
       generated,
     );
-    assert.deepStrictEqual(calls.at(-1), [
-      "updateStatus",
+    assert.deepStrictEqual(completeCall.slice(0, 4), [
+      "complete",
       "gen-1",
+      "PROCESSING",
       "COMPLETED",
     ]);
     assert.match(
@@ -189,8 +199,7 @@ test("executeImageGenerationTool does not pass image references when none are re
     let receivedOptions = null;
     const generationRepository = {
       create: async () => ({ id: "gen-3" }),
-      updateDetails: async () => {},
-      updateStatus: async () => {},
+      updateDetailsAndStatusIfCurrent: async () => true,
     };
 
     await executeImageGenerationTool(
@@ -277,6 +286,68 @@ test("executeImageGenerationTool forwards cancellation and never completes an ab
 
     assert.strictEqual(receivedSignal, controller.signal);
     assert.deepEqual(statuses, ["CANCELLED"]);
+  } finally {
+    process.chdir(originalCwd);
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("executeImageGenerationTool rejects completion after the generation was cancelled", async () => {
+  const originalCwd = process.cwd();
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aimate-image-tool-"));
+  process.chdir(tmpDir);
+
+  try {
+    await fs.mkdir(path.join(tmpDir, "content", "prompts", "test", "image"), {
+      recursive: true,
+    });
+    await fs.writeFile(
+      path.join(tmpDir, "content", "prompts", "test", "image", "photo.md"),
+      "Scene={{data.scene}}",
+    );
+    const transitions = [];
+    const generationRepository = {
+      create: async () => ({ id: "gen-cancelled-before-completion" }),
+      updateDetailsAndStatusIfCurrent: async (
+        _id,
+        expectedStatus,
+        status,
+      ) => {
+        transitions.push([expectedStatus, status]);
+        return false;
+      },
+      updateStatusIfCurrent: async (_id, expectedStatus, status) => {
+        transitions.push([expectedStatus, status]);
+        return false;
+      },
+    };
+
+    await assert.rejects(
+      executeImageGenerationTool(
+        { scene: "cancelled before completion" },
+        {
+          imageGenerator: {
+            generate: async () => ({ buffer: Buffer.from("generated image") }),
+          },
+          configManager: {
+            get: (key) => (key === "ai.image.prompt" ? "test" : null),
+          },
+          generationRepository,
+          channel: { id: "channel-1" },
+        },
+        {
+          toolName: "generate_photo",
+          templateFile: "photo.md",
+          describe: () => "Generated photo",
+        },
+      ),
+      { name: "AbortError" },
+    );
+
+    assert.deepEqual(transitions, [
+      ["PROCESSING", "COMPLETED"],
+      ["PROCESSING", "CANCELLED"],
+    ]);
   } finally {
     process.chdir(originalCwd);
     await fs.rm(tmpDir, { recursive: true, force: true });
