@@ -36,7 +36,7 @@ export class SequenceBuilder {
   /**
    * sequence.js 명세에 따라 컨텍스트 배열을 조립한다.
    * @param {Array} sequenceDef
-   * @param {Object} options - { historyMessages, pendingMessages, botId, cronMessage, channelRecord, promptName, data }
+   * @param {Object} options - { historyMessages, pendingMessages, botId, channelRecord, promptName, data }
    * @returns {Promise<{ systemInstruction: string, context: Array }>}
    */
   async build(
@@ -45,7 +45,6 @@ export class SequenceBuilder {
       historyMessages = [],
       pendingMessages = [],
       botId,
-      cronMessage,
       channelRecord,
       promptName,
       data = {},
@@ -118,12 +117,6 @@ export class SequenceBuilder {
           });
         }
       } else if (step.type === "pending") {
-        if (cronMessage) {
-          context.push({
-            role: "user",
-            content: `[시스템: 예약된 작업 실행]\n이것은 이전에 등록된 cron job이 예약된 시각에 자동 실행된 것입니다.\n이 작업을 다시 예약하거나 새로운 cron job을 등록하지 마세요.\n\n${cronMessage}`,
-          });
-        }
         for (const msg of pendingMessages) {
           context.push({
             role: msg.authorPlatformId === botId ? "assistant" : "user",

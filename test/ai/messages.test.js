@@ -77,8 +77,8 @@ test("generateChatReply executes JSON-only pseudo tool calls without another mod
     text: [
       "```json",
       JSON.stringify({
-        name: "register_cron_job",
-        arguments: { scheduledTime: "2m", message: "알림 메시지" },
+        name: "echo",
+        arguments: { message: "메시지" },
       }),
       "```",
     ].join("\n"),
@@ -87,14 +87,14 @@ test("generateChatReply executes JSON-only pseudo tool calls without another mod
   };
   const result = await generateChatReply({
     configManager,
-    context: [{ role: "user", content: "2분 후에 알려줘" }],
+    context: [{ role: "user", content: "이 메시지를 반복해줘" }],
     platform: "discord",
     toolRegistry: {
       createToolSet: () => ({
-        register_cron_job: {
+        echo: {
           execute: async (input, options) => {
             executions.push({ input, options });
-            return { success: true, message: "예약했어" };
+            return { success: true, message: "메시지" };
           },
         },
       }),
@@ -110,13 +110,12 @@ test("generateChatReply executes JSON-only pseudo tool calls without another mod
   assert.strictEqual(requests.length, 1);
   assert.strictEqual(executions.length, 1);
   assert.deepStrictEqual(executions[0].input, {
-    scheduledTime: "2m",
-    message: "알림 메시지",
+    message: "메시지",
   });
   assert.deepStrictEqual(executions[0].options.messages, [
-    { role: "user", content: "2분 후에 알려줘" },
+    { role: "user", content: "이 메시지를 반복해줘" },
   ]);
-  assert.deepStrictEqual(result.messages, ["예약했어"]);
+  assert.deepStrictEqual(result.messages, ["메시지"]);
   assert.strictEqual(result.apiRequests.length, 1);
   assert.strictEqual(result.apiResponses.length, 1);
   assert.deepStrictEqual(

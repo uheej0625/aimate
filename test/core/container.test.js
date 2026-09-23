@@ -19,7 +19,6 @@ test("createContainer exposes only application entrypoint dependencies", async (
     "channelCatalog",
     "chatFlow",
     "conversationBuffer",
-    "cronJobWorker",
     "eventBus",
     "generationAbortRegistry",
     "getGenerationInfo",
@@ -27,10 +26,6 @@ test("createContainer exposes only application entrypoint dependencies", async (
     "rerollConversation",
     "storedMessageService",
   ]);
-  assert.strictEqual(
-    container.eventBus.listenerCount(AppEvents.GenerationServiceUnavailable),
-    1,
-  );
   assert.strictEqual(
     container.eventBus.listenerCount(AppEvents.GenerationCompleted),
     1,

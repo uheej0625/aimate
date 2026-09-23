@@ -5,16 +5,12 @@ import { PlatformAccountRepository } from "../repositories/PlatformAccountReposi
 import { ChannelRepository } from "../repositories/ChannelRepository.js";
 import { ServerRepository } from "../repositories/ServerRepository.js";
 import { GenerationRepository } from "../repositories/GenerationRepository.js";
-import { CronJobRepository } from "../repositories/CronJobRepository.js";
 import { MemoryRepository } from "../repositories/MemoryRepository.js";
 import { ChatGenerator } from "../ai/ChatGenerator.js";
 import { ImageGenerator } from "../ai/ImageGenerator.js";
 import { HistoryService } from "../messages/HistoryService.js";
 import { MessageService } from "../messages/MessageService.js";
 import { BotAccountService } from "../accounts/BotAccountService.js";
-import { CronJobScheduler } from "../scheduling/CronJobScheduler.js";
-import { CronJobWorker } from "../scheduling/CronJobWorker.js";
-import { registerRetryPolicy } from "../scheduling/registerRetryPolicy.js";
 import { CharacterContextBuilder } from "../character/CharacterContextBuilder.js";
 import { PromptComposer } from "../chat/context/PromptComposer.js";
 import { SequenceBuilder } from "../chat/context/SequenceBuilder.js";
@@ -51,7 +47,6 @@ import { registerMemoryPolicy } from "../memory/registerMemoryPolicy.js";
 export async function createContainer({
   configManager,
   platformClients = new Map(),
-  platformDispatchers = new Map(),
 }) {
   if (!configManager) {
     throw new Error("createContainer requires a configManager.");
@@ -68,13 +63,10 @@ export async function createContainer({
   const channelRepository = new ChannelRepository();
   const serverRepository = new ServerRepository();
   const generationRepository = new GenerationRepository(configManager);
-  const cronJobRepository = new CronJobRepository();
   const memoryRepository = new MemoryRepository();
-  const cronJobScheduler = new CronJobScheduler(cronJobRepository);
   const eventBus = new EventBus();
   const generationAbortRegistry = new ChatGenerationAbortRegistry();
   const conversationSession = new ConversationSession();
-  registerRetryPolicy({ eventBus, cronJobScheduler });
 
   // Tools (function calling)
   const toolRegistry = new ToolRegistry(configManager);
@@ -83,7 +75,6 @@ export async function createContainer({
   const imageGenerator = new ImageGenerator(configManager);
   const toolContextFactory = new ToolExecutionContextFactory({
     configManager,
-    cronJobScheduler,
     imageGenerator,
     generationRepository,
     platformClients,
@@ -196,12 +187,6 @@ export async function createContainer({
     conversationSession,
   );
 
-  const cronJobWorker = new CronJobWorker(
-    cronJobRepository,
-    conversationBuffer,
-    platformDispatchers,
-  );
-
   const messageHandler = new MessageHandler(
     messageService,
     generationLifecycle,
@@ -225,7 +210,6 @@ export async function createContainer({
     rerollConversation,
     channelCatalog,
     botAccountService,
-    cronJobWorker,
     eventBus,
     generationAbortRegistry,
     messageHandler,

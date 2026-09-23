@@ -35,7 +35,6 @@ test("ChatContextPreparer loads history and sequence", async () => {
     "channel-1",
     "bot-1",
     { id: "channel-1" },
-    "cron",
   );
 
   assert.deepStrictEqual(result.context, ["built-context"]);

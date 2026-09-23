@@ -55,7 +55,6 @@
  * @property {string} botId
  * @property {symbol} [turnId] - Current in-memory conversation owner
  * @property {number} [rerollGenerationId] - Original fixed input to replay
- * @property {string|null} [cronMessage]
  */
 
 export {};

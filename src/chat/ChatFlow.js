@@ -33,7 +33,6 @@ export class ChatFlow {
     channelPort,
     internalChannelId,
     botId,
-    cronMessage = null,
     turnId = null,
     rerollGenerationId = null,
   }) {
@@ -92,7 +91,6 @@ export class ChatFlow {
       if (!started) return;
       await this.eventBus.emitAsync(AppEvents.GenerationStarted, {
         ...payload(),
-        cronMessage,
       });
 
       const prepared = await run(async () => {
@@ -101,7 +99,6 @@ export class ChatFlow {
           internalChannelId,
           botId,
           channelRecord,
-          cronMessage,
           rerollGenerationId,
         );
         const recorded = await this.generationLifecycle.recordInput(

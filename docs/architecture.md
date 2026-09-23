@@ -11,7 +11,7 @@ Platform adapter
     ↓
 Application use case
     ↓
-Chat / Message / Scheduling service
+Chat / Message service
     ↓
 Repository
     ↓
@@ -27,7 +27,7 @@ Prisma / SQLite
 - `src/messages/`는 메시지 저장, 기록 조회, 전송을 담당한다.
 - 일반 영속 데이터 접근은 `src/repositories/`에 둔다. `src/core/shutdown.js`의 전체 진행 Generation 취소는 현재 종료 처리에 남아 있는 예외다.
 - `src/core/container.js`가 객체 생성과 의존성 연결을 담당한다.
-- 주 응답 경로는 명시적인 호출로 유지하고, `EventBus`는 재시도나 Discord 상태 변경 같은 부가 정책에만 사용한다.
+- 주 응답 경로는 명시적인 호출로 유지하고, `EventBus`는 기억 추출 같은 부가 정책에만 사용한다.
 
 ## 디렉터리 책임
 
@@ -40,7 +40,6 @@ Prisma / SQLite
 | `src/messages/`     | 메시지 저장, 히스토리 변환, 응답 전송                                  |
 | `src/platforms/`    | Discord와 CLI 진입점, 어댑터, 사용자 인터페이스                        |
 | `src/repositories/` | Prisma 데이터 접근                                                     |
-| `src/scheduling/`   | 예약 등록, polling worker, LLM 재시도 정책                             |
 | `src/tools/`        | 모델에 노출하는 도구 정의와 실행 컨텍스트                              |
 
 ## 메시지 처리 흐름
@@ -67,7 +66,7 @@ flowchart TD
 
 `MessageEvent`는 CREATE/UPDATE/DELETE를 공통 계약으로 전달한다. 생성·수정은 `NormalizedMessage`, 삭제는 플랫폼 메시지 ID 목록을 담는다. 부분 메시지 조회는 지연 함수로 제공한다. 플랫폼 SDK 객체는 내부 데이터로 전달하지 않는다.
 
-`ConversationSession`은 주시 여부, 현재 작업 토큰, 채널별 짧은 작업의 순서를 관리한다. `ConversationBuffer`는 debounce만 담당한다. 플랫폼과 채널 ID의 튜플을 키로 사용한다. 일반 입력, 예약 실행, 재생성 모두 같은 세션으로 `ChatFlow`를 실행한다.
+`ConversationSession`은 주시 여부, 현재 작업 토큰, 채널별 짧은 작업의 순서를 관리한다. `ConversationBuffer`는 debounce만 담당한다. 플랫폼과 채널 ID의 튜플을 키로 사용한다. 일반 입력과 재생성은 같은 세션으로 `ChatFlow`를 실행한다.
 
 `Message`는 최신 상태이고 `Event`는 목격한 경험이다. 주시 중 수정·삭제는 기존 생성을 취소하고 다시 예약한다. 비주시 중 변경은 현재 상태만 갱신한다. 과거 내역을 나중에 읽는 것과 편집 순간을 목격한 것은 별도로 표현한다.
 
@@ -97,7 +96,6 @@ stateDiagram-v2
 - 메시지 이벤트: `messageHandler`
 - Discord 명령: `activateChannel`, `storedMessageService`, `getGenerationInfo`, `rerollConversation`
 - CLI 채널 목록: `channelCatalog`
-- 예약 실행: `cronJobWorker`
-- 종료 처리: `conversationBuffer`, `cronJobWorker`
+- 종료 처리: `conversationBuffer`
 
-새 플랫폼을 추가할 때는 `NormalizedMessage`, `ChannelPort`, `MessageEvent` 어댑터와 예약 작업용 dispatcher를 구현한다. 기존 chat, message, repository 계층에 플랫폼별 분기를 추가하지 않는다.
+새 플랫폼을 추가할 때는 `NormalizedMessage`, `ChannelPort`, `MessageEvent` 어댑터를 구현한다. 기존 chat, message, repository 계층에 플랫폼별 분기를 추가하지 않는다.

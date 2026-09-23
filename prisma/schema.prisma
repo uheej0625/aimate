@@ -65,7 +65,6 @@ model Channel {
 
   messages           Message[]
   generations        Generation[]
-  cronJobs           CronJob[]
   events             Event[]
   conversationStates ConversationState[]
 
@@ -201,27 +200,4 @@ model Memory {
   message   Message? @relation(fields: [messageId], references: [id])
 
   createdAt DateTime @default(now())
-}
-
-model CronJob {
-  id Int @id @default(autoincrement())
-
-  channelId String // 실행할 채널
-  channel   Channel @relation(fields: [channelId], references: [id])
-
-  platform    String // "discord", "cli" 등
-  scheduledAt DateTime // 실행 예정 시각
-
-  type    String // "ai_scheduled" | "llm_retry"
-  message String // AI에게 전달할 메시지
-
-  status     String    @default("PENDING") // PENDING, EXECUTED, CANCELLED
-  executedAt DateTime?
-
-  // LLM 재시도용 추가 정보
-  originalContext String? // JSON - 원본 컨텍스트 저장용
-  retryCount      Int     @default(0)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
 }

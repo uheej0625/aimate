@@ -31,17 +31,6 @@ export class ChatGenerationFailureHandler {
       platform,
     });
 
-    if (this.isServiceUnavailable(error)) {
-      logger.warn("503/429 Service Unavailable/Overloaded error detected");
-      await this.eventBus.emitAsync(AppEvents.GenerationServiceUnavailable, {
-        error,
-        generation,
-        channelRecord,
-        platform,
-      });
-      return;
-    }
-
     try {
       await this.messageSender.sendChunk(
         channel,
@@ -52,15 +41,5 @@ export class ChatGenerationFailureHandler {
     } catch (sendError) {
       logger.error({ err: sendError }, "Failed to send error message");
     }
-  }
-
-  isServiceUnavailable(error) {
-    return (
-      error.status === 503 ||
-      error.status === 429 ||
-      (error.message &&
-        (error.message.includes('"code": 503') ||
-          error.message.includes('"code": 429')))
-    );
   }
 }

@@ -41,8 +41,7 @@
     "commandPrefix": "!",
     "botStatus": "online",
     "activityType": "PLAYING",
-    "activityName": "채팅 중...",
-    "fallbackStatus": "dnd"
+    "activityName": "채팅 중..."
   },
   "conversation": {
     "maxContextMessages": 20,

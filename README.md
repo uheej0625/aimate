@@ -66,10 +66,6 @@ CLI는 전체 화면 TUI로 실행되며 대화 채널과 히스토리가 데이
 
 ## 주요 기능
 
-### 크론 스케줄링
-
-봇이 스스로 특정 시간에 메시지를 보내거나 작업을 예약할 수 있습니다. LLM이 대화 중에 `register_cron_job` 도구를 호출해서 일정을 잡습니다.
-
 ### 도구 (Tools)
 
 LLM이 필요하다고 판단하면 스스로 도구를 호출합니다.
@@ -124,7 +120,6 @@ src/
 ├── messages/      # 메시지 저장, 히스토리, 전송
 ├── platforms/     # Discord / CLI 어댑터
 ├── repositories/  # Prisma 데이터 접근
-├── scheduling/    # 예약 작업과 재시도
 ├── tools/         # LLM 도구 정의 및 실행
 └── utils/         # 템플릿과 런타임 유틸리티
 
@@ -137,8 +132,8 @@ content/
 [`src/application/contracts.js`](src/application/contracts.js)의 내부 계약으로
 변환한 뒤 동일한 처리 흐름을 탑니다. 플랫폼 진입점은 애플리케이션
 유스케이스만 호출하며 Repository에 직접 접근하지 않습니다. 자세한 의존
-방향과 메시지 처리 흐름은 [`docs/architecture.md`](docs/architecture.md), 예약
-작업은 [`docs/cron-guide.md`](docs/cron-guide.md)를 참조하세요.
+방향과 메시지 처리 흐름은 [`docs/architecture.md`](docs/architecture.md)를
+참조하세요.
 
 ---
 
@@ -148,7 +143,7 @@ content/
 - **Database**: Prisma + SQLite
 - **AI**: Vercel AI SDK
 - **Platforms**: discord.js, CLI
-- **기타**: pino (로깅), Node.js 타이머 (예약 작업 폴링), jsdom + @mozilla/readability (URL 파싱)
+- **기타**: pino (로깅), jsdom + @mozilla/readability (URL 파싱)
 
 ---
 

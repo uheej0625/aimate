@@ -319,20 +319,15 @@ test("ChatFlow tests", async (t) => {
     },
   );
 
-  await t.test("execute should emit service unavailable events", async () => {
+  await t.test("execute should report rate-limit errors without retrying", async () => {
     const eventBus = new EventBus();
-    let serviceUnavailablePayload = null;
     let fallbackMessageSent = false;
-
-    eventBus.on(AppEvents.GenerationServiceUnavailable, async (payload) => {
-      serviceUnavailablePayload = payload;
-    });
 
     const chatGenerator = {
       ...baseChatGenerator,
       generate: async () => {
         const error = new Error("overloaded");
-        error.status = 503;
+        error.status = 429;
         throw error;
       },
     };
@@ -352,16 +347,7 @@ test("ChatFlow tests", async (t) => {
 
     await chatFlow.execute(createRequest());
 
-    assert.strictEqual(serviceUnavailablePayload.platform, "discord");
-    assert.strictEqual(
-      serviceUnavailablePayload.channelRecord.id,
-      "channel-123",
-    );
-    assert.strictEqual(
-      fallbackMessageSent,
-      false,
-      "Should not send fallback messages for overload errors",
-    );
+    assert.strictEqual(fallbackMessageSent, true);
   });
 });
 

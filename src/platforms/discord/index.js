@@ -28,14 +28,10 @@ const main = async () => {
     // Register graceful shutdown
     registerShutdown({
       conversationBuffer: app.conversationBuffer,
-      cronJobWorker: app.cronJobWorker,
       generationAbortRegistry: app.generationAbortRegistry,
       configManager,
       client,
     });
-
-    // Start CronJobWorker
-    app.cronJobWorker.start();
 
     // Login
     await client.login(getRequiredDiscordToken(configManager));

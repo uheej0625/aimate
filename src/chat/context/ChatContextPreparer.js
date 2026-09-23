@@ -26,14 +26,12 @@ export class ChatContextPreparer {
    * @param {string} channelId
    * @param {string} botId
    * @param {Object|null} [channelRecord]
-   * @param {string|null} [cronMessage]
    * @returns {Promise<{context: Array, systemInstruction: string, messageIds: Array, inputMessages: Array<string>}>}
    */
   async prepare(
     channelId,
     botId,
     channelRecord = null,
-    cronMessage = null,
     rerollGenerationId = null,
   ) {
     const {
@@ -63,7 +61,6 @@ export class ChatContextPreparer {
         historyMessages,
         pendingMessages,
         botId,
-        cronMessage,
         channelRecord,
         promptName,
         data: { userMemories },
