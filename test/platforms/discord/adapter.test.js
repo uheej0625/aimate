@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   adaptChannel,
   adaptIncomingMessage,
+  adaptMessageDeletion,
   adaptMessageData,
 } from "../../../src/platforms/discord/adapter.js";
 
@@ -16,6 +17,7 @@ test("Discord adapter returns a platform-neutral incoming message", () => {
     platformChannelId: "channel-1",
     platformServerId: "server-1",
     content: "hello",
+    editedAt: null,
     author: {
       platformUserId: "user-1",
       handle: "user",
@@ -61,6 +63,7 @@ test("Discord channel port sends and normalizes the returned message", async () 
     platformChannelId: "channel-1",
     platformServerId: "server-1",
     content: "reply",
+    editedAt: null,
     author: {
       platformUserId: "bot-1",
       handle: "bot",
@@ -77,20 +80,37 @@ test("adaptMessageData does not retain Discord runtime objects", () => {
   assert.equal("channel" in message, false);
 });
 
+test("Discord deletion adapter keeps only IDs and channel context", () => {
+  const first = createDiscordMessage({ id: "message-1" });
+  const second = createDiscordMessage({ id: "message-2" });
+  const channel = {
+    id: "channel-1",
+    client: { user: { id: "bot-1" } },
+    send: async () => {},
+    sendTyping: async () => {},
+  };
+
+  const request = adaptMessageDeletion([first, second], channel);
+
+  assert.deepEqual(request.platformMessageIds, ["message-1", "message-2"]);
+  assert.equal(request.kind, "DELETE");
+  assert.equal(request.botId, "bot-1");
+  assert.equal(request.channel.platformChannelId, "channel-1");
+});
+
 function createDiscordMessage(overrides = {}) {
-  const channel =
-    overrides.channel ??
-    {
-      id: "channel-1",
-      send: async () => {},
-      sendTyping: async () => {},
-    };
+  const channel = overrides.channel ?? {
+    id: "channel-1",
+    send: async () => {},
+    sendTyping: async () => {},
+  };
 
   return {
     id: "message-1",
     channelId: "channel-1",
     guildId: "server-1",
     content: "hello",
+    editedAt: null,
     author: {
       id: "user-1",
       username: "user",

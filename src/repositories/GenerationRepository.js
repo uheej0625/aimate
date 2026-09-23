@@ -43,6 +43,103 @@ export class GenerationRepository {
   }
 
   /**
+   * Record the user messages consumed by a chat generation as one unit.
+   * The generation input snapshot and message links must either both persist
+   * or both be rolled back.
+   *
+   * @param {number} generationId
+   * @param {{inputMessages: string[], messageIds: number[]}} input
+   * @returns {Promise<boolean>} False when the generation was cancelled first.
+   */
+  async recordInputWithMessages(
+    generationId,
+    { inputMessages, messageIds, eventSnapshot },
+  ) {
+    const input = JSON.stringify({
+      messages: inputMessages.map((content, index) => ({
+        id: messageIds[index] ?? null,
+        content,
+      })),
+      eventSnapshot,
+    });
+
+    return await prisma.$transaction(async (tx) => {
+      const generation = await tx.generation.updateMany({
+        where: {
+          id: generationId,
+          status: "PROCESSING",
+        },
+        data: { input },
+      });
+
+      if (generation.count !== 1) {
+        return false;
+      }
+
+      const ids = [...new Set(messageIds.filter((id) => id !== null))];
+      if (ids.length === 0) return true;
+
+      const messages = await tx.message.updateMany({
+        where: { id: { in: ids } },
+        data: { generationId },
+      });
+
+      if (messages.count !== ids.length) {
+        throw new Error(
+          `Cannot record input for generation ${generationId} because one or more messages are missing.`,
+        );
+      }
+
+      return true;
+    });
+  }
+
+  async completeChat(generationId, sentAt) {
+    return await prisma.$transaction(async (tx) => {
+      const generation = await tx.generation.findUnique({
+        where: { id: generationId },
+      });
+      if (generation?.status !== "GENERATED") return false;
+      const result = await tx.generation.updateMany({
+        where: { id: generationId, status: "GENERATED" },
+        data: { status: "COMPLETED", sentAt },
+      });
+      if (result.count !== 1) return false;
+      const snapshot = generation.input
+        ? JSON.parse(generation.input).eventSnapshot
+        : null;
+      if (snapshot) {
+        const { characterId, channelId } = generation;
+        await tx.conversationState.upsert({
+          where: { characterId_channelId: { characterId, channelId } },
+          create: {
+            characterId,
+            channelId,
+            handledThroughEventId: snapshot.throughInclusive,
+          },
+          update: {},
+        });
+        await tx.conversationState.updateMany({
+          where: {
+            characterId,
+            channelId,
+            handledThroughEventId: { lt: snapshot.throughInclusive },
+          },
+          data: { handledThroughEventId: snapshot.throughInclusive },
+        });
+      }
+      return true;
+    });
+  }
+
+  async discard(generationId) {
+    await prisma.generation.update({
+      where: { id: generationId },
+      data: { discardedAt: new Date() },
+    });
+  }
+
+  /**
    * Update generation status.
    * @param {string} generationId - Generation ID
    * @param {string} status - New status
@@ -93,6 +190,15 @@ export class GenerationRepository {
       data: {
         status: "CANCELLED",
       },
+    });
+    return result.count;
+  }
+
+  /** Cancel every generation that can still produce an external side effect. */
+  async cancelInProgress() {
+    const result = await prisma.generation.updateMany({
+      where: { status: { in: ["PROCESSING", "GENERATED"] } },
+      data: { status: "CANCELLED" },
     });
     return result.count;
   }

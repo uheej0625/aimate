@@ -16,21 +16,17 @@ test("createContainer exposes only application entrypoint dependencies", async (
   assert.deepStrictEqual(Object.keys(container).sort(), [
     "activateChannel",
     "botAccountService",
+    "channelCatalog",
     "chatFlow",
     "conversationBuffer",
-    "conversationCatalog",
-    "cronJobWorker",
     "eventBus",
     "generationAbortRegistry",
+    "generationRepository",
     "getGenerationInfo",
     "messageHandler",
     "rerollConversation",
     "storedMessageService",
   ]);
-  assert.strictEqual(
-    container.eventBus.listenerCount(AppEvents.GenerationServiceUnavailable),
-    1,
-  );
   assert.strictEqual(
     container.eventBus.listenerCount(AppEvents.GenerationCompleted),
     1,

@@ -41,6 +41,7 @@ export class ChatGenerator {
       toolContext: this.toolContextFactory?.create({
         platform,
         channel: channelRecord,
+        abortSignal,
       }),
       responseParser: this.responseParser,
       generatedImageTagPolicy: this.generatedImageTagPolicy,

@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert";
+import { ConversationSession } from "../../src/chat/ConversationSession.js";
 import { ChatFlow } from "../../src/chat/ChatFlow.js";
 import { AppEvents, EventBus } from "../../src/core/EventBus.js";
 import { ChatGenerationFailureHandler } from "../../src/chat/ChatGenerationFailureHandler.js";
@@ -9,17 +10,20 @@ import { prisma } from "../../src/database/client.js";
 test("ChatFlow tests", async (t) => {
   t.after(async () => {
     await prisma.$disconnect();
-    setTimeout(() => {
-      process.exit(0);
-    }, 10);
   });
 
+  const baseChannelRecord = {
+    id: "channel-123",
+    platform: "discord",
+    platformId: "12345",
+  };
+
+  const baseChannelRepository = {
+    findById: async () => baseChannelRecord,
+  };
+
   const baseGenerationLifecycle = {
-    findOrCreateChannel: async () => ({
-      id: "channel-123",
-      platform: "discord",
-      platformId: "12345",
-    }),
+    cancelActiveForChannel: async () => {},
     startChatGeneration: async () => ({ id: "gen-123" }),
     recordInput: async () => {},
     canGenerate: async () => true,
@@ -43,10 +47,14 @@ test("ChatFlow tests", async (t) => {
   };
 
   const baseMessageSender = {
-    sendChunk: async () => true,
+    sendChunk: async (_channel, _text, _id, delivery) => {
+      delivery?.onDelivered?.();
+      return true;
+    },
   };
 
   function createChatFlow({
+    channelRepository = baseChannelRepository,
     generationLifecycle = baseGenerationLifecycle,
     chatContextPreparer = baseChatContextPreparer,
     chatGenerator = baseChatGenerator,
@@ -61,14 +69,51 @@ test("ChatFlow tests", async (t) => {
   } = {}) {
     return new ChatFlow({
       chatContextPreparer,
+      channelRepository,
       chatGenerator,
       messageSender,
       generationLifecycle,
       failureHandler,
       eventBus,
       generationAbortRegistry,
+      conversationSession: new ConversationSession(),
     });
   }
+
+  await t.test(
+    "execute loads the latest channel record by its internal ID",
+    async () => {
+      let requestedId = null;
+      let startedWith = null;
+      const latestChannelRecord = {
+        ...baseChannelRecord,
+        scope: "server",
+      };
+      const channelRepository = {
+        findById: async (internalChannelId) => {
+          requestedId = internalChannelId;
+          return latestChannelRecord;
+        },
+      };
+      const generationLifecycle = {
+        ...baseGenerationLifecycle,
+        startChatGeneration: async (channelRecord) => {
+          startedWith = channelRecord;
+          return { id: "gen-123" };
+        },
+      };
+
+      const chatFlow = createChatFlow({
+        channelRepository,
+        generationLifecycle,
+      });
+
+      await chatFlow.execute(createRequest());
+
+      assert.strictEqual(requestedId, "channel-123");
+      assert.strictEqual(startedWith, latestChannelRecord);
+    },
+  );
 
   await t.test(
     "execute cancels an aborted model request without failing the generation",
@@ -152,7 +197,8 @@ test("ChatFlow tests", async (t) => {
     async () => {
       let sentMessage = null;
       const messageSender = {
-        sendChunk: async (_channel, message) => {
+        sendChunk: async (_channel, message, _id, delivery) => {
+          delivery.onDelivered();
           sentMessage = message;
           return true;
         },
@@ -189,6 +235,38 @@ test("ChatFlow tests", async (t) => {
       "Should not call messageSender if cancelled",
     );
   });
+
+  await t.test(
+    "execute stops when cancellation wins before input recording",
+    async () => {
+      const eventBus = new EventBus();
+      let cancellationReason = null;
+      let generateCalled = false;
+      eventBus.on(AppEvents.GenerationCancelled, async ({ reason }) => {
+        cancellationReason = reason;
+      });
+      const generationLifecycle = {
+        ...baseGenerationLifecycle,
+        recordInput: async () => false,
+      };
+      const chatGenerator = {
+        generate: async () => {
+          generateCalled = true;
+        },
+      };
+
+      const chatFlow = createChatFlow({
+        generationLifecycle,
+        chatGenerator,
+        eventBus,
+      });
+
+      await chatFlow.execute(createRequest());
+
+      assert.strictEqual(generateCalled, false);
+      assert.strictEqual(cancellationReason, "cancelled_before_input_record");
+    },
+  );
 
   await t.test(
     "execute should stop when cancelled during model generation",
@@ -241,20 +319,15 @@ test("ChatFlow tests", async (t) => {
     },
   );
 
-  await t.test("execute should emit service unavailable events", async () => {
+  await t.test("execute should report rate-limit errors without retrying", async () => {
     const eventBus = new EventBus();
-    let serviceUnavailablePayload = null;
     let fallbackMessageSent = false;
-
-    eventBus.on(AppEvents.GenerationServiceUnavailable, async (payload) => {
-      serviceUnavailablePayload = payload;
-    });
 
     const chatGenerator = {
       ...baseChatGenerator,
       generate: async () => {
         const error = new Error("overloaded");
-        error.status = 503;
+        error.status = 429;
         throw error;
       },
     };
@@ -274,22 +347,14 @@ test("ChatFlow tests", async (t) => {
 
     await chatFlow.execute(createRequest());
 
-    assert.strictEqual(serviceUnavailablePayload.platform, "discord");
-    assert.strictEqual(
-      serviceUnavailablePayload.channelRecord.id,
-      "channel-123",
-    );
-    assert.strictEqual(
-      fallbackMessageSent,
-      false,
-      "Should not send fallback messages for overload errors",
-    );
+    assert.strictEqual(fallbackMessageSent, true);
   });
 });
 
 function createRequest() {
   return {
-    channel: { platform: "discord", platformChannelId: "12345" },
+    channelPort: { platform: "discord", platformChannelId: "12345" },
+    internalChannelId: "channel-123",
     botId: "bot-1",
   };
 }

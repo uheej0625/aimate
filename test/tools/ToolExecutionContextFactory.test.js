@@ -6,7 +6,6 @@ test("ToolExecutionContextFactory creates explicit tool dependencies", () => {
   const configManager = {
     get: (key) => (key === "character" ? "fixture" : null),
   };
-  const cronJobScheduler = {};
   const imageGenerator = {};
   const generationRepository = {};
   const platformClient = {};
@@ -14,7 +13,6 @@ test("ToolExecutionContextFactory creates explicit tool dependencies", () => {
   const requestCreatedAt = new Date("2026-08-01T15:21:03.000Z");
   const factory = new ToolExecutionContextFactory({
     configManager,
-    cronJobScheduler,
     imageGenerator,
     generationRepository,
     platformClients,
@@ -27,7 +25,6 @@ test("ToolExecutionContextFactory creates explicit tool dependencies", () => {
   });
 
   assert.strictEqual(context.platformClient, platformClient);
-  assert.strictEqual(context.cronJobScheduler, cronJobScheduler);
   assert.strictEqual(context.imageGenerator, imageGenerator);
   assert.strictEqual(context.generationRepository, generationRepository);
   assert.strictEqual(context.requestCreatedAt, requestCreatedAt);

@@ -15,6 +15,7 @@ const { createDiscordApplication } = await import(
   "./createDiscordApplication.js"
 );
 const { registerShutdown } = await import("../../core/shutdown.js");
+const { prisma } = await import("../../database/client.js");
 const { createLogger } = await import("../../core/logger.js");
 
 const logger = createLogger("App");
@@ -28,14 +29,12 @@ const main = async () => {
     // Register graceful shutdown
     registerShutdown({
       conversationBuffer: app.conversationBuffer,
-      cronJobWorker: app.cronJobWorker,
       generationAbortRegistry: app.generationAbortRegistry,
+      generationRepository: app.generationRepository,
       configManager,
       client,
+      disconnectDatabase: () => prisma.$disconnect(),
     });
-
-    // Start CronJobWorker
-    app.cronJobWorker.start();
 
     // Login
     await client.login(getRequiredDiscordToken(configManager));

@@ -1,4 +1,3 @@
-import { prisma } from "../database/client.js";
 import { createLogger } from "./logger.js";
 
 const logger = createLogger("Shutdown");
@@ -8,17 +7,19 @@ const logger = createLogger("Shutdown");
  *
  * @param {Object} options
  * @param {import('../chat/ConversationBuffer.js').ConversationBuffer} options.conversationBuffer
- * @param {import('../scheduling/CronJobWorker.js').CronJobWorker} [options.cronJobWorker]
  * @param {import('../chat/ChatGenerationAbortRegistry.js').ChatGenerationAbortRegistry} [options.generationAbortRegistry]
+ * @param {{cancelInProgress: () => Promise<number>}} [options.generationRepository]
  * @param {import('../config/ConfigManager.js').default} [options.configManager]
  * @param {import('discord.js').Client|null} [options.client] - Discord 클라이언트 (없으면 무시)
+ * @param {() => Promise<void>} [options.disconnectDatabase]
  */
 export function registerShutdown({
   conversationBuffer,
-  cronJobWorker = null,
   generationAbortRegistry = null,
+  generationRepository = null,
   configManager = null,
   client = null,
+  disconnectDatabase = null,
 }) {
   let shuttingDown = false;
 
@@ -28,17 +29,11 @@ export function registerShutdown({
 
     logger.info({ signal }, "Shutting down gracefully...");
 
-    // 1. CronJobWorker 중지
-    if (cronJobWorker) {
-      cronJobWorker.stop();
-      logger.info("CronJobWorker stopped");
-    }
-
-    // 2. 대기 중인 모든 타이머 정리
+    // 1. 대기 중인 모든 타이머 정리
     conversationBuffer.clearAll();
     logger.info("Conversation buffers cleared");
 
-    // 3. 진행 중인 모델 요청 abort
+    // 2. 진행 중인 모델 요청 abort
     if (generationAbortRegistry) {
       const aborted = generationAbortRegistry.abortAll();
       if (aborted > 0) {
@@ -46,15 +41,12 @@ export function registerShutdown({
       }
     }
 
-    // 4. 진행 중인 Generation들을 CANCELLED로 변경
+    // 3. 진행 중인 Generation들을 CANCELLED로 변경
     try {
-      const result = await prisma.generation.updateMany({
-        where: { status: { in: ["PROCESSING", "GENERATED"] } },
-        data: { status: "CANCELLED" },
-      });
-      if (result.count > 0) {
+      const cancelled = await generationRepository?.cancelInProgress();
+      if (cancelled > 0) {
         logger.info(
-          { count: result.count },
+          { count: cancelled },
           "Cancelled in-progress generations",
         );
       }
@@ -62,7 +54,7 @@ export function registerShutdown({
       logger.error({ err: error }, "Failed to cancel generations");
     }
 
-    // 5. Discord 클라이언트 종료
+    // 4. Discord 클라이언트 종료
     if (client) {
       try {
         client.destroy();
@@ -72,18 +64,20 @@ export function registerShutdown({
       }
     }
 
-    // 6. Config watcher 종료
+    // 5. Config watcher 종료
     if (configManager) {
       configManager.close();
       logger.info("Config watcher closed");
     }
 
-    // 7. Prisma 연결 종료
-    try {
-      await prisma.$disconnect();
-      logger.info("Database connection closed");
-    } catch (error) {
-      logger.error({ err: error }, "Failed to disconnect database");
+    // 6. Prisma 연결 종료
+    if (disconnectDatabase) {
+      try {
+        await disconnectDatabase();
+        logger.info("Database connection closed");
+      } catch (error) {
+        logger.error({ err: error }, "Failed to disconnect database");
+      }
     }
 
     logger.info("Shutdown complete.");

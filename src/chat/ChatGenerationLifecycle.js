@@ -1,37 +1,12 @@
+import { getRequiredChatPromptName } from "./promptConfig.js";
+
 /**
  * Owns chat generation state transitions and persistence details.
  */
 export class ChatGenerationLifecycle {
-  constructor(
-    generationRepository,
-    channelRepository,
-    messageRepository,
-    configManager,
-  ) {
+  constructor(generationRepository, configManager) {
     this.generationRepository = generationRepository;
-    this.channelRepository = channelRepository;
-    this.messageRepository = messageRepository;
     this.configManager = configManager;
-  }
-
-  async findOrCreateChannel(channel) {
-    const platform = channel.platform;
-    const platformChannelId = channel.platformChannelId;
-
-    let channelRecord = await this.channelRepository.findByPlatformId(
-      platform,
-      platformChannelId,
-    );
-
-    if (!channelRecord) {
-      channelRecord = await this.channelRepository.upsert({
-        platform,
-        platformId: platformChannelId,
-        serverId: null,
-      });
-    }
-
-    return channelRecord;
   }
 
   async startChatGeneration(channelRecord) {
@@ -43,24 +18,31 @@ export class ChatGenerationLifecycle {
     });
   }
 
-  async recordInput(generationId, { inputMessages, messageIds }) {
-    await this.generationRepository.updateDetails(generationId, {
-      input: JSON.stringify({
-        messages: inputMessages.map((content, index) => ({
-          id: messageIds[index] ?? null,
-          content,
-        })),
-      }),
-    });
-
-    for (const messageId of messageIds) {
-      await this.messageRepository.addGenerationId(messageId, generationId);
-    }
+  async recordInput(
+    generationId,
+    { inputMessages, messageIds, eventSnapshot },
+  ) {
+    return await this.generationRepository.recordInputWithMessages(
+      generationId,
+      {
+        inputMessages,
+        messageIds,
+        eventSnapshot,
+      },
+    );
   }
 
   async canGenerate(generationId) {
     const generation = await this.generationRepository.findById(generationId);
     return generation?.status === "PROCESSING";
+  }
+
+  async cancelActiveForChannel(channelId) {
+    return await this.generationRepository.cancelProcessing(channelId, "CHAT");
+  }
+
+  async discard(generationId) {
+    return await this.generationRepository.discard(generationId);
   }
 
   async recordGeneratedOutput(generationId, aiResult) {
@@ -92,12 +74,8 @@ export class ChatGenerationLifecycle {
     return { shouldProceed: updated };
   }
 
-  async complete(generationId) {
-    return await this.generationRepository.updateStatusIfCurrent(
-      generationId,
-      "GENERATED",
-      "COMPLETED",
-    );
+  async complete(generationId, sentAt = new Date()) {
+    return await this.generationRepository.completeChat(generationId, sentAt);
   }
 
   async cancel(generationId) {
@@ -118,4 +96,3 @@ export class ChatGenerationLifecycle {
     );
   }
 }
-import { getRequiredChatPromptName } from "./promptConfig.js";

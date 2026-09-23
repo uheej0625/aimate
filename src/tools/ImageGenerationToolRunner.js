@@ -12,9 +12,15 @@ import {
 import { buildCurrentTimeContext } from "./timeContextUtils.js";
 
 export async function executeImageGenerationTool(args, context, spec) {
-  const { imageGenerator, configManager, generationRepository, channel } =
-    context;
+  const {
+    imageGenerator,
+    configManager,
+    generationRepository,
+    channel,
+    abortSignal,
+  } = context;
   assertImageToolContext({ imageGenerator, generationRepository, channel });
+  throwIfAborted(abortSignal);
 
   const promptName = configManager?.get("ai.image.prompt");
   if (typeof promptName !== "string" || promptName.trim() === "") {
@@ -45,6 +51,7 @@ export async function executeImageGenerationTool(args, context, spec) {
   const generationId = generation.id;
   const imagePaths = [...referenceImagePaths, ...sourceImagePaths];
   const generateImageOptions = { ...spec.imageOptions };
+  if (abortSignal) generateImageOptions.abortSignal = abortSignal;
   if (imagePaths.length > 0) {
     generateImageOptions.image = imagePaths;
   }
@@ -59,19 +66,33 @@ export async function executeImageGenerationTool(args, context, spec) {
   }
 
   try {
+    throwIfAborted(abortSignal);
     const result = await imageGenerator.generate(prompt, generateImageOptions);
+    throwIfAborted(abortSignal);
     const imageBuffer = result.buffer || result;
     const outputPath = await writeGeneratedImage(filename, imageBuffer);
+    throwIfAborted(abortSignal);
 
-    await generationRepository.updateDetails(generationId, {
-      apiRequest: result.request || fallbackApiRequest,
-      apiResponse: result.response || {
-        status: "success",
-        tool: spec.toolName,
-      },
-      output: filename,
-    });
-    await generationRepository.updateStatus(generationId, "COMPLETED");
+    const completed =
+      await generationRepository.updateDetailsAndStatusIfCurrent(
+        generationId,
+        "PROCESSING",
+        "COMPLETED",
+        {
+          apiRequest: result.request || fallbackApiRequest,
+          apiResponse: result.response || {
+            status: "success",
+            tool: spec.toolName,
+          },
+          output: filename,
+        },
+      );
+    if (!completed) {
+      throw new DOMException(
+        "Image generation was cancelled before completion",
+        "AbortError",
+      );
+    }
 
     return {
       status: "success",
@@ -82,6 +103,10 @@ export async function executeImageGenerationTool(args, context, spec) {
       description: spec.describe(args),
     };
   } catch (err) {
+    if (abortSignal?.aborted || isAbortError(err)) {
+      await cancelImageGeneration(generationRepository, generationId);
+      throw err;
+    }
     await generationRepository.updateDetails(generationId, {
       apiRequest: fallbackApiRequest,
       apiResponse: { error: err.message, stack: err.stack },
@@ -89,6 +114,27 @@ export async function executeImageGenerationTool(args, context, spec) {
     await generationRepository.updateStatus(generationId, "FAILED");
     throw err;
   }
+}
+
+async function cancelImageGeneration(generationRepository, generationId) {
+  if (typeof generationRepository.updateStatusIfCurrent === "function") {
+    await generationRepository.updateStatusIfCurrent(
+      generationId,
+      "PROCESSING",
+      "CANCELLED",
+    );
+    return;
+  }
+  await generationRepository.updateStatus(generationId, "CANCELLED");
+}
+
+function throwIfAborted(abortSignal) {
+  if (!abortSignal?.aborted) return;
+  throw new DOMException("Aborted", "AbortError");
+}
+
+function isAbortError(error) {
+  return error?.name === "AbortError";
 }
 
 function assertImageToolContext({

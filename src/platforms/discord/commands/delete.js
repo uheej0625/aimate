@@ -1,6 +1,8 @@
 import { ApplicationCommandType, MessageFlags } from "discord.js";
 import { createLogger } from "../../../core/logger.js";
 
+import { adaptChannel } from "../adapter.js";
+
 const logger = createLogger("Discord:Delete");
 
 export default {
@@ -27,9 +29,9 @@ export default {
       return;
     }
 
-    // DB에서 메시지 삭제
     const deleted = await storedMessageService.deleteOne({
-      platform: "discord",
+      channel: adaptChannel(interaction.channel),
+      botId: interaction.client.user.id,
       platformMessageId: targetMessage.id,
     });
 

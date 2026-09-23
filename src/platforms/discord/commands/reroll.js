@@ -36,16 +36,18 @@ export default {
       return;
     }
 
+    const deletedIds = [];
     // Discord에서 메시지 삭제
     for (const platformMessageId of plan.platformMessageIds) {
       try {
-        const msgToDelete = await interaction.channel.messages.fetch(
-          platformMessageId,
-        );
+        const msgToDelete =
+          await interaction.channel.messages.fetch(platformMessageId);
         if (msgToDelete) {
           await msgToDelete.delete();
+          deletedIds.push(platformMessageId);
         }
       } catch (error) {
+        if (error.code === 10008) deletedIds.push(platformMessageId);
         logger.warn(
           { err: error, platformId: platformMessageId },
           "Discord 메시지 개별 삭제 실패 (이미 지워졌을 수 있음)",
@@ -54,7 +56,7 @@ export default {
     }
 
     await interaction.editReply({
-      content: `기존 메시지 삭제완료. 다시 답변을 생성합니다...`,
+      content: `${deletedIds.length}개 메시지를 삭제했습니다.${deletedIds.length < plan.platformMessageIds.length ? " 일부 메시지는 삭제하지 못했습니다." : ""} 다시 답변을 생성합니다...`,
     });
 
     // 다시 ChatFlow 실행
@@ -62,9 +64,11 @@ export default {
       const adaptedChannel = adaptChannel(interaction.channel);
       const { deletedCount } = await rerollConversation.execute({
         platform: "discord",
-        platformMessageIds: plan.platformMessageIds,
+        platformMessageIds: deletedIds,
+        generationId: plan.generationId,
         conversationRequest: {
-          channel: adaptedChannel,
+          channelPort: adaptedChannel,
+          internalChannelId: plan.internalChannelId,
           botId: interaction.client.user.id,
         },
       });

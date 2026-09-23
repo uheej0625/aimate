@@ -4,7 +4,8 @@ import { ActivateChannel } from "../../src/application/ActivateChannel.js";
 import { StoredMessageService } from "../../src/application/StoredMessageService.js";
 import { GetGenerationInfo } from "../../src/application/GetGenerationInfo.js";
 import { RerollConversation } from "../../src/application/RerollConversation.js";
-import { ConversationCatalog } from "../../src/application/ConversationCatalog.js";
+import { ConversationSession } from "../../src/chat/ConversationSession.js";
+import { ChannelCatalog } from "../../src/application/ChannelCatalog.js";
 
 test("ActivateChannel resolves a server and activates its channel", async () => {
   const serverCalls = [];
@@ -44,36 +45,30 @@ test("ActivateChannel resolves a server and activates its channel", async () => 
   ]);
 });
 
-test("StoredMessageService delegates platform-neutral deletion requests", async () => {
+test("StoredMessageService uses the common event handler for confirmed deletions", async () => {
   const calls = [];
   const service = new StoredMessageService({
-    deleteByPlatformId: async (...args) => {
-      calls.push(["one", ...args]);
-      return true;
-    },
-    deleteManyByPlatformIds: async (...args) => {
-      calls.push(["many", ...args]);
-      return 2;
+    handle: async (event) => {
+      calls.push(event);
+      return { deletedCount: event.platformMessageIds.length };
     },
   });
-
-  assert.strictEqual(
-    await service.deleteOne({
-      platform: "discord",
-      platformMessageId: "message-1",
-    }),
+  const channel = { platform: "discord", platformChannelId: "channel" };
+  assert.equal(
+    await service.deleteOne({ platformMessageId: "m1", channel, botId: "bot" }),
     true,
   );
-  assert.strictEqual(
+  assert.equal(
     await service.deleteMany({
-      platform: "discord",
-      platformMessageIds: ["message-1", "message-2"],
+      platformMessageIds: ["m2", "m3"],
+      channel,
+      botId: "bot",
     }),
     2,
   );
-  assert.deepStrictEqual(calls, [
-    ["one", "discord", "message-1"],
-    ["many", "discord", ["message-1", "message-2"]],
+  assert.deepEqual(calls, [
+    { kind: "DELETE", platformMessageIds: ["m1"], channel, botId: "bot" },
+    { kind: "DELETE", platformMessageIds: ["m2", "m3"], channel, botId: "bot" },
   ]);
 });
 
@@ -119,19 +114,28 @@ test("RerollConversation prepares cleanup and reruns the conversation", async ()
   const requests = [];
   const useCase = new RerollConversation(
     {
-      findByPlatformId: async () => ({ generationId: 7 }),
+      findByPlatformId: async () => ({
+        generationId: 7,
+        isBot: true,
+        generation: { channelId: "internal-channel-1", input: "{}" },
+      }),
       findByGenerationId: async () => [
-        { platformId: "reply-1" },
-        { platformId: "reply-2" },
+        { platformId: "reply-1", isBot: true },
+        { platformId: "reply-2", isBot: true },
+        { platformId: "user-input", isBot: false },
       ],
-      deleteManyByPlatformIds: async (...args) => {
+    },
+    {
+      deleteMessages: async (...args) => {
         deleted.push(args);
-        return 2;
+        return { deletedCount: 2 };
       },
     },
     {
       execute: async (request) => requests.push(request),
     },
+    { discard: async (id) => assert.equal(id, 7) },
+    new ConversationSession(),
   );
 
   const plan = await useCase.prepare({
@@ -141,29 +145,39 @@ test("RerollConversation prepares cleanup and reruns the conversation", async ()
   assert.deepStrictEqual(plan, {
     status: "READY",
     generationId: 7,
+    internalChannelId: "internal-channel-1",
     platformMessageIds: ["reply-1", "reply-2"],
   });
 
   const conversationRequest = {
-    channel: { platform: "discord", platformChannelId: "channel-1" },
+    channelPort: { platform: "discord", platformChannelId: "channel-1" },
+    internalChannelId: plan.internalChannelId,
     botId: "bot",
   };
   const result = await useCase.execute({
     platform: "discord",
     platformMessageIds: plan.platformMessageIds,
+    generationId: 7,
     conversationRequest,
   });
 
   assert.deepStrictEqual(result, { deletedCount: 2 });
   assert.deepStrictEqual(deleted, [
-    ["discord", ["reply-1", "reply-2"]],
+    [
+      "discord",
+      ["reply-1", "reply-2"],
+      "internal-channel-1",
+      { observed: false },
+    ],
   ]);
-  assert.deepStrictEqual(requests, [conversationRequest]);
+  assert.deepStrictEqual(requests, [
+    { ...conversationRequest, rerollGenerationId: 7 },
+  ]);
 });
 
-test("ConversationCatalog maps repository records to conversation DTOs", async () => {
+test("ChannelCatalog maps repository records to channel DTOs", async () => {
   const updatedAt = new Date("2026-08-09T00:00:00Z");
-  const catalog = new ConversationCatalog(
+  const catalog = new ChannelCatalog(
     {
       listByPlatform: async () => [
         {

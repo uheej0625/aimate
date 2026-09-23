@@ -18,3 +18,18 @@ test("ImageGenerator delegates to the configured image function", async () => {
   assert.deepStrictEqual(received, [configManager, "a photo", options]);
   assert.deepStrictEqual(result.buffer, Buffer.from("image"));
 });
+
+test("ImageGenerator forwards an abort signal to the image implementation", async () => {
+  const controller = new AbortController();
+  let receivedOptions;
+  const generator = new ImageGenerator({}, {
+    generateImageFileFn: async (_config, _prompt, options) => {
+      receivedOptions = options;
+      return { buffer: Buffer.from("image") };
+    },
+  });
+
+  await generator.generate("a photo", { abortSignal: controller.signal });
+
+  assert.strictEqual(receivedOptions.abortSignal, controller.signal);
+});

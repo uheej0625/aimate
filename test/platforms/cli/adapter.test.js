@@ -17,6 +17,7 @@ test("CLI adapter matches the platform-neutral message contract", () => {
     channelId: "channel-1",
     guildId: null,
     content: "hello",
+    editedAt: null,
     author: {
       id: "user-1",
       username: "user",
@@ -35,6 +36,7 @@ test("CLI adapter matches the platform-neutral message contract", () => {
     platformChannelId: "channel-1",
     platformServerId: null,
     content: "hello",
+    editedAt: null,
     author: {
       platformUserId: "user-1",
       handle: "user",
@@ -51,6 +53,7 @@ test("CLI message data does not retain CLI runtime objects", () => {
     id: "message-1",
     channelId: "channel-1",
     content: "hello",
+    editedAt: null,
     author: {
       id: "user-1",
       username: "user",

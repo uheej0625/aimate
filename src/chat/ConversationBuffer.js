@@ -11,9 +11,10 @@ export class ConversationBuffer {
    * @param {import('../chat/ChatFlow.js').ChatFlow} chatFlow
    * @param {import('../config/ConfigManager.js').default} configManager
    */
-  constructor(chatFlow, configManager) {
+  constructor(chatFlow, configManager, conversationSession) {
     this.chatFlow = chatFlow;
     this.configManager = configManager;
+    this.conversationSession = conversationSession;
     this.buffers = new Map();
     this.BUFFER_TIMEOUT = this.configManager.get("conversation.bufferTimeout");
   }
@@ -22,12 +23,23 @@ export class ConversationBuffer {
    * Add a request to the buffer.
    * @param {import('../application/contracts.js').ConversationRequest} request
    */
-  add(request) {
-    const key = this.getKey(request.channel);
+  async add(request) {
+    if (request.turnId) return this.schedule(request);
+    const key = this.getKey(request.channelPort);
+    return await this.conversationSession.run(key, () =>
+      this.schedule({
+        ...request,
+        turnId: this.conversationSession.begin(key),
+      }),
+    );
+  }
+
+  schedule(request) {
+    const key = this.getKey(request.channelPort);
 
     // Clear existing timer if any (user is still typing)
     if (this.buffers.has(key)) {
-      clearTimeout(this.buffers.get(key));
+      clearTimeout(this.buffers.get(key).timer);
     }
 
     // Set new timer
@@ -37,15 +49,23 @@ export class ConversationBuffer {
         logger.error(
           {
             err: error,
-            platform: request.channel.platform,
-            platformChannelId: request.channel.platformChannelId,
+            platform: request.channelPort.platform,
+            platformChannelId: request.channelPort.platformChannelId,
           },
           "ChatFlow error",
         );
       });
     }, this.BUFFER_TIMEOUT);
 
-    this.buffers.set(key, timer);
+    this.buffers.set(key, { timer, turnId: request.turnId });
+  }
+
+  /**
+   * @param {import('../application/contracts.js').ChannelPort} channel
+   * @returns {boolean}
+   */
+  has(channel) {
+    return this.buffers.has(this.getKey(channel));
   }
 
   /**
@@ -56,22 +76,31 @@ export class ConversationBuffer {
     const key = this.getKey(channel);
 
     if (this.buffers.has(key)) {
-      clearTimeout(this.buffers.get(key));
+      const { timer, turnId } = this.buffers.get(key);
+      clearTimeout(timer);
       this.buffers.delete(key);
+      this.conversationSession.settle(key, turnId);
+      return true;
     }
+
+    return false;
   }
 
-  getKey(channel) {
-    return `${channel.platform}:${channel.platformChannelId}`;
+  getKey(channelPort) {
+    return JSON.stringify([
+      channelPort.platform,
+      channelPort.platformChannelId,
+    ]);
   }
 
   /**
    * Clear all buffers. (graceful shutdown 시 호출)
    */
   clearAll() {
-    for (const [, timer] of this.buffers) {
+    for (const { timer } of this.buffers.values()) {
       clearTimeout(timer);
     }
     this.buffers.clear();
+    this.conversationSession.clearAll();
   }
 }

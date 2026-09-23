@@ -16,7 +16,7 @@ export class ChatGenerationFailureHandler {
     this.eventBus = eventBus;
   }
 
-  async handle({ error, generation, channelRecord, channel }) {
+  async handle({ error, generation, channelRecord, channel, delivery = {} }) {
     try {
       await this.generationLifecycle.fail(generation?.id);
     } catch (dbError) {
@@ -31,35 +31,15 @@ export class ChatGenerationFailureHandler {
       platform,
     });
 
-    if (this.isServiceUnavailable(error)) {
-      logger.warn("503/429 Service Unavailable/Overloaded error detected");
-      await this.eventBus.emitAsync(AppEvents.GenerationServiceUnavailable, {
-        error,
-        generation,
-        channelRecord,
-        platform,
-      });
-      return;
-    }
-
     try {
       await this.messageSender.sendChunk(
         channel,
         FALLBACK_ERROR_MESSAGE,
         generation?.id,
+        { ...delivery, allowFailure: true },
       );
     } catch (sendError) {
       logger.error({ err: sendError }, "Failed to send error message");
     }
-  }
-
-  isServiceUnavailable(error) {
-    return (
-      error.status === 503 ||
-      error.status === 429 ||
-      (error.message &&
-        (error.message.includes('"code": 503') ||
-          error.message.includes('"code": 429')))
-    );
   }
 }

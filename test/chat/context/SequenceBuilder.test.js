@@ -41,19 +41,17 @@ test("SequenceBuilder tests", async (t) => {
       pendingMessages,
       botId: "bot",
       promptName: "minimal",
-      cronMessage: "cron-test",
       data: { memories: "memory-test" },
     });
 
     assert.strictEqual(systemInstruction, "rendered:sys.md");
     assert.strictEqual(lastRenderFileOptions.data.memories, "memory-test");
-    // Context length: text(1) + placeholder(1) + p1.md(1) + history.slice(-1)(1) + cron(1) + pending(1) = 6
-    assert.strictEqual(context.length, 6);
+    // Context length: text(1) + placeholder(1) + p1.md(1) + history.slice(-1)(1) + pending(1) = 5
+    assert.strictEqual(context.length, 5);
     assert.strictEqual(context[0].content, "platform=rendered:platform");
     assert.strictEqual(context[1].content, "rendered:identity");
     assert.strictEqual(context[2].content, "rendered:p1.md");
     assert.strictEqual(context[3].content, "bot1"); // history sliced
-    assert.ok(context[4].content.includes("cron-test")); // cron
-    assert.strictEqual(context[5].content, "user1"); // pending
+    assert.strictEqual(context[4].content, "user1"); // pending
   });
 });

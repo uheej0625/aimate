@@ -63,9 +63,10 @@ model Channel {
   serverId String?
   server   Server? @relation(fields: [serverId], references: [id])
 
-  messages    Message[]
-  generations Generation[]
-  cronJobs    CronJob[]
+  messages           Message[]
+  generations        Generation[]
+  events             Event[]
+  conversationStates ConversationState[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -79,8 +80,8 @@ model Message {
   platform   String
   platformId String
 
-  authorId String
-  author   PlatformAccount @relation(fields: [authorId], references: [id])
+  authorId String?
+  author   PlatformAccount? @relation(fields: [authorId], references: [id])
 
   serverId String?
   server   Server? @relation(fields: [serverId], references: [id])
@@ -95,6 +96,11 @@ model Message {
   generation   Generation? @relation(fields: [generationId], references: [id])
 
   memories Memory[]
+  events   Event[]
+
+  deletedAt DateTime?
+  editedAt  DateTime?
+  isBot     Boolean   @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -102,11 +108,51 @@ model Message {
   @@unique([platform, platformId])
 }
 
+model Event {
+  id Int @id @default(autoincrement())
+
+  characterId String
+
+  channelId String
+  channel   Channel @relation(fields: [channelId], references: [id])
+
+  messageId Int?
+  message   Message? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+  platform          String
+  platformMessageId String
+  kind              String // READ, EDIT, DELETE, SENT
+  source            String @default("LIVE") // LIVE or HISTORY
+
+  snapshotContent         String?
+  snapshotAttachmentsJson String?
+  previousContent         String?
+  editedAt                DateTime?
+  batchId                 String?
+
+  generationId Int?
+  generation   Generation? @relation(fields: [generationId], references: [id])
+
+  observedAt DateTime @default(now())
+
+  @@index([characterId, channelId, id])
+  @@index([platform, platformMessageId, id])
+}
+
+model ConversationState {
+  characterId           String
+  channelId             String
+  channel               Channel @relation(fields: [channelId], references: [id])
+  handledThroughEventId Int     @default(0)
+
+  @@id([characterId, channelId])
+}
+
 model Generation {
   id Int @id @default(autoincrement())
 
   characterId String
-  type String @default("CHAT") // "CHAT", "IMAGE", "VOICE", "EMBEDDING"
+  type        String @default("CHAT") // "CHAT", "IMAGE", "VOICE", "EMBEDDING"
 
   channelId String
   channel   Channel @relation(fields: [channelId], references: [id])
@@ -127,9 +173,12 @@ model Generation {
   output String?
 
   // 도메인별 선택적 부가 데이터 (없으면 null)
-  metadata String?
+  metadata    String?
+  sentAt      DateTime?
+  discardedAt DateTime?
 
   messages Message[]
+  events   Event[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -151,27 +200,4 @@ model Memory {
   message   Message? @relation(fields: [messageId], references: [id])
 
   createdAt DateTime @default(now())
-}
-
-model CronJob {
-  id Int @id @default(autoincrement())
-
-  channelId String // 실행할 채널
-  channel   Channel @relation(fields: [channelId], references: [id])
-
-  platform    String // "discord", "cli" 등
-  scheduledAt DateTime // 실행 예정 시각
-
-  type    String // "ai_scheduled" | "llm_retry"
-  message String // AI에게 전달할 메시지
-
-  status     String    @default("PENDING") // PENDING, EXECUTED, CANCELLED
-  executedAt DateTime?
-
-  // LLM 재시도용 추가 정보
-  originalContext String? // JSON - 원본 컨텍스트 저장용
-  retryCount      Int     @default(0)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
 }

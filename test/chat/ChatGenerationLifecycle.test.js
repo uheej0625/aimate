@@ -3,18 +3,11 @@ import assert from "node:assert";
 import { ChatGenerationLifecycle } from "../../src/chat/ChatGenerationLifecycle.js";
 
 test("ChatGenerationLifecycle records chat input messages", async () => {
-  let details = null;
-  const linkedMessageIds = [];
+  let recordedInput = null;
   const lifecycle = new ChatGenerationLifecycle(
     {
-      updateDetails: async (_generationId, value) => {
-        details = value;
-      },
-    },
-    {},
-    {
-      addGenerationId: async (messageId, generationId) => {
-        linkedMessageIds.push([messageId, generationId]);
+      recordInputWithMessages: async (generationId, value) => {
+        recordedInput = [generationId, value];
       },
     },
     {},
@@ -25,15 +18,13 @@ test("ChatGenerationLifecycle records chat input messages", async () => {
     inputMessages: ["hello", "again"],
   });
 
-  assert.deepStrictEqual(JSON.parse(details.input), {
-    messages: [
-      { id: 1, content: "hello" },
-      { id: 2, content: "again" },
-    ],
-  });
-  assert.deepStrictEqual(linkedMessageIds, [
-    [1, 7],
-    [2, 7],
+  assert.deepStrictEqual(recordedInput, [
+    7,
+    {
+      inputMessages: ["hello", "again"],
+      messageIds: [1, 2],
+      eventSnapshot: undefined,
+    },
   ]);
 });
 
@@ -47,8 +38,6 @@ test("ChatGenerationLifecycle keeps PROCESSING until output is recorded", async 
         return true;
       },
     },
-    {},
-    {},
     {},
   );
 
@@ -74,17 +63,35 @@ test("ChatGenerationLifecycle keeps PROCESSING until output is recorded", async 
   ]);
 });
 
+test("ChatGenerationLifecycle cancels active chat generations for a channel", async () => {
+  const calls = [];
+  const lifecycle = new ChatGenerationLifecycle(
+    {
+      cancelProcessing: async (...args) => {
+        calls.push(args);
+        return 2;
+      },
+    },
+    {},
+  );
+
+  assert.strictEqual(await lifecycle.cancelActiveForChannel("channel-1"), 2);
+  assert.deepStrictEqual(calls, [["channel-1", "CHAT"]]);
+});
+
 test("ChatGenerationLifecycle does not overwrite cancelled generations", async () => {
   const transitions = [];
   const lifecycle = new ChatGenerationLifecycle(
     {
+      completeChat: async (id) => {
+        transitions.push([id, "GENERATED", "COMPLETED"]);
+        return false;
+      },
       updateStatusIfCurrent: async (...args) => {
         transitions.push(args);
         return false;
       },
     },
-    {},
-    {},
     {},
   );
 

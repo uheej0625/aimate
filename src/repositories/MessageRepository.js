@@ -2,7 +2,6 @@ import { prisma } from "../database/client.js";
 
 /**
  * Repository for Message database operations.
- * Handles all message-related data access.
  */
 export class MessageRepository {
   /**
@@ -11,34 +10,51 @@ export class MessageRepository {
   constructor(configManager) {
     this.configManager = configManager;
   }
-  /**
-   * Save a Discord message to the database.
-   * @param {Object} messageData - Message data to save
-   * @returns {Promise<Object>}
-   */
-  async save(messageData) {
-    const {
-      platform = "discord",
-      platformId,
-      serverId = null,
-      channelId,
-      authorId,
-      content,
-      attachmentsJson = null,
-      generationId = null,
-    } = messageData;
 
-    return await prisma.message.upsert({
+  async transaction(callback) {
+    return await prisma.$transaction(callback);
+  }
+
+  async findByPlatformIdInTransaction(tx, platform, platformId) {
+    return await tx.message.findUnique({
       where: {
         platform_platformId: {
           platform,
           platformId,
         },
       },
+    });
+  }
+
+  async upsertInTransaction(tx, messageData) {
+    const {
+      platform,
+      platformId,
+      serverId,
+      channelId,
+      authorId,
+      content,
+      attachmentsJson,
+      generationId,
+      editedAt = null,
+      isBot = false,
+    } = messageData;
+    const where = {
+      platform_platformId: {
+        platform,
+        platformId,
+      },
+    };
+
+    return await tx.message.upsert({
+      where,
       update: {
         content,
         attachmentsJson,
-        generationId,
+        editedAt,
+        authorId,
+        isBot,
+        ...(generationId !== null ? { generationId } : {}),
       },
       create: {
         platform,
@@ -49,16 +65,62 @@ export class MessageRepository {
         content,
         attachmentsJson,
         generationId,
+        editedAt,
+        isBot,
       },
     });
   }
 
-  /**
-   * Get chat history for a channel.
-   * @param {string} channelId - Internal channel ID
-   * @param {number} limit - Maximum number of messages to retrieve
-   * @returns {Promise<Array>}
-   */
+  async updateContentInTransaction(tx, messageId, content, editedAt = null) {
+    return await tx.message.update({
+      where: { id: messageId },
+      data: { content, editedAt },
+    });
+  }
+
+  async findActiveByPlatformIdsInTransaction(tx, platform, platformIds) {
+    if (!platformIds.length) return [];
+
+    return await tx.message.findMany({
+      where: {
+        platform,
+        platformId: { in: platformIds },
+        deletedAt: null,
+      },
+      include: { author: true },
+    });
+  }
+
+  async findActiveByChannelInTransaction(tx, channelId) {
+    return await tx.message.findMany({
+      where: { channelId, deletedAt: null },
+    });
+  }
+
+  async softDeleteByIdsInTransaction(tx, messageIds) {
+    if (!messageIds.length) return 0;
+
+    const result = await tx.message.updateMany({
+      where: { id: { in: messageIds }, deletedAt: null },
+      data: { deletedAt: new Date() },
+    });
+    return result.count;
+  }
+
+  async rememberDeletion(tx, platform, platformId, channelId) {
+    return await tx.message.upsert({
+      where: { platform_platformId: { platform, platformId } },
+      update: {},
+      create: {
+        platform,
+        platformId,
+        channelId,
+        content: "",
+        deletedAt: new Date(),
+      },
+    });
+  }
+
   async getHistory(
     channelId,
     limit = this.configManager.get("conversation.maxContextMessages"),
@@ -71,7 +133,7 @@ export class MessageRepository {
     limit = this.configManager.get("conversation.maxContextMessages"),
   ) {
     const messages = await prisma.message.findMany({
-      where: { channelId },
+      where: { channelId, deletedAt: null },
       orderBy: { createdAt: "desc" },
       take: limit,
       include: {
@@ -86,13 +148,6 @@ export class MessageRepository {
     return messages.reverse();
   }
 
-  /**
-   * Get chat history for a channel by platform and platform channel ID.
-   * @param {string} platform - Platform name (e.g. "discord", "cli")
-   * @param {string} platformChannelId - Platform-specific channel ID
-   * @param {number} limit - Maximum number of messages to retrieve
-   * @returns {Promise<Array>}
-   */
   async getHistoryByPlatformChannelId(
     platform,
     platformChannelId,
@@ -100,6 +155,7 @@ export class MessageRepository {
   ) {
     const messages = await prisma.message.findMany({
       where: {
+        deletedAt: null,
         channel: {
           platform,
           platformId: platformChannelId,
@@ -120,31 +176,21 @@ export class MessageRepository {
   }
 
   async addGenerationId(messageId, generationId) {
-    await prisma.message.update({
-      where: { id: messageId },
+    await prisma.message.updateMany({
+      where: { id: messageId, deletedAt: null },
       data: { generationId },
     });
   }
 
-  /**
-   * @param {number} messageId
-   * @returns {Promise<Object|null>}
-   */
   async findById(messageId) {
-    return await prisma.message.findUnique({
-      where: { id: messageId },
+    return await prisma.message.findFirst({
+      where: { id: messageId, deletedAt: null },
     });
   }
 
-  /**
-   * Find a single message by platform and platformId, including its generation.
-   * @param {string} platform - Platform name (e.g. "discord")
-   * @param {string} platformId - Platform-specific message ID
-   * @returns {Promise<Object|null>}
-   */
   async findByPlatformId(platform, platformId) {
     return await prisma.message.findFirst({
-      where: { platform, platformId },
+      where: { platform, platformId, deletedAt: null },
       include: {
         generation: true,
         author: true,
@@ -152,103 +198,20 @@ export class MessageRepository {
     });
   }
 
-  /**
-   * Delete messages for a specific channel.
-   * Memory records linked to the messages will have their messageId cleared first.
-   * @param {string} channelId - Channel ID
-   * @returns {Promise<number>} Number of deleted messages
-   */
-  async deleteByChannel(channelId) {
-    const messages = await prisma.message.findMany({
-      where: { channelId },
-      select: { id: true },
+  async findManyByPlatformIds(platform, platformIds) {
+    if (!platformIds.length) return [];
+
+    return await prisma.message.findMany({
+      where: { platform, platformId: { in: platformIds }, deletedAt: null },
+      include: { author: true },
     });
-
-    if (!messages.length) return 0;
-    const ids = messages.map((m) => m.id);
-
-    const [_, result] = await prisma.$transaction([
-      prisma.memory.updateMany({
-        where: { messageId: { in: ids } },
-        data: { messageId: null },
-      }),
-      prisma.message.deleteMany({
-        where: { channelId },
-      }),
-    ]);
-
-    return result.count;
   }
 
-  /**
-   * Find messages by generationId.
-   * @param {string} generationId
-   * @returns {Promise<Array>}
-   */
   async findByGenerationId(generationId) {
     return await prisma.message.findMany({
-      where: { generationId },
+      where: { generationId, deletedAt: null },
       orderBy: { createdAt: "asc" },
     });
-  }
-
-  /**
-   * Delete a single message by platform and platformId.
-   * Memory records linked to the message will have their messageId cleared first.
-   * @param {string} platform - Platform name (e.g. "discord")
-   * @param {string} platformId - Platform-specific message ID
-   * @returns {Promise<boolean>} true if deleted, false if not found
-   */
-  async deleteByPlatformId(platform, platformId) {
-    const message = await prisma.message.findFirst({
-      where: { platform, platformId },
-    });
-
-    if (!message) return false;
-
-    // Memory 관계 해제 후 메시지 삭제
-    await prisma.$transaction([
-      prisma.memory.updateMany({
-        where: { messageId: message.id },
-        data: { messageId: null },
-      }),
-      prisma.message.delete({
-        where: { id: message.id },
-      }),
-    ]);
-
-    return true;
-  }
-
-  /**
-   * Delete multiple messages by platform and platformIds.
-   * @param {string} platform - Platform name (e.g. "discord")
-   * @param {string[]} platformIds - Array of platform-specific message IDs
-   * @returns {Promise<number>} Number of deleted messages
-   */
-  async deleteManyByPlatformIds(platform, platformIds) {
-    if (!platformIds.length) return 0;
-
-    const messages = await prisma.message.findMany({
-      where: { platform, platformId: { in: platformIds } },
-      select: { id: true },
-    });
-
-    if (!messages.length) return 0;
-
-    const ids = messages.map((m) => m.id);
-
-    const [_, result] = await prisma.$transaction([
-      prisma.memory.updateMany({
-        where: { messageId: { in: ids } },
-        data: { messageId: null },
-      }),
-      prisma.message.deleteMany({
-        where: { id: { in: ids } },
-      }),
-    ]);
-
-    return result.count;
   }
 
   async findGenerationInputsByIds(generationIds) {

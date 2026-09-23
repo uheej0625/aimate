@@ -18,6 +18,7 @@ export function adaptMessageData(discordMessage) {
     platformChannelId: discordMessage.channelId,
     platformServerId: discordMessage.guildId ?? null,
     content: discordMessage.content,
+    editedAt: discordMessage.editedAt ?? null,
     author: {
       platformUserId: discordMessage.author.id,
       handle: discordMessage.author.username,
@@ -50,12 +51,33 @@ export function adaptChannel(discordChannel) {
  * Discord.js Message를 MessageHandler 입력으로 변환한다.
  *
  * @param {import('discord.js').Message} discordMessage
- * @returns {import('../../application/contracts.js').IncomingMessageRequest}
+ * @returns {import('../../application/contracts.js').MessageEvent}
  */
-export function adaptIncomingMessage(discordMessage) {
+export function adaptIncomingMessage(discordMessage, kind = "CREATE") {
   return {
-    message: adaptMessageData(discordMessage),
+    kind,
+    ...(discordMessage.partial
+      ? {
+          loadMessage: async () =>
+            adaptMessageData(await discordMessage.fetch()),
+        }
+      : { message: adaptMessageData(discordMessage) }),
     channel: adaptChannel(discordMessage.channel),
     botId: discordMessage.client.user.id,
+  };
+}
+
+/**
+ * Discord deletion payloads only need message IDs and channel context.
+ * @param {Iterable<import('discord.js').Message>} discordMessages
+ * @param {import('discord.js').TextBasedChannel} discordChannel
+ * @returns {import('../../application/contracts.js').MessageEvent}
+ */
+export function adaptMessageDeletion(discordMessages, discordChannel) {
+  return {
+    kind: "DELETE",
+    platformMessageIds: [...discordMessages].map((message) => message.id),
+    channel: adaptChannel(discordChannel),
+    botId: discordChannel.client.user.id,
   };
 }

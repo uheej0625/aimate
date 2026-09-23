@@ -1,7 +1,7 @@
 /**
- * Provides platform-neutral conversation data for platform navigation.
+ * Provides platform-neutral channel data for platform navigation.
  */
-export class ConversationCatalog {
+export class ChannelCatalog {
   constructor(channelRepository, messageRepository) {
     this.channelRepository = channelRepository;
     this.messageRepository = messageRepository;
@@ -19,7 +19,7 @@ export class ConversationCatalog {
             limit,
           );
 
-        return toConversation(channel, messages);
+        return toChannel(channel, messages);
       }),
     );
   }
@@ -31,11 +31,11 @@ export class ConversationCatalog {
       scope,
     });
 
-    return toConversation(channel, []);
+    return toChannel(channel, []);
   }
 }
 
-function toConversation(channel, messages) {
+function toChannel(channel, messages) {
   return {
     id: channel.platformId,
     messageCount: channel._count?.messages ?? messages.length,

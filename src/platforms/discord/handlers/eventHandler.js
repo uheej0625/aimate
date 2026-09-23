@@ -23,15 +23,19 @@ export async function loadEvents(client, dependencies = {}) {
     const event = await import(`file://${filePath}`);
     const eventModule = event.default || event;
     const context = { client, ...dependencies };
+    const execute = (...args) => {
+      eventModule.execute(...args, context).catch((error) => {
+        logger.error(
+          { err: error, event: eventModule.name },
+          "Discord event failed",
+        );
+      });
+    };
 
     if (eventModule.once) {
-      client.once(eventModule.name, (...args) =>
-        eventModule.execute(...args, context),
-      );
+      client.once(eventModule.name, execute);
     } else {
-      client.on(eventModule.name, (...args) =>
-        eventModule.execute(...args, context),
-      );
+      client.on(eventModule.name, execute);
     }
   }
 
