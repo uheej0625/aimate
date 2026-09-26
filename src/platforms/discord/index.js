@@ -1,6 +1,7 @@
 import { fixWindowsEncoding } from "../../utils/system.js";
 import { loadEnv } from "../../config/env.js";
 import { createConfigManager } from "../../config/index.js";
+import { ConfigurationError } from "../../config/ConfigurationError.js";
 import { configureLogger } from "../../core/logger.js";
 
 fixWindowsEncoding();
@@ -39,8 +40,9 @@ const main = async () => {
     // Login
     await client.login(getRequiredDiscordToken(configManager));
   } catch (error) {
-    logger.fatal({ err: error }, "Failed to start bot");
-    process.exit(1);
+    const exitCode = error instanceof ConfigurationError ? 78 : 1;
+    logger.fatal({ err: error, exitCode }, "Failed to start bot");
+    process.exit(exitCode);
   }
 };
 

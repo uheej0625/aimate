@@ -1,4 +1,5 @@
 import path from "path";
+import { ConfigurationError } from "../config/ConfigurationError.js";
 
 const CHARACTER_ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 
@@ -10,12 +11,12 @@ export function getRequiredCharacterId(configManager) {
   const characterId = configManager?.get("character");
 
   if (typeof characterId !== "string" || characterId.trim() === "") {
-    throw new Error("Missing required configuration: character");
+    throw new ConfigurationError("Missing required configuration: character");
   }
 
   const normalized = characterId.trim();
   if (!CHARACTER_ID_PATTERN.test(normalized)) {
-    throw new Error(
+    throw new ConfigurationError(
       `Invalid character ID: ${normalized}. Use lowercase letters, numbers, and hyphens.`,
     );
   }

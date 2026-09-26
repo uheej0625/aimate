@@ -6,6 +6,7 @@
  * Priority: Environment Variables > default.json
  */
 import ConfigManager from "./ConfigManager.js";
+import { ConfigurationError } from "./ConfigurationError.js";
 import path from "path";
 import { fileURLToPath } from "url";
 import { validateAiPurpose } from "../ai/config.js";
@@ -91,7 +92,7 @@ export async function validateAiConfig(manager, purposes = ACTIVE_AI_PURPOSES) {
       );
     }
 
-    throw new Error(messages.join(" "));
+    throw new ConfigurationError(messages.join(" "));
   }
 
   return true;

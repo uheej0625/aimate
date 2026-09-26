@@ -1,4 +1,5 @@
 import { getRequiredCharacterId } from "../../character/config.js";
+import { ConfigurationError } from "../../config/ConfigurationError.js";
 
 /**
  * @param {string} characterId
@@ -19,7 +20,9 @@ export function getRequiredDiscordToken(configManager, env = process.env) {
   const token = env[envKey]?.trim();
 
   if (!token) {
-    throw new Error(`Missing required environment variable: ${envKey}`);
+    throw new ConfigurationError(
+      `Missing required environment variable: ${envKey}`,
+    );
   }
 
   return token;
