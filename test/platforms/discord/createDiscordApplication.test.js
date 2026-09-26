@@ -5,7 +5,10 @@ import { createDiscordApplication } from "../../../src/platforms/discord/createD
 
 test("createDiscordApplication registers commands and events without a service locator", async (t) => {
   const configManager = createConfigManager({
-    env: { AI_GATEWAY_API_KEY: "test-key" },
+    env: {
+      AI_GATEWAY_API_KEY: "test-key",
+      VERTEX_PROJECT_ID: "test-project",
+    },
     watch: false,
   });
   t.after(() => configManager.close());

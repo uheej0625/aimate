@@ -62,6 +62,17 @@ Prisma가 `prisma/schema.prisma`를 읽어 로컬 SQLite 파일을 생성합니�
 
 CLI는 전체 화면 TUI로 실행되며 대화 채널과 히스토리가 데이터베이스에 유지됩니다. `Ctrl+N`으로 새 채팅을 만들고, `Tab`과 방향키로 채널을 전환합니다. `Enter`는 전송, `Shift+Enter` 또는 `Alt+Enter`는 줄바꿈, `PgUp`/`PgDn`은 대화 스크롤, `Ctrl+Q`는 종료입니다.
 
+### PM2 실행
+
+```bash
+pm2 startOrRestart ecosystem.config.cjs --only aimate
+pm2 save
+```
+
+AI 설정 오류, 캐릭터 ID 오류, 필수 Discord 토큰 누락은 종료 코드 `78`로 종료하며 PM2가 자동 재시작하지 않습니다. 수정 후 `pm2 restart aimate`로 다시 시작합니다.
+
+그 외 오류는 5초 간격으로 재시도합니다. `min_uptime: 30000`, `max_restarts: 5`로 초기의 짧은 실행 실패를 제한합니다. 이 제한은 전체 누적 재시작 횟수 제한이 아닙니다.
+
 ---
 
 ## 주요 기능

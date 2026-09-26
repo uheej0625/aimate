@@ -6,7 +6,10 @@ import { AppEvents } from "../../src/core/EventBus.js";
 
 test("createContainer exposes only application entrypoint dependencies", async (t) => {
   const configManager = createConfigManager({
-    env: { AI_GATEWAY_API_KEY: "test-key" },
+    env: {
+      AI_GATEWAY_API_KEY: "test-key",
+      VERTEX_PROJECT_ID: "test-project",
+    },
     watch: false,
   });
   t.after(() => configManager.close());
