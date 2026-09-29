@@ -32,6 +32,6 @@ test("createContainer exposes only application entrypoint dependencies", async (
   ]);
   assert.strictEqual(
     container.eventBus.listenerCount(AppEvents.GenerationCompleted),
-    1,
+    0,
   );
 });

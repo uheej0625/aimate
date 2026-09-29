@@ -5,7 +5,6 @@ import { PlatformAccountRepository } from "../repositories/PlatformAccountReposi
 import { ChannelRepository } from "../repositories/ChannelRepository.js";
 import { ServerRepository } from "../repositories/ServerRepository.js";
 import { GenerationRepository } from "../repositories/GenerationRepository.js";
-import { MemoryRepository } from "../repositories/MemoryRepository.js";
 import { ChatGenerator } from "../ai/ChatGenerator.js";
 import { ImageGenerator } from "../ai/ImageGenerator.js";
 import { HistoryService } from "../messages/HistoryService.js";
@@ -36,9 +35,6 @@ import { StoredMessageService } from "../application/StoredMessageService.js";
 import { GetGenerationInfo } from "../application/GetGenerationInfo.js";
 import { RerollConversation } from "../application/RerollConversation.js";
 import { ChannelCatalog } from "../application/ChannelCatalog.js";
-import { MemoryService } from "../memory/MemoryService.js";
-import { MemoryExtractor } from "../memory/MemoryExtractor.js";
-import { registerMemoryPolicy } from "../memory/registerMemoryPolicy.js";
 
 /**
  * Application composition root.
@@ -63,7 +59,6 @@ export async function createContainer({
   const channelRepository = new ChannelRepository();
   const serverRepository = new ServerRepository();
   const generationRepository = new GenerationRepository(configManager);
-  const memoryRepository = new MemoryRepository();
   const eventBus = new EventBus();
   const generationAbortRegistry = new ChatGenerationAbortRegistry();
   const conversationSession = new ConversationSession();
@@ -96,16 +91,10 @@ export async function createContainer({
   const sequenceBuilder = new SequenceBuilder(promptComposer);
   const responseParser = new AIResponseParser();
   const generatedImageTagPolicy = new GeneratedImageTagPolicy();
-  const memoryService = new MemoryService(
-    memoryRepository,
-    userRepository,
-    configManager,
-  );
   const chatContextPreparer = new ChatContextPreparer(
     historyService,
     configManager,
     sequenceBuilder,
-    memoryService,
   );
   const chatGenerator = new ChatGenerator({
     configManager,
@@ -145,13 +134,6 @@ export async function createContainer({
     messageSender,
     eventBus,
   );
-  const memoryExtractor = new MemoryExtractor(
-    memoryRepository,
-    userRepository,
-    messageRepository,
-    configManager,
-  );
-  registerMemoryPolicy({ eventBus, memoryExtractor });
   const chatFlow = new ChatFlow({
     chatContextPreparer,
     channelRepository,

@@ -56,15 +56,11 @@ export class HistoryService {
       (event) => event.eventId <= boundary,
     );
     const input = rendered.filter((event) => pendingIds.has(event.eventId));
-    const lastUser = events.findLast(
-      (event) => !event.isBot && event.authorPlatformId !== botId,
-    );
     return {
       historyMessages,
       pendingMessages,
       messageIds: input.map((message) => message.id),
       inputMessages: input.map((message) => message.content),
-      lastUserPlatformAccountId: lastUser?.authorId ?? null,
       eventSnapshot: {
         ...snapshot,
         replay: undefined,
