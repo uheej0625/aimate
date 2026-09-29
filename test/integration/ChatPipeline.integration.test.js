@@ -134,7 +134,7 @@ test("chat pipeline persists history and multiple model-free replies", async () 
   assert.deepStrictEqual(harness.sentMessages, ["첫 답장", "두 번째 답장"]);
   assert.match(modelRequests[0].system, /Fixture Character/);
   assert.ok(
-    modelRequests[0].messages.some(({ content }) => content === "안녕"),
+    hasObservation(modelRequests[0].messages, "user", "안녕"),
   );
 
   const secondInput = createUserMessage(harness, {
@@ -150,12 +150,10 @@ test("chat pipeline persists history and multiple model-free replies", async () 
     "이전 대화도 기억해",
   ]);
   assert.ok(
-    modelRequests[1].messages.some(({ content }) => content === "첫 답장"),
+    hasObservation(modelRequests[1].messages, "assistant", "첫 답장"),
   );
   assert.ok(
-    modelRequests[1].messages.some(
-      ({ content }) => content === "아까 뭐라고 했지?",
-    ),
+    hasObservation(modelRequests[1].messages, "user", "아까 뭐라고 했지?"),
   );
 
   const channel = await prisma.channel.findUnique({
@@ -242,9 +240,7 @@ for (const content of ["", " \n\t"]) {
     await h.flush();
     assert.deepEqual(h.sentMessages, ["reply to empty input"]);
     assert.ok(
-      modelRequests[0].messages.some(
-        (entry) => entry.role === "user" && entry.content === content,
-      ),
+      hasObservation(modelRequests[0].messages, "user", content),
     );
     const stored = await prisma.message.findFirst({
       where: { channelId: channelRecord.id, isBot: false },
@@ -605,9 +601,7 @@ test("failed input stays pending after a fallback and joins new input on recover
   );
   for (const content of [input.content, nextInput.content]) {
     assert.ok(
-      modelRequests[1].messages.some(
-        (entry) => entry.role === "user" && entry.content === content,
-      ),
+      hasObservation(modelRequests[1].messages, "user", content),
     );
   }
   assert.strictEqual(harness.sentMessages.at(-1), "recovered reply");
@@ -916,6 +910,16 @@ function fakeTextResult(text) {
     steps: [],
     toolResults: [],
   };
+}
+
+function hasObservation(messages, role, content) {
+  return messages.some((entry) =>
+    entry.role === role &&
+    entry.content.replace(
+      /^\[\d{4}년 \d{1,2}월 \d{1,2}일 [일월화수목금토]요일 (?:오전|오후) \d{1,2}:\d{2}\]\n/,
+      "",
+    ) === content,
+  );
 }
 
 test("observed edit and deletion reach the model even after an earlier response", async () => {
@@ -1477,4 +1481,42 @@ test("replaying an older snapshot does not resurrect outputs discarded since it 
     ),
     false,
   );
+  assert.deepEqual(input.historyMessages, []);
+  assert.equal(input.pendingMessages.length, 2);
+});
+
+test("context includes all stored messages and handled events beyond the configured limit", async () => {
+  const requests = [];
+  const h = createHarness({
+    generateTextFn: async (request) => {
+      requests.push(request);
+      return fakeTextResult("## messages\nall history received");
+    },
+  });
+  const channel = await h.activate();
+  // Stored history has not yet been observed by this character.
+  for (let i = 0; i < 55; i++) {
+    await h.messageService.saveMessage(createUserMessage(h, {
+      id: randomUUID(), content: `historical ${i}`,
+    }), null, [], { observed: false });
+  }
+  const initial = await h.eventRepository.snapshot(channel.id);
+  assert.equal(initial.events.length, 55);
+  assert.equal(initial.events[0].snapshotContent, "historical 0");
+  assert.ok(initial.events.every((event) => event.source === "HISTORY"));
+  await h.executeChat();
+  await h.receive("CREATE", {
+    message: createUserMessage(h, { id: randomUUID(), content: "latest input" }),
+  });
+  await h.flush();
+  const messages = requests[1].messages;
+  const instructions = messages.findIndex((item) => item.content.includes("## Current Time"));
+  assert.equal(instructions, 57); // Identity, 55 historical reads, one delivered reply.
+  for (let i = 0; i < 55; i++) {
+    assert.match(messages[i + 1].content, new RegExp(`historical ${i}$`));
+    assert.deepEqual(messages[i + 1], requests[0].messages[i + 2]);
+  }
+  assert.equal(messages[56].role, "assistant");
+  assert.ok(hasObservation(messages.slice(instructions + 1), "user", "latest input"));
+  assert.equal(messages.length, 59);
 });

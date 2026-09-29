@@ -4,6 +4,7 @@ import { pathToFileURL } from "url";
 import { createLogger } from "../../core/logger.js";
 
 const logger = createLogger("SequenceBuilder");
+const OBSERVATION_TIME_GAP_MS = 5 * 60 * 1000;
 
 export class SequenceBuilder {
   /**
@@ -36,7 +37,7 @@ export class SequenceBuilder {
   /**
    * sequence.js 명세에 따라 컨텍스트 배열을 조립한다.
    * @param {Array} sequenceDef
-   * @param {Object} options - { historyMessages, pendingMessages, botId, channelRecord, promptName, data }
+   * @param {Object} options - { historyMessages, pendingMessages, botId, channelRecord, promptName, data, referenceDate }
    * @returns {Promise<{ systemInstruction: string, context: Array }>}
    */
   async build(
@@ -48,6 +49,7 @@ export class SequenceBuilder {
       channelRecord,
       promptName,
       data = {},
+      referenceDate = new Date(),
     },
   ) {
     if (typeof promptName !== "string" || promptName.trim() === "") {
@@ -59,7 +61,39 @@ export class SequenceBuilder {
     const context = [];
     const promptDir = this.resolvePromptDir(promptName.trim());
 
-    const renderOptions = { channelRecord, data };
+    const renderOptions = {
+      channelRecord,
+      data,
+      context: await this.promptComposer.buildContext({ data, referenceDate }),
+    };
+    const { language = "ko-KR", timezone } =
+      renderOptions.context.config?.app ?? {};
+    const timeFormatter = new Intl.DateTimeFormat(language, {
+      timeZone: timezone,
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      weekday: "long",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
+
+    // Time markers follow event order, independent of response boundaries or slices.
+    let previousMessage = null;
+    const render = (message) => {
+      const observation = renderObservation(
+        message,
+        botId,
+        previousMessage,
+        timeFormatter,
+      );
+      previousMessage = message;
+      return observation;
+    };
+    const historyObservations = historyMessages.map(render);
+    const pendingObservations = pendingMessages.map(render);
+
     const pushRendered = (role, rendered) => {
       if (!rendered) return;
 
@@ -101,27 +135,35 @@ export class SequenceBuilder {
           renderOptions,
         );
         pushRendered(step.role, rendered);
+      } else if (step.type === "response") {
+        const instructions = [];
+        for (const source of step.sources) {
+          instructions.push(
+            await this.promptComposer.renderFile(
+              path.join(promptDir, source),
+              renderOptions,
+            ),
+          );
+        }
+        instructions.push(
+          `## Current Time\n\n${renderOptions.context.system.now.raw}`,
+        );
+        pushRendered("user", instructions.join("\n\n"));
       } else if (step.type === "cache-point") {
         // Explicit no-op until a provider supports prompt caching metadata.
         continue;
       } else if (step.type === "history") {
-        let slicedHistory = historyMessages;
+        let slicedHistory = historyObservations;
         if (step.slice && Array.isArray(step.slice)) {
-          slicedHistory = historyMessages.slice(...step.slice);
+          slicedHistory = historyObservations.slice(...step.slice);
         }
 
         for (const msg of slicedHistory) {
-          context.push({
-            role: msg.authorPlatformId === botId ? "assistant" : "user",
-            content: msg.content,
-          });
+          context.push(msg);
         }
       } else if (step.type === "pending") {
-        for (const msg of pendingMessages) {
-          context.push({
-            role: msg.authorPlatformId === botId ? "assistant" : "user",
-            content: msg.content,
-          });
+        for (const msg of pendingObservations) {
+          context.push(msg);
         }
       } else {
         throw new Error(`Unsupported prompt sequence step type: ${step.type}`);
@@ -147,6 +189,7 @@ export class SequenceBuilder {
       "cache-point",
       "history",
       "pending",
+      "response",
     ]);
     let systemSteps = 0;
 
@@ -162,6 +205,13 @@ export class SequenceBuilder {
           throw new Error("Prompt file steps require a source.");
         }
         await fs.access(path.join(promptDir, step.source));
+      } else if (step.type === "response") {
+        if (!Array.isArray(step.sources) || step.sources.length === 0) {
+          throw new Error("Response steps require prompt sources.");
+        }
+        for (const source of step.sources) {
+          await fs.access(path.join(promptDir, source));
+        }
       }
     }
 
@@ -171,4 +221,21 @@ export class SequenceBuilder {
       );
     }
   }
+}
+
+function renderObservation(message, botId, previousMessage, timeFormatter) {
+  const observedAt = message.createdAt ? new Date(message.createdAt) : null;
+  const previousObservedAt = previousMessage?.createdAt
+    ? new Date(previousMessage.createdAt)
+    : null;
+  const showTime =
+    observedAt &&
+    (!previousObservedAt ||
+      observedAt - previousObservedAt >= OBSERVATION_TIME_GAP_MS);
+  return {
+    role: message.authorPlatformId === botId ? "assistant" : "user",
+    content: showTime
+      ? `[${timeFormatter.format(observedAt)}]\n${message.content}`
+      : message.content,
+  };
 }

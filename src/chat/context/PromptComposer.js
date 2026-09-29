@@ -32,10 +32,12 @@ export class PromptComposer {
    *
    * @param {Object} [options]
    * @param {Object} [options.data]
+   * @param {Date} [options.referenceDate]
    * @returns {Promise<Object>}
    */
-  async buildContext({ data = {} } = {}) {
-    const system = buildSystemContext();
+  async buildContext({ data = {}, referenceDate = new Date() } = {}) {
+    const config = this.configManager?.getAll?.() ?? {};
+    const system = buildSystemContext(referenceDate, config.app?.timezone);
     const characterContext = await this.characterContextBuilder.build({
       system,
     });
@@ -44,7 +46,7 @@ export class PromptComposer {
       data,
       system,
       runtime: buildRuntimeContext(),
-      config: this.configManager?.getAll?.() ?? {},
+      config,
       character: {
         ...characterContext,
         toString: () => characterContext.identity,
@@ -58,7 +60,10 @@ export class PromptComposer {
    * @returns {Promise<string>}
    */
   async render(template, options = {}) {
-    return renderTemplate(template, await this.buildContext(options));
+    return renderTemplate(
+      template,
+      options.context ?? (await this.buildContext(options)),
+    );
   }
 
   /**

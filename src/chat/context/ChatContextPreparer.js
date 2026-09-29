@@ -31,6 +31,7 @@ export class ChatContextPreparer {
     channelRecord = null,
     rerollGenerationId = null,
   ) {
+    const referenceDate = new Date();
     const {
       historyMessages = [],
       pendingMessages = [],
@@ -53,6 +54,7 @@ export class ChatContextPreparer {
         botId,
         channelRecord,
         promptName,
+        referenceDate,
       },
     );
 

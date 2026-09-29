@@ -2,6 +2,6 @@ export default [
   { type: "file", role: "system", source: "system.md" },
   { type: "placeholder", role: "user", source: "character.identity" },
   { type: "history" },
+  { type: "response", sources: ["response.md"] },
   { type: "pending" },
-  { type: "file", role: "user", source: "response.md" },
 ];

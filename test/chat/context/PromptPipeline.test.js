@@ -27,8 +27,8 @@ test("prompt pipeline loads and renders a complete prompt fixture", async () => 
 
   assert.match(result.systemInstruction, /Fixture Character/);
   assert.match(result.context[0].content, /Name: Fixture Character/);
-  assert.strictEqual(result.context[1].content, "hello");
-  assert.match(result.context[2].content, /## messages/);
+  assert.match(result.context[1].content, /## messages/);
+  assert.strictEqual(result.context[2].content, "hello");
 });
 
 test("prompt pipeline rejects a missing prompt pack", async () => {

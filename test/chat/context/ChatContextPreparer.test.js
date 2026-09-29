@@ -4,13 +4,17 @@ import { ChatContextPreparer } from "../../../src/chat/context/ChatContextPrepar
 
 test("ChatContextPreparer loads history and sequence", async () => {
   let sequenceBuildInput = null;
+  let startedAt;
   const historyService = {
-    fetchHistoryData: async () => ({
-      historyMessages: [{ role: "assistant", content: "old" }],
-      pendingMessages: [{ id: "msg-1", content: "new" }],
-      messageIds: ["msg-1"],
-      inputMessages: ["new"],
-    }),
+    fetchHistoryData: async () => {
+      startedAt = new Date();
+      return {
+        historyMessages: [{ role: "assistant", content: "old" }],
+        pendingMessages: [{ id: "msg-1", content: "new" }],
+        messageIds: ["msg-1"],
+        inputMessages: ["new"],
+      };
+    },
   };
   const configManager = {
     get: (key) => (key === "ai.chat.prompt" ? "minimal" : null),
@@ -29,6 +33,10 @@ test("ChatContextPreparer loads history and sequence", async () => {
     historyService,
     configManager,
     sequenceBuilder,
+    {
+      loadForPlatformAccount: () => assert.fail("Memory must not be queried"),
+      formatForContext: () => assert.fail("Memory must not be injected"),
+    },
   );
 
   const result = await preparer.prepare(
@@ -43,4 +51,7 @@ test("ChatContextPreparer loads history and sequence", async () => {
   assert.deepStrictEqual(result.inputMessages, ["new"]);
   assert.deepStrictEqual(sequenceBuildInput.sequenceDef, ["sequence:minimal"]);
   assert.strictEqual(sequenceBuildInput.input.promptName, "minimal");
+  assert.ok(sequenceBuildInput.input.referenceDate instanceof Date);
+  assert.ok(sequenceBuildInput.input.referenceDate <= startedAt);
+  assert.equal(sequenceBuildInput.input.data, undefined);
 });

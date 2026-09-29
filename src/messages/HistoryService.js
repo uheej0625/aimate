@@ -43,12 +43,11 @@ export class HistoryService {
     const imagePrompts =
       await this.messageRepository.findGenerationInputsByIds(generationIds);
     const rendered = events.map((event) => this.render(event, imagePrompts));
-    const boundary = Math.min(
-      snapshot.fromExclusive,
-      ...[...pendingIds].map((id) => id - 1),
-    );
-    // Keep delivered chunks and historical reads in their actual event order.
-    // Only the selected user events count as input requiring a response.
+    // Context placement follows delivery; input handling still follows the cursor.
+    const boundary =
+      events.findLast(
+        (event) => event.kind === "SENT" && event.authorPlatformId === botId,
+      )?.id ?? 0;
     const pendingMessages = rendered.filter(
       (event) => event.eventId > boundary,
     );
@@ -88,32 +87,32 @@ export class HistoryService {
       imagePrompts,
     );
     let content = body;
-    const reference = `메시지 #${event.messageId ?? event.platformMessageId}`;
     if (event.kind === "EDIT") {
       content =
-        `[${reference}의 수정 목격]\n` +
+        "[수정 목격]\n" +
         (event.previousContent !== null
           ? `이전에 읽은 내용: ${JSON.stringify(event.previousContent)}\n`
           : "이전에 읽은 내용: 미상\n") +
         `현재 내용: ${JSON.stringify(body)}`;
     } else if (event.kind === "DELETE") {
       content =
-        `[${reference}의 삭제 목격${event.batchId ? `; 일괄 삭제 ${event.batchId}` : ""}]\n` +
+        `[삭제 목격${event.batchId ? `; 일괄 삭제 ${event.batchId}` : ""}]\n` +
         (event.snapshotContent !== null
           ? `이전에 읽은 내용: ${JSON.stringify(body)}`
           : "이전에 읽은 내용: 미상") +
         "\n삭제 실행자와 이유는 알 수 없음.";
     } else if (event.source === "HISTORY") {
-      content = `[현재 과거 내역에서 읽은 ${reference}${event.editedAt ? "; 수정됨 표시 있음, 편집 시점은 목격하지 않음" : ""}]\n${body}`;
+      content = `[현재 과거 내역에서 읽은 메시지${event.editedAt ? "; 수정됨 표시 있음, 편집 시점은 목격하지 않음" : ""}]\n${body}`;
     } else if (event.kind === "READ" && event.editedAt) {
-      content = `[${reference}; 수정됨 표시 있음]\n${body}`;
+      content = `[수정됨 표시 있음]\n${body}`;
     }
     return {
       id: event.messageId,
       eventId: event.id,
       authorId: event.authorId,
       authorPlatformId:
-        event.kind === "SENT" || event.kind === "READ"
+        event.source !== "HISTORY" &&
+        (event.kind === "SENT" || event.kind === "READ")
           ? event.authorPlatformId
           : null,
       content,
