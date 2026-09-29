@@ -916,7 +916,7 @@ function hasObservation(messages, role, content) {
   return messages.some((entry) =>
     entry.role === role &&
     entry.content.replace(
-      /^\[\d{4}년 \d{1,2}월 \d{1,2}일 [일월화수목금토]요일 (?:오전|오후) \d{1,2}:\d{2}\]\n/,
+      /^\[\d{4}년 \d{1,2}월 \d{1,2}일 [일월화수목금토]요일 (?:AM|PM) \d{1,2}:\d{2}\]\n/,
       "",
     ) === content,
   );

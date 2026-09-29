@@ -89,7 +89,7 @@ test("all observations retain roles, order and timestamps across response bounda
   assert.equal(first.context.length, 32);
   assert.deepEqual(first.context[1], {
     role: "user",
-    content: "[2026년 9월 24일 목요일 오후 7:00]\nmessage 1",
+    content: "[2026년 9월 24일 목요일 PM 7:00]\nmessage 1",
   });
   assert.equal(first.context[2].content, "message 2");
   assert.equal(first.context[26].role, "assistant");
@@ -152,7 +152,7 @@ test("time markers use five-minute gaps between events and survive delivery", as
     event(7, "READ", "back", { observedAt: "2026-09-24T11:00:00Z" }),
   ];
   const first = await h.compose(events, date);
-  assert.equal(first.context[1].content, "[2026년 9월 24일 목요일 오후 7:00]\nfirst");
+  assert.equal(first.context[1].content, "[2026년 9월 24일 목요일 PM 7:00]\nfirst");
   assert.equal(first.context[2].content, "reply");
   assert.match(first.context[3].content, /## Current Time/);
   assert.equal(first.context[4].content, "original");
@@ -162,13 +162,13 @@ test("time markers use five-minute gaps between events and survive delivery", as
   );
   assert.equal(
     first.context[6].content,
-    '[2026년 9월 24일 목요일 오후 7:14]\n[삭제 목격]\n이전에 읽은 내용: "edited"\n삭제 실행자와 이유는 알 수 없음.',
+    '[2026년 9월 24일 목요일 PM 7:14]\n[삭제 목격]\n이전에 읽은 내용: "edited"\n삭제 실행자와 이유는 알 수 없음.',
   );
   assert.deepEqual(first.context[7], {
     role: "user",
     content: "[현재 과거 내역에서 읽은 메시지]\nold bot message",
   });
-  assert.equal(first.context[8].content, "[2026년 9월 24일 목요일 오후 8:00]\nback");
+  assert.equal(first.context[8].content, "[2026년 9월 24일 목요일 PM 8:00]\nback");
 
   events.push(event(8, "SENT", "welcome back", {
     observedAt: "2026-09-24T11:00:01Z",
@@ -197,9 +197,9 @@ test("missing observation times are not inferred", async () => {
   );
   assert.deepEqual(result.context.slice(2).map((item) => item.content), [
     "unknown",
-    "[2026년 9월 24일 목요일 오후 7:00]\nknown",
+    "[2026년 9월 24일 목요일 PM 7:00]\nknown",
     "unknown again",
-    "[2026년 9월 24일 목요일 오후 7:00]\nknown again",
+    "[2026년 9월 24일 목요일 PM 7:00]\nknown again",
   ]);
 });
 
@@ -208,27 +208,27 @@ test("observation times follow the configured timezone and language", async (t) 
     {
       timezone: "Asia/Seoul",
       date: "2026-09-29T00:00:00Z",
-      expected: "2026년 9월 29일 화요일 오전 9:00",
+      expected: "2026년 9월 29일 화요일 AM 9:00",
     },
     {
       timezone: "UTC",
       date: "2026-09-29T00:00:00Z",
-      expected: "2026년 9월 29일 화요일 오전 12:00",
+      expected: "2026년 9월 29일 화요일 AM 12:00",
     },
     {
       timezone: "America/New_York",
       date: "2026-09-29T00:00:00Z",
-      expected: "2026년 9월 28일 월요일 오후 8:00",
+      expected: "2026년 9월 28일 월요일 PM 8:00",
     },
     {
       timezone: "America/New_York",
       date: "2026-01-29T00:00:00Z",
-      expected: "2026년 1월 28일 수요일 오후 7:00",
+      expected: "2026년 1월 28일 수요일 PM 7:00",
     },
     {
       timezone: "Asia/Kathmandu",
       date: "2026-09-29T00:00:00Z",
-      expected: "2026년 9월 29일 화요일 오전 5:45",
+      expected: "2026년 9월 29일 화요일 AM 5:45",
     },
     {
       timezone: "America/New_York",
