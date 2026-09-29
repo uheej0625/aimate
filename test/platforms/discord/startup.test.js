@@ -18,7 +18,7 @@ async function runStartup(t, changeConfig = () => {}, token = "test-token") {
   await symlink(
     path.join(projectRoot, "node_modules"),
     path.join(directory, "node_modules"),
-    "dir",
+    process.platform === "win32" ? "junction" : "dir",
   );
   await writeFile(path.join(directory, "package.json"), '{"type":"module"}');
   await mkdir(path.join(directory, "config"));
