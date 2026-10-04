@@ -8,7 +8,12 @@ import { fileURLToPath } from "node:url";
 
 const projectRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
-async function runStartup(t, changeConfig = () => {}, token = "test-token") {
+async function runStartup(
+  t,
+  changeConfig = () => {},
+  token = "test-token",
+  characterConfig = { timezone: "UTC" },
+) {
   const directory = await mkdtemp(path.join(tmpdir(), "aimate-startup-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
 
@@ -35,6 +40,17 @@ async function runStartup(t, changeConfig = () => {}, token = "test-token") {
     path.join(directory, "config/default.json"),
     JSON.stringify(config),
   );
+  if (characterConfig) {
+    const characterDirectory = path.join(
+      directory,
+      "content/characters/startup-test",
+    );
+    await mkdir(characterDirectory, { recursive: true });
+    await writeFile(
+      path.join(characterDirectory, "config.json"),
+      JSON.stringify(characterConfig),
+    );
+  }
   // Keep the real startup path, but never connect to Discord in these tests.
   await writeFile(
     path.join(directory, "src/platforms/discord/client.js"),
@@ -92,6 +108,18 @@ test("Discord startup exits with 78 for an invalid character ID", async (t) => {
     config.character = "../invalid";
   });
   assertFailure(result, 78, /Invalid character ID/);
+});
+
+test("Discord startup exits with 78 for a missing character config", async (t) => {
+  const result = await runStartup(t, undefined, "test-token", null);
+  assertFailure(result, 78, /Missing required character configuration/);
+});
+
+test("Discord startup exits with 78 for an invalid character timezone", async (t) => {
+  const result = await runStartup(t, undefined, "test-token", {
+    timezone: "Mars/Olympus",
+  });
+  assertFailure(result, 78, /Invalid character timezone/);
 });
 
 test("Discord startup keeps ordinary login failures retryable with exit code 1", async (t) => {

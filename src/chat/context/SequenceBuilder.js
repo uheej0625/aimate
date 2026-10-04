@@ -66,10 +66,11 @@ export class SequenceBuilder {
       data,
       context: await this.promptComposer.buildContext({ data, referenceDate }),
     };
-    const { language = "ko-KR", timezone } =
+    const { language = "ko-KR" } =
       renderOptions.context.config?.app ?? {};
+    const timeZone = renderOptions.context.system?.now.timezone;
     const timeFormatter = new Intl.DateTimeFormat(language, {
-      timeZone: timezone,
+      timeZone,
       year: "numeric",
       month: "long",
       day: "numeric",

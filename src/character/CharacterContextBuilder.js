@@ -3,7 +3,10 @@ import path from "path";
 import { createLogger } from "../core/logger.js";
 import { buildSystemContext } from "../utils/templateContext.js";
 import { renderTemplate } from "../utils/renderTemplate.js";
-import { resolveCharacterFile } from "./config.js";
+import {
+  loadRequiredCharacterConfig,
+  resolveCharacterFile,
+} from "./config.js";
 
 const logger = createLogger("CharacterContextBuilder");
 
@@ -13,6 +16,7 @@ export class CharacterContextBuilder {
    * @param {import('../config/ConfigManager.js').default} [options.configManager]
    * @param {string} [options.identityPath]
    * @param {string} [options.variablesPath]
+   * @param {string} [options.configPath]
    */
   constructor(options = {}) {
     const identityPath =
@@ -28,6 +32,10 @@ export class CharacterContextBuilder {
 
     this.identityPath = path.resolve(process.cwd(), identityPath);
     this.variablesPath = path.resolve(process.cwd(), variablesPath);
+    this.configPath = path.resolve(
+      process.cwd(),
+      options.configPath ?? path.join(path.dirname(this.variablesPath), "config.json"),
+    );
   }
 
   /**
@@ -35,7 +43,11 @@ export class CharacterContextBuilder {
    * @param {Object} [options.system]
    * @returns {Promise<Object>}
    */
-  async build({ system = buildSystemContext() } = {}) {
+  async build({ system } = {}) {
+    if (!system) {
+      const config = await this.loadConfig();
+      system = buildSystemContext(new Date(), config.timezone);
+    }
     const variables = await this.loadVariables();
     const character = this.buildCharacterData(variables, system);
     const identity = await this.renderIdentity(character, system);
@@ -44,6 +56,13 @@ export class CharacterContextBuilder {
       ...character,
       identity,
     };
+  }
+
+  /**
+   * @returns {Promise<Object>}
+   */
+  async loadConfig() {
+    return loadRequiredCharacterConfig(this.configPath);
   }
 
   /**
@@ -73,7 +92,7 @@ export class CharacterContextBuilder {
     const now = new Date(system.now.raw);
     const birthday = variables.birthday ?? null;
     const schoolEnrollment = variables.schoolEnrollment ?? null;
-    const timezone = variables.timezone ?? undefined;
+    const timezone = system.now.timezone;
     const age = birthday
       ? CharacterContextBuilder.calculateAge(birthday, now, timezone)
       : undefined;
