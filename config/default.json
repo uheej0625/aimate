@@ -6,13 +6,13 @@
     "timezone": "Asia/Seoul",
     "language": "ko-KR"
   },
-  "character": "ai-chan",
+  "character": "haneul",
   "ai": {
     "chat": {
       "provider": "gateway",
       "model": "xai/grok-4.5",
       "nativeTools": { "webSearch": true },
-      "prompt": "ultimate",
+      "prompt": "default",
       "temperature": null,
       "maxOutputTokens": null,
       "topP": null,
