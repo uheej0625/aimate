@@ -35,6 +35,7 @@ import { StoredMessageService } from "../application/StoredMessageService.js";
 import { GetGenerationInfo } from "../application/GetGenerationInfo.js";
 import { RerollConversation } from "../application/RerollConversation.js";
 import { ChannelCatalog } from "../application/ChannelCatalog.js";
+import { ReadChatTurn } from "../application/ReadChatTurn.js";
 
 /**
  * Application composition root.
@@ -43,12 +44,17 @@ import { ChannelCatalog } from "../application/ChannelCatalog.js";
 export async function createContainer({
   configManager,
   platformClients = new Map(),
+  imageGenerator: suppliedImageGenerator = null,
+  chatGenerator: suppliedChatGenerator = null,
 }) {
   if (!configManager) {
     throw new Error("createContainer requires a configManager.");
   }
 
-  await validateAiConfig(configManager);
+  await validateAiConfig(
+    configManager,
+    suppliedImageGenerator ? ["chat"] : undefined,
+  );
 
   // Repositories (data layer)
   const historyMessageFormatter = new HistoryMessageFormatter();
@@ -67,7 +73,8 @@ export async function createContainer({
   const toolRegistry = new ToolRegistry(configManager);
   await toolRegistry.loadFromDirectory();
 
-  const imageGenerator = new ImageGenerator(configManager);
+  const imageGenerator =
+    suppliedImageGenerator ?? new ImageGenerator(configManager);
   const toolContextFactory = new ToolExecutionContextFactory({
     configManager,
     imageGenerator,
@@ -96,13 +103,15 @@ export async function createContainer({
     configManager,
     sequenceBuilder,
   );
-  const chatGenerator = new ChatGenerator({
-    configManager,
-    toolRegistry,
-    responseParser,
-    generatedImageTagPolicy,
-    toolContextFactory,
-  });
+  const chatGenerator =
+    suppliedChatGenerator ??
+    new ChatGenerator({
+      configManager,
+      toolRegistry,
+      responseParser,
+      generatedImageTagPolicy,
+      toolContextFactory,
+    });
   const messageService = new MessageService(
     userRepository,
     platformAccountRepository,
@@ -162,6 +171,7 @@ export async function createContainer({
     channelRepository,
     messageRepository,
   );
+  const readChatTurn = new ReadChatTurn(messageRepository);
 
   const conversationBuffer = new ConversationBuffer(
     chatFlow,
@@ -191,6 +201,7 @@ export async function createContainer({
     getGenerationInfo,
     rerollConversation,
     channelCatalog,
+    readChatTurn,
     botAccountService,
     eventBus,
     generationRepository,

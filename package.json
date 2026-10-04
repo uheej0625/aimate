@@ -8,6 +8,7 @@
     "dev": "npm run discord",
     "discord": "cross-env PLATFORM=discord node src/platforms/discord/index.js",
     "cli": "cross-env PLATFORM=cli node src/platforms/cli/index.js",
+    "chat:review": "node scripts/reviewChat.js",
     "deploy": "node src/platforms/discord/deploy.js",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",

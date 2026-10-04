@@ -195,6 +195,11 @@ export class ChatFlow {
           generation.id,
         );
       if (!settled && turnId) await run(() => session.settle(key, turnId));
+      // Failure delivery and message persistence have finished before this event.
+      await this.eventBus.emitAsync(AppEvents.GenerationSettled, {
+        ...payload(),
+        platformChannelId: channelPort.platformChannelId,
+      });
     }
   }
 }
