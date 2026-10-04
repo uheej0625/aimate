@@ -1,9 +1,9 @@
 import fs from "fs/promises";
+import { renderTemplate } from "../../utils/renderTemplate.js";
 import {
   buildRuntimeContext,
   buildSystemContext,
-  renderTemplate,
-} from "../../utils/renderTemplate.js";
+} from "../../utils/templateContext.js";
 import { CharacterContextBuilder } from "../../character/CharacterContextBuilder.js";
 
 export class PromptComposer {

@@ -4,7 +4,7 @@ import { CharacterContextBuilder } from "../../../src/character/CharacterContext
 import { PromptComposer } from "../../../src/chat/context/PromptComposer.js";
 import { SequenceBuilder } from "../../../src/chat/context/SequenceBuilder.js";
 import { HistoryService } from "../../../src/messages/HistoryService.js";
-import { buildSystemContext } from "../../../src/utils/renderTemplate.js";
+import { buildSystemContext } from "../../../src/utils/templateContext.js";
 
 function event(id, kind, content, extra = {}) {
   return {

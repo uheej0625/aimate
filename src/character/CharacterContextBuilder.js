@@ -1,7 +1,8 @@
 import fs from "fs/promises";
 import path from "path";
 import { createLogger } from "../core/logger.js";
-import { buildSystemContext, renderTemplate } from "../utils/renderTemplate.js";
+import { buildSystemContext } from "../utils/templateContext.js";
+import { renderTemplate } from "../utils/renderTemplate.js";
 import { resolveCharacterFile } from "./config.js";
 
 const logger = createLogger("CharacterContextBuilder");
