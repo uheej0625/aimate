@@ -27,6 +27,7 @@ test("createContainer exposes only application entrypoint dependencies", async (
     "generationRepository",
     "getGenerationInfo",
     "messageHandler",
+    "readChatTurn",
     "rerollConversation",
     "storedMessageService",
   ]);

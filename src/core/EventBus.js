@@ -8,6 +8,7 @@ export const AppEvents = Object.freeze({
   GenerationCancelled: "generation.cancelled",
   GenerationCompleted: "generation.completed",
   GenerationFailed: "generation.failed",
+  GenerationSettled: "generation.settled",
 });
 
 /**
