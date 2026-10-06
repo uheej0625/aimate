@@ -114,7 +114,9 @@ xAI Responses API의 서버사이드 도구는 AiMate의 일반 도구(`getTime`
 
 ### 캐릭터 설정
 
-`config/default.json`의 `character`로 활성 캐릭터를 고릅니다. `content/characters/<character>/` 안의 `variables.json`, `identity.md`, `reference.png`으로 이름, 나이, 말투, 성격과 셀피 기준 이미지를 정의합니다. 변경은 다음 실행부터 적용됩니다.
+`config/default.json`의 `character`로 활성 캐릭터를 고릅니다. `content/characters/<character>/` 안의 `config.json`, `variables.json`, `identity.md`, `reference.png`으로 동작 설정, 이름, 나이, 말투, 성격과 셀피 기준 이미지를 정의합니다. 변경은 다음 실행부터 적용됩니다.
+
+캐릭터별 동작 설정은 같은 디렉터리의 필수 파일인 `config.json`에 둡니다. 예를 들어 `{ "timezone": "Asia/Seoul" }`로 유효한 IANA 시간대를 지정합니다. 파일이 없거나 `timezone`이 누락·오류이면 애플리케이션 시작이 설정 오류로 중단됩니다. 생일·입학 연도 같은 프로필 데이터는 `variables.json`에 둡니다. 관찰 시각, 현재 시각(`system.now`), 나이·학년 계산은 캐릭터의 `timezone`을 사용하고, 날짜 표기 언어는 `app.language`를 따릅니다.
 
 ---
 

@@ -66,10 +66,10 @@ export class SequenceBuilder {
       data,
       context: await this.promptComposer.buildContext({ data, referenceDate }),
     };
-    const { language = "ko-KR", timezone } =
-      renderOptions.context.config?.app ?? {};
+    const { language = "ko-KR" } = renderOptions.context.config?.app ?? {};
+    const timeZone = renderOptions.context.system?.now.timezone;
     const timeFormatter = new Intl.DateTimeFormat(language, {
-      timeZone: timezone,
+      timeZone,
       year: "numeric",
       month: "long",
       day: "numeric",
@@ -235,7 +235,7 @@ function renderObservation(message, botId, previousMessage, timeFormatter) {
   return {
     role: message.authorPlatformId === botId ? "assistant" : "user",
     content: showTime
-      ? `[${timeFormatter.format(observedAt)}]\n${message.content}`
+      ? `[${timeFormatter.format(observedAt).replace("오전", "AM").replace("오후", "PM")}]\n${message.content}`
       : message.content,
   };
 }

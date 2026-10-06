@@ -4,7 +4,7 @@ import { CharacterContextBuilder } from "../../../src/character/CharacterContext
 import { PromptComposer } from "../../../src/chat/context/PromptComposer.js";
 import { SequenceBuilder } from "../../../src/chat/context/SequenceBuilder.js";
 import { HistoryService } from "../../../src/messages/HistoryService.js";
-import { buildSystemContext } from "../../../src/utils/renderTemplate.js";
+import { buildSystemContext } from "../../../src/utils/templateContext.js";
 
 function event(id, kind, content, extra = {}) {
   return {
@@ -24,7 +24,11 @@ function event(id, kind, content, extra = {}) {
   };
 }
 
-async function harness({ timezone = "Asia/Seoul", language = "ko-KR" } = {}) {
+async function harness({
+  timezone = "Asia/Seoul",
+  characterTimezone = timezone,
+  language = "ko-KR",
+} = {}) {
   let characterBuilds = 0;
   const character = new CharacterContextBuilder({
     identityPath: "test/fixtures/character/identity.md",
@@ -39,6 +43,7 @@ async function harness({ timezone = "Asia/Seoul", language = "ko-KR" } = {}) {
         characterBuilds++;
         return character.build(options);
       },
+      loadConfig: async () => ({ timezone: characterTimezone }),
     },
   );
   const builder = new SequenceBuilder(composer, {
@@ -203,7 +208,7 @@ test("missing observation times are not inferred", async () => {
   ]);
 });
 
-test("observation times follow the configured timezone and language", async (t) => {
+test("observation times follow the character timezone and app language", async (t) => {
   const cases = [
     {
       timezone: "Asia/Seoul",
@@ -239,7 +244,7 @@ test("observation times follow the configured timezone and language", async (t) 
   ];
   for (const { timezone, language = "ko-KR", date, expected } of cases) {
     await t.test(`${timezone} / ${language} / ${date}`, async () => {
-      const h = await harness({ timezone, language });
+      const h = await harness({ timezone: "UTC", characterTimezone: timezone, language });
       const result = await h.compose(
         [event(1, "READ", "hello", { observedAt: date })],
         new Date("2026-09-30T00:00:00Z"),
@@ -247,6 +252,26 @@ test("observation times follow the configured timezone and language", async (t) 
       assert.equal(result.context.at(-1).content, `[${expected}]\nhello`);
     });
   }
+});
+
+test("character timezone overrides the app timezone for observations and current time", async () => {
+  const h = await harness({
+    timezone: "UTC",
+    characterTimezone: "America/New_York",
+  });
+  const result = await h.compose(
+    [event(1, "READ", "hello", { observedAt: "2026-09-29T00:00:00Z" })],
+    new Date("2026-09-29T00:00:00Z"),
+  );
+
+  assert.equal(
+    result.context.at(-1).content,
+    "[2026년 9월 28일 월요일 PM 8:00]\nhello",
+  );
+  assert.match(
+    result.context.find((item) => item.content.includes("## Current Time")).content,
+    /2026-09-28T20:00:00-04:00/,
+  );
 });
 
 test("first response puts all observations after instructions and an empty tail adds nothing", async () => {

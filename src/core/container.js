@@ -50,6 +50,11 @@ export async function createContainer({
 
   await validateAiConfig(configManager);
 
+  const characterContextBuilder = new CharacterContextBuilder({
+    configManager,
+  });
+  await characterContextBuilder.loadConfig();
+
   // Repositories (data layer)
   const historyMessageFormatter = new HistoryMessageFormatter();
   const messageRepository = new MessageRepository(configManager);
@@ -81,9 +86,6 @@ export async function createContainer({
     messageRepository,
     historyMessageFormatter,
   );
-  const characterContextBuilder = new CharacterContextBuilder({
-    configManager,
-  });
   const promptComposer = new PromptComposer(
     configManager,
     characterContextBuilder,

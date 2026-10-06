@@ -1,9 +1,6 @@
 import fs from "fs/promises";
-import {
-  buildRuntimeContext,
-  buildSystemContext,
-  renderTemplate,
-} from "../../utils/renderTemplate.js";
+import { renderTemplate } from "../../utils/renderTemplate.js";
+import { buildTemplateContext } from "../../utils/templateContext.js";
 import { CharacterContextBuilder } from "../../character/CharacterContextBuilder.js";
 
 export class PromptComposer {
@@ -37,15 +34,17 @@ export class PromptComposer {
    */
   async buildContext({ data = {}, referenceDate = new Date() } = {}) {
     const config = this.configManager?.getAll?.() ?? {};
-    const system = buildSystemContext(referenceDate, config.app?.timezone);
+    const characterConfig = await this.characterContextBuilder.loadConfig();
+    const context = buildTemplateContext(data, {
+      referenceDate,
+      timeZone: characterConfig.timezone,
+    });
     const characterContext = await this.characterContextBuilder.build({
-      system,
+      system: context.system,
     });
 
     return {
-      data,
-      system,
-      runtime: buildRuntimeContext(),
+      ...context,
       config,
       character: {
         ...characterContext,
