@@ -58,14 +58,11 @@ Prisma가 `prisma/schema.prisma`를 읽어 로컬 SQLite 파일을 생성합니�
 | ---------------- | ------------------------------------ |
 | `npm run dev`    | Discord 봇 실행                      |
 | `npm run cli`    | 터미널에서 직접 대화 (개발·테스트용) |
-| `npm run chat:review` | Codex가 세 대화를 이어가며 품질 점검 |
 | `npm run deploy` | Discord 슬래시 커맨드 등록           |
 
 새 기능을 만들었다면 `npm run cli`로 먼저 빠르게 확인해보세요. Discord 재시작 없이 프롬프트와 캐릭터 설정을 테스트할 수 있습니다.
 
 CLI는 전체 화면 TUI로 실행되며 대화 채널과 히스토리가 데이터베이스에 유지됩니다. `Ctrl+N`으로 새 채팅을 만들고, `Tab`과 방향키로 채널을 전환합니다. `Enter`는 전송, `Shift+Enter` 또는 `Alt+Enter`는 줄바꿈, `PgUp`/`PgDn`은 대화 스크롤, `Ctrl+Q`는 종료입니다.
-
-`npm run chat:review`는 ChatGPT로 로그인한 Codex CLI를 사용해 세 대화를 계속 진행하고 `.local/chat-review/<run-id>/report.md`에 품질 근거와 개선안을 저장합니다. `Ctrl+C`로 중지하며 `npm run chat:review -- --resume <run-id>`로 이어갈 수 있습니다. 짧은 실제 검증은 `--turns 2`를 사용하세요. AiMate 모델·검색 비용은 별도이고 이미지 AI는 호출하지 않습니다. [실행·평가·복구 설명](docs/개발/Codex%20대화%20품질%20점검.md)을 참고하세요.
 
 ### PM2 실행
 

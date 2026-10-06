@@ -6,13 +6,13 @@
     "timezone": "Asia/Seoul",
     "language": "ko-KR"
   },
-  "character": "ai-chan",
+  "character": "haneul",
   "ai": {
     "chat": {
-      "provider": "gateway",
-      "model": "xai/grok-4.5",
-      "nativeTools": { "webSearch": true },
-      "prompt": "ultimate",
+      "provider": "vertex",
+      "model": "gemini-3.8-flash",
+      "nativeTools": { "webSearch": false, "webScraping": false },
+      "prompt": "default-v2",
       "temperature": null,
       "maxOutputTokens": null,
       "topP": null,
@@ -31,7 +31,7 @@
     "image": {
       "provider": "gateway",
       "model": "openai/gpt-image-2",
-      "prompt": "ultimate",
+      "prompt": "default-v2",
       "includeTimeContext": true,
       "maxRetries": 3,
       "providerOptions": {}

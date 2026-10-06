@@ -43,8 +43,6 @@ ChannelCatalog.list의 최근 메시지 제한은 UI 재로딩 범위다. 화면
 
 ## 수정 지점과 검증 근거
 
-`npm run chat:review`는 TUI 없이 같은 CLI 어댑터와 공통 파이프라인을 사용하는 개발용 실행기다. `HeadlessChat`은 `generation.settled`까지 기다려 전체 답장과 실패 안내를 수집하고, `readChatTurn`으로 저장된 턴을 복구한다. 전용 DB·세 사용자·도구 대체·중단 후 재개는 [Codex 대화 품질 점검](../개발/Codex%20대화%20품질%20점검.md)을 참조한다.
-
 입출력 계약은 adapter, 화면·키 동작은 tui, 채널 연동은 repl과 ChannelCatalog에서 변경한다. 화면 변경이 모델 입력 정책을 바꾸지 않도록 한다.
 
 구현: `src/platforms/cli/index.js`, `src/platforms/cli/repl.js`, `src/platforms/cli/tui.js`, `src/platforms/cli/mocks.js`, `src/application/ChannelCatalog.js`.

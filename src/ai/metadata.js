@@ -30,7 +30,6 @@ export function toRequestMetadata({
 
 export function toTextResultMetadata(result) {
   return {
-    text: result.text,
     finishReason: result.finishReason,
     usage: result.usage,
     totalUsage: result.totalUsage,
@@ -44,7 +43,6 @@ export function toTextResultMetadata(result) {
 
 export function toStepMetadata(step) {
   return {
-    text: step.text,
     stepNumber: step.stepNumber,
     model: step.model,
     finishReason: step.finishReason,
