@@ -30,6 +30,8 @@ import { ChatGenerationAbortRegistry } from "../chat/ChatGenerationAbortRegistry
 import { EventBus } from "./EventBus.js";
 import { ToolRegistry } from "../tools/ToolRegistry.js";
 import { ToolExecutionContextFactory } from "../tools/ToolExecutionContextFactory.js";
+import { MessageActionService } from "../tools/MessageActionService.js";
+import { MessageActionRepository } from "../repositories/MessageActionRepository.js";
 import { ActivateChannel } from "../application/ActivateChannel.js";
 import { StoredMessageService } from "../application/StoredMessageService.js";
 import { GetGenerationInfo } from "../application/GetGenerationInfo.js";
@@ -68,6 +70,22 @@ export async function createContainer({
   const generationAbortRegistry = new ChatGenerationAbortRegistry();
   const conversationSession = new ConversationSession();
 
+  const messageService = new MessageService(
+    userRepository,
+    platformAccountRepository,
+    channelRepository,
+    serverRepository,
+    messageRepository,
+    eventRepository,
+    configManager,
+  );
+  const messageActionService = new MessageActionService({
+    messageRepository,
+    messageService,
+    generationRepository,
+    actionRepository: new MessageActionRepository(),
+  });
+
   // Tools (function calling)
   const toolRegistry = new ToolRegistry(configManager);
   await toolRegistry.loadFromDirectory();
@@ -78,6 +96,7 @@ export async function createContainer({
     imageGenerator,
     generationRepository,
     platformClients,
+    messageActionService,
   });
 
   // Services (business logic layer)
@@ -105,15 +124,6 @@ export async function createContainer({
     generatedImageTagPolicy,
     toolContextFactory,
   });
-  const messageService = new MessageService(
-    userRepository,
-    platformAccountRepository,
-    channelRepository,
-    serverRepository,
-    messageRepository,
-    eventRepository,
-    configManager,
-  );
 
   // Message delivery
   const messageSender = new MessageSender(

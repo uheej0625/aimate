@@ -144,6 +144,7 @@ function sameDate(a, b) {
 function toSnapshot({ message, ...event }) {
   return {
     ...event,
+    channelMessageNo: message?.channelMessageNo ?? null,
     authorId: message?.authorId ?? null,
     authorPlatformId: message?.author?.platformId ?? null,
     isBot: message?.isBot ?? false,

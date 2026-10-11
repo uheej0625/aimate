@@ -44,6 +44,22 @@ export function adaptChannel(discordChannel) {
       return adaptMessageData(sentMessage);
     },
     sendTyping: () => discordChannel.sendTyping(),
+    reply: async (platformMessageId, message) => {
+      const sentMessage = await discordChannel.send({
+        ...message,
+        reply: { messageReference: platformMessageId, failIfNotExists: true },
+        allowedMentions: { repliedUser: false },
+      });
+      return adaptMessageData(sentMessage);
+    },
+    react: async (platformMessageId, emoji, { abortSignal } = {}) => {
+      const target = await discordChannel.messages.fetch({
+        message: platformMessageId,
+        force: true,
+      });
+      abortSignal?.throwIfAborted();
+      await target.react(emoji);
+    },
   };
 }
 

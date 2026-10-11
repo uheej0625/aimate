@@ -232,10 +232,14 @@ function renderObservation(message, botId, previousMessage, timeFormatter) {
     observedAt &&
     (!previousObservedAt ||
       observedAt - previousObservedAt >= OBSERVATION_TIME_GAP_MS);
+  const content =
+    message.channelMessageNo != null
+      ? `#${message.channelMessageNo} ${message.content}`
+      : message.content;
   return {
     role: message.authorPlatformId === botId ? "assistant" : "user",
     content: showTime
-      ? `[${timeFormatter.format(observedAt).replace("오전", "AM").replace("오후", "PM")}]\n${message.content}`
-      : message.content,
+      ? `[${timeFormatter.format(observedAt).replace("오전", "AM").replace("오후", "PM")}]\n${content}`
+      : content,
   };
 }

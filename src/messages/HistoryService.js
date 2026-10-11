@@ -108,6 +108,7 @@ export class HistoryService {
     }
     return {
       id: event.messageId,
+      channelMessageNo: event.channelMessageNo,
       eventId: event.id,
       authorId: event.authorId,
       authorPlatformId:

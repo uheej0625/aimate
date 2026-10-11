@@ -27,6 +27,8 @@
  * @property {string} platformChannelId
  * @property {(message: OutgoingMessage) => Promise<NormalizedMessage>} send
  * @property {() => Promise<void>} sendTyping
+ * @property {(platformMessageId: string, message: OutgoingMessage) => Promise<NormalizedMessage>} [reply]
+ * @property {(platformMessageId: string, emoji: string, options?: {abortSignal?: AbortSignal}) => Promise<void>} [react]
  */
 
 /**

@@ -144,6 +144,7 @@ async function recoverTextToolCall(result, appTools, messages, abortSignal) {
 }
 
 function formatRecoveredToolResponse(output) {
+  if (output?.success && ["reply", "react"].includes(output.action)) return "";
   if (typeof output?.error === "string" && output.error.trim()) {
     return `요청한 작업을 처리하지 못했어: ${output.error}`;
   }

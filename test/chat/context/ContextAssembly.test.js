@@ -132,6 +132,38 @@ test("all observations retain roles, order and timestamps across response bounda
   );
 });
 
+test("fixed message references retain numbers across edits, deletion and late history", async () => {
+  const h = await harness();
+  const result = await h.compose(
+    [
+      event(1, "READ", "newer", { messageId: 501, channelMessageNo: 11 }),
+      event(2, "EDIT", "edited", {
+        messageId: 501,
+        channelMessageNo: 11,
+        previousContent: "newer",
+      }),
+      event(3, "DELETE", "edited", { messageId: 501, channelMessageNo: 11 }),
+      event(4, "READ", "older, discovered later", {
+        source: "HISTORY",
+        messageId: 502,
+        channelMessageNo: 12,
+      }),
+      event(5, "SENT", "output", { messageId: 503, channelMessageNo: 13 }),
+    ],
+    new Date("2026-09-24T13:40:00Z"),
+  );
+  const numbered = result.context.filter((message) =>
+    /(?:^|\n)#\d+ /.test(message.content),
+  );
+  assert.deepEqual(
+    numbered.map((message) => message.content.match(/#(\d+) /)[1]),
+    ["11", "11", "11", "12", "13"],
+  );
+  assert.match(numbered[1].content, /^#11 \[수정 목격\]/);
+  assert.match(numbered[2].content, /^#11 \[삭제 목격\]/);
+  assert.equal(numbered.at(-1).role, "assistant");
+});
+
 test("time markers use five-minute gaps between events and survive delivery", async () => {
   const h = await harness();
   const date = new Date("2026-09-24T13:40:00Z");
@@ -157,7 +189,10 @@ test("time markers use five-minute gaps between events and survive delivery", as
     event(7, "READ", "back", { observedAt: "2026-09-24T11:00:00Z" }),
   ];
   const first = await h.compose(events, date);
-  assert.equal(first.context[1].content, "[2026년 9월 24일 목요일 PM 7:00]\nfirst");
+  assert.equal(
+    first.context[1].content,
+    "[2026년 9월 24일 목요일 PM 7:00]\nfirst",
+  );
   assert.equal(first.context[2].content, "reply");
   assert.match(first.context[3].content, /## Current Time/);
   assert.equal(first.context[4].content, "original");
@@ -173,11 +208,16 @@ test("time markers use five-minute gaps between events and survive delivery", as
     role: "user",
     content: "[현재 과거 내역에서 읽은 메시지]\nold bot message",
   });
-  assert.equal(first.context[8].content, "[2026년 9월 24일 목요일 PM 8:00]\nback");
+  assert.equal(
+    first.context[8].content,
+    "[2026년 9월 24일 목요일 PM 8:00]\nback",
+  );
 
-  events.push(event(8, "SENT", "welcome back", {
-    observedAt: "2026-09-24T11:00:01Z",
-  }));
+  events.push(
+    event(8, "SENT", "welcome back", {
+      observedAt: "2026-09-24T11:00:01Z",
+    }),
+  );
   events.push(event(9, "READ", "next", { observedAt: "2026-09-24T11:00:02Z" }));
   const next = await h.compose(events, new Date("2026-09-24T13:41:00Z"), 8);
   assert.deepEqual(next.context.slice(1, 8), [
@@ -200,12 +240,15 @@ test("missing observation times are not inferred", async () => {
     ],
     new Date("2026-09-24T13:40:00Z"),
   );
-  assert.deepEqual(result.context.slice(2).map((item) => item.content), [
-    "unknown",
-    "[2026년 9월 24일 목요일 PM 7:00]\nknown",
-    "unknown again",
-    "[2026년 9월 24일 목요일 PM 7:00]\nknown again",
-  ]);
+  assert.deepEqual(
+    result.context.slice(2).map((item) => item.content),
+    [
+      "unknown",
+      "[2026년 9월 24일 목요일 PM 7:00]\nknown",
+      "unknown again",
+      "[2026년 9월 24일 목요일 PM 7:00]\nknown again",
+    ],
+  );
 });
 
 test("observation times follow the character timezone and app language", async (t) => {
@@ -244,7 +287,11 @@ test("observation times follow the character timezone and app language", async (
   ];
   for (const { timezone, language = "ko-KR", date, expected } of cases) {
     await t.test(`${timezone} / ${language} / ${date}`, async () => {
-      const h = await harness({ timezone: "UTC", characterTimezone: timezone, language });
+      const h = await harness({
+        timezone: "UTC",
+        characterTimezone: timezone,
+        language,
+      });
       const result = await h.compose(
         [event(1, "READ", "hello", { observedAt: date })],
         new Date("2026-09-30T00:00:00Z"),
@@ -269,7 +316,8 @@ test("character timezone overrides the app timezone for observations and current
     "[2026년 9월 28일 월요일 PM 8:00]\nhello",
   );
   assert.match(
-    result.context.find((item) => item.content.includes("## Current Time")).content,
+    result.context.find((item) => item.content.includes("## Current Time"))
+      .content,
     /2026-09-28T20:00:00-04:00/,
   );
 });
