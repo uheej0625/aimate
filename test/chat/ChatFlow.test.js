@@ -47,7 +47,7 @@ test("ChatFlow tests", async (t) => {
   };
 
   const baseMessageSender = {
-    sendChunk: async (_channel, _text, _id, delivery) => {
+    send: async (_channel, _text, _id, delivery) => {
       delivery?.onDelivered?.();
       return true;
     },
@@ -197,7 +197,7 @@ test("ChatFlow tests", async (t) => {
     async () => {
       let sentMessage = null;
       const messageSender = {
-        sendChunk: async (_channel, message, _id, delivery) => {
+        send: async (_channel, message, _id, delivery) => {
           delivery.onDelivered();
           sentMessage = message;
           return true;
@@ -217,10 +217,10 @@ test("ChatFlow tests", async (t) => {
       canGenerate: async () => false,
     };
 
-    let sendChunkCalled = false;
+    let sendCalled = false;
     const messageSender = {
-      sendChunk: async () => {
-        sendChunkCalled = true;
+      send: async () => {
+        sendCalled = true;
         return true;
       },
     };
@@ -230,7 +230,7 @@ test("ChatFlow tests", async (t) => {
     await chatFlow.execute(createRequest());
 
     assert.strictEqual(
-      sendChunkCalled,
+      sendCalled,
       false,
       "Should not call messageSender if cancelled",
     );
@@ -282,10 +282,10 @@ test("ChatFlow tests", async (t) => {
           return { messages: ["late response"] };
         },
       };
-      let sendChunkCalled = false;
+      let sendCalled = false;
       const messageSender = {
-        sendChunk: async () => {
-          sendChunkCalled = true;
+        send: async () => {
+          sendCalled = true;
           return true;
         },
       };
@@ -299,7 +299,7 @@ test("ChatFlow tests", async (t) => {
       await chatFlow.execute(createRequest());
 
       assert.strictEqual(generated, true);
-      assert.strictEqual(sendChunkCalled, false);
+      assert.strictEqual(sendCalled, false);
     },
   );
 
@@ -333,7 +333,7 @@ test("ChatFlow tests", async (t) => {
     };
 
     const messageSender = {
-      sendChunk: async () => {
+      send: async () => {
         fallbackMessageSent = true;
         return true;
       },

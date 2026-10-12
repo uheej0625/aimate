@@ -46,6 +46,10 @@ export class MessageRepository {
       },
     };
 
+    const existing = await tx.message.findUnique({ where });
+    const channelMessageNo =
+      existing?.channelMessageNo ?? (await this.allocateNumber(tx, channelId));
+
     return await tx.message.upsert({
       where,
       update: {
@@ -61,6 +65,7 @@ export class MessageRepository {
         platformId,
         serverId,
         channelId,
+        channelMessageNo,
         authorId,
         content,
         attachmentsJson,
@@ -108,16 +113,36 @@ export class MessageRepository {
   }
 
   async rememberDeletion(tx, platform, platformId, channelId) {
+    const where = { platform_platformId: { platform, platformId } };
+    const existing = await tx.message.findUnique({ where });
+    if (existing) return existing;
+    const channelMessageNo = await this.allocateNumber(tx, channelId);
     return await tx.message.upsert({
-      where: { platform_platformId: { platform, platformId } },
+      where,
       update: {},
       create: {
         platform,
         platformId,
         channelId,
+        channelMessageNo,
         content: "",
         deletedAt: new Date(),
       },
+    });
+  }
+
+  async allocateNumber(tx, channelId) {
+    const channel = await tx.channel.update({
+      where: { id: channelId },
+      data: { lastMessageNo: { increment: 1 } },
+      select: { lastMessageNo: true },
+    });
+    return channel.lastMessageNo;
+  }
+
+  async findByChannelMessageNo(channelId, channelMessageNo) {
+    return await prisma.message.findUnique({
+      where: { channelId_channelMessageNo: { channelId, channelMessageNo } },
     });
   }
 

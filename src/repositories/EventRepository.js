@@ -7,7 +7,6 @@ import { getRequiredCharacterId } from "../character/config.js";
 export class EventRepository {
   constructor(configManager) {
     this.characterId = getRequiredCharacterId(configManager);
-    this.historyLimit = configManager.get("conversation.maxContextMessages");
   }
 
   async findLatestForMessage(tx, { characterId, platform, platformMessageId }) {
@@ -43,7 +42,6 @@ export class EventRepository {
           ],
         },
         orderBy: { id: "desc" },
-        take: this.historyLimit,
       });
       // Reading current history is an experience, not a retroactive edit observation.
       for (const message of currentMessages.reverse()) {
@@ -82,7 +80,6 @@ export class EventRepository {
           ...visible,
         },
         orderBy: { id: "desc" },
-        take: this.historyLimit,
         include,
       });
       const pending = await tx.event.findMany({
@@ -147,6 +144,7 @@ function sameDate(a, b) {
 function toSnapshot({ message, ...event }) {
   return {
     ...event,
+    channelMessageNo: message?.channelMessageNo ?? null,
     authorId: message?.authorId ?? null,
     authorPlatformId: message?.author?.platformId ?? null,
     isBot: message?.isBot ?? false,

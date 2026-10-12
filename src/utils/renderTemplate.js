@@ -1,48 +1,6 @@
 import fs from "fs/promises";
 import Handlebars from "handlebars";
 
-const WEEKDAYS = ["일요일", "월요일", "화요일", "수요일", "목요일", "금요일", "토요일"]; //prettier-ignore
-
-export const buildSystemContext = (date = new Date()) => {
-  const hour = date.getHours();
-
-  return {
-    now: {
-      raw:
-        new Date(date.getTime() - date.getTimezoneOffset() * 60000)
-          .toISOString()
-          .slice(0, -1) + "+09:00",
-      time: `${String(date.getHours()).padStart(2, "0")}:${String(
-        date.getMinutes(),
-      ).padStart(2, "0")}`,
-      date: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(
-        2,
-        "0",
-      )}-${String(date.getDate()).padStart(2, "0")}`,
-      weekday: WEEKDAYS[date.getDay()],
-      timeOfDay:
-        hour >= 5 && hour < 12
-          ? "morning"
-          : hour < 17
-            ? "afternoon"
-            : hour < 21
-              ? "evening"
-              : "night",
-      year: date.getFullYear(),
-    },
-  };
-};
-
-export const buildRuntimeContext = () => ({
-  platform: process.env.PLATFORM ?? "unknown",
-});
-
-export const buildTemplateContext = (data = {}) => ({
-  data,
-  system: buildSystemContext(),
-  runtime: buildRuntimeContext(),
-});
-
 export const renderTemplate = (template, context = {}) => {
   if (!template) return "";
 

@@ -79,6 +79,20 @@ const { ChatContextPreparer } = await import(
   "../../src/chat/context/ChatContextPreparer.js"
 );
 const { ChatGenerator } = await import("../../src/ai/ChatGenerator.js");
+const { ToolRegistry } = await import("../../src/tools/ToolRegistry.js");
+const { ToolExecutionContextFactory } = await import(
+  "../../src/tools/ToolExecutionContextFactory.js"
+);
+const { MessageActionService } = await import(
+  "../../src/tools/MessageActionService.js"
+);
+const { MessageActionRepository } = await import(
+  "../../src/repositories/MessageActionRepository.js"
+);
+const replyTool = (await import("../../src/tools/definitions/reply.js"))
+  .default;
+const reactTool = (await import("../../src/tools/definitions/react.js"))
+  .default;
 const { ChatFlow } = await import("../../src/chat/ChatFlow.js");
 const { ChatGenerationLifecycle } = await import(
   "../../src/chat/ChatGenerationLifecycle.js"
@@ -133,9 +147,7 @@ test("chat pipeline persists history and multiple model-free replies", async () 
 
   assert.deepStrictEqual(harness.sentMessages, ["첫 답장", "두 번째 답장"]);
   assert.match(modelRequests[0].system, /Fixture Character/);
-  assert.ok(
-    modelRequests[0].messages.some(({ content }) => content === "안녕"),
-  );
+  assert.ok(hasObservation(modelRequests[0].messages, "user", "안녕"));
 
   const secondInput = createUserMessage(harness, {
     id: `user-message-${randomUUID()}`,
@@ -149,13 +161,9 @@ test("chat pipeline persists history and multiple model-free replies", async () 
     "두 번째 답장",
     "이전 대화도 기억해",
   ]);
+  assert.ok(hasObservation(modelRequests[1].messages, "assistant", "첫 답장"));
   assert.ok(
-    modelRequests[1].messages.some(({ content }) => content === "첫 답장"),
-  );
-  assert.ok(
-    modelRequests[1].messages.some(
-      ({ content }) => content === "아까 뭐라고 했지?",
-    ),
+    hasObservation(modelRequests[1].messages, "user", "아까 뭐라고 했지?"),
   );
 
   const channel = await prisma.channel.findUnique({
@@ -195,6 +203,11 @@ test("chat pipeline persists history and multiple model-free replies", async () 
     "이전 대화도 기억해",
   ]);
   assert.strictEqual(messages.length, 5);
+  assert.deepEqual(
+    messages.map((message) => message.channelMessageNo),
+    [1, 2, 3, 4, 5],
+  );
+  assert.match(modelRequests[0].messages.at(-1).content, /#1 안녕$/);
   assert.strictEqual(
     messages.filter(
       ({ platformId }) => platformId === firstInput.platformMessageId,
@@ -241,11 +254,7 @@ for (const content of ["", " \n\t"]) {
     assert.equal(h.bufferedRequests.length, 1);
     await h.flush();
     assert.deepEqual(h.sentMessages, ["reply to empty input"]);
-    assert.ok(
-      modelRequests[0].messages.some(
-        (entry) => entry.role === "user" && entry.content === content,
-      ),
-    );
+    assert.ok(hasObservation(modelRequests[0].messages, "user", content));
     const stored = await prisma.message.findFirst({
       where: { channelId: channelRecord.id, isBot: false },
       include: { events: true, generation: true },
@@ -286,7 +295,10 @@ test("bot delivery is stored once and its echoed create events never schedule a 
   assert.equal(replies[0].platformId, sentMessage.platformMessageId);
   assert.equal(replies[0].content, "one bot reply");
   assert.equal(replies[0].generation.status, "COMPLETED");
-  assert.deepEqual(replies[0].events.map((event) => event.kind), ["SENT"]);
+  assert.deepEqual(
+    replies[0].events.map((event) => event.kind),
+    ["SENT"],
+  );
 });
 
 test("message persistence records changes and retains deletion tombstones", async () => {
@@ -604,11 +616,7 @@ test("failed input stays pending after a fallback and joins new input on recover
     [input.content, nextInput.content],
   );
   for (const content of [input.content, nextInput.content]) {
-    assert.ok(
-      modelRequests[1].messages.some(
-        (entry) => entry.role === "user" && entry.content === content,
-      ),
-    );
+    assert.ok(hasObservation(modelRequests[1].messages, "user", content));
   }
   assert.strictEqual(harness.sentMessages.at(-1), "recovered reply");
   const history = await harness.historyService.fetchHistoryData(
@@ -723,7 +731,254 @@ test("chat pipeline aborts an in-flight generation when interrupted", async () =
   assert.deepStrictEqual(harness.sentMessages, ["두 번째 응답"]);
 });
 
-function createHarness({ generateTextFn }) {
+test("message delivery splits long text within the transport limit and stores original output separately", async () => {
+  const original = "가".repeat(4600);
+  const h = createHarness({
+    generateTextFn: async () =>
+      fakeTextResult(`## messages\n${original}[BREAK]마지막`),
+  });
+  const channel = await h.activate();
+  await h.receive("CREATE", {
+    message: createUserMessage(h, {
+      id: randomUUID(),
+      content: "long reply please",
+    }),
+  });
+  await h.flush();
+  assert.deepEqual(
+    h.sentMessages.map((text) => text.length),
+    [1900, 1900, 800, 3],
+  );
+  assert.equal(h.sentMessages.slice(0, -1).join(""), original);
+  const generation = await prisma.generation.findFirst({
+    where: { channelId: channel.id },
+  });
+  assert.equal(generation.status, "COMPLETED");
+  assert.deepEqual(JSON.parse(generation.output), [original, "마지막"]);
+  const messages = await prisma.message.findMany({
+    where: { generationId: generation.id, isBot: true },
+    orderBy: { id: "asc" },
+  });
+  assert.deepEqual(
+    messages.map((message) => message.content),
+    h.sentMessages,
+  );
+  const events = await prisma.event.findMany({
+    where: { generationId: generation.id, kind: "SENT" },
+    orderBy: { id: "asc" },
+  });
+  assert.deepEqual(
+    events.map((event) => event.snapshotContent),
+    h.sentMessages,
+  );
+});
+
+test("message delivery sends oversized code as independently fenced messages", async () => {
+  const body = "const n = 1;\n" + "x".repeat(4500) + "\n  done();\n";
+  const original = `\`\`\`js\n${body}\`\`\``;
+  const h = createHarness({
+    generateTextFn: async () => fakeTextResult(`## messages\n${original}`),
+  });
+  const channel = await h.activate();
+  await h.receive("CREATE", {
+    message: createUserMessage(h, { id: randomUUID(), content: "code please" }),
+  });
+  await h.flush();
+  assert.ok(h.sentMessages.length > 1);
+  assert.ok(
+    h.sentMessages.every(
+      (text) =>
+        text.length <= 1900 &&
+        text.startsWith("```js\n") &&
+        text.endsWith("\n```"),
+    ),
+  );
+  assert.equal(h.sentMessages.map((text) => text.slice(6, -4)).join(""), body);
+  const generation = await prisma.generation.findFirst({
+    where: { channelId: channel.id },
+  });
+  assert.equal(generation.status, "COMPLETED");
+  assert.deepEqual(JSON.parse(generation.output), [original]);
+});
+
+test("disabled humanize still splits long messages and preserves model bubble order", async () => {
+  const original = "x".repeat(70);
+  const h = createHarness({
+    humanize: { enabled: false },
+    messages: { maxLength: 32 },
+    generateTextFn: async () =>
+      fakeTextResult(`## messages\n${original}[BREAK]second`),
+  });
+  const channel = await h.activate();
+  await h.receive("CREATE", {
+    message: createUserMessage(h, { id: randomUUID(), content: "disabled" }),
+  });
+  await h.flush();
+  assert.deepEqual(h.sentMessages, [
+    "x".repeat(32),
+    "x".repeat(32),
+    "x".repeat(6),
+    "second",
+  ]);
+  const generation = await prisma.generation.findFirst({
+    where: { channelId: channel.id },
+  });
+  assert.equal(generation.status, "COMPLETED");
+  assert.deepEqual(JSON.parse(generation.output), [original, "second"]);
+});
+
+test("disabled humanize delivers text beyond the transport limit successfully", async () => {
+  const original = "x".repeat(2001);
+  const h = createHarness({
+    humanize: { enabled: false },
+    generateTextFn: async () => fakeTextResult(`## messages\n${original}`),
+  });
+  const channel = await h.activate();
+  await h.receive("CREATE", {
+    message: createUserMessage(h, {
+      id: randomUUID(),
+      content: "disabled oversized",
+    }),
+  });
+  await h.flush();
+  const generation = await prisma.generation.findFirst({
+    where: { channelId: channel.id },
+  });
+  assert.equal(generation.status, "COMPLETED");
+  assert.deepEqual(JSON.parse(generation.output), [original]);
+  assert.deepEqual(h.sentMessages, ["x".repeat(1900), "x".repeat(101)]);
+  const messages = await prisma.message.findMany({
+    where: { generationId: generation.id, isBot: true },
+    orderBy: { id: "asc" },
+  });
+  assert.deepEqual(
+    messages.map((message) => message.content),
+    h.sentMessages,
+  );
+});
+
+test("interruption during a split chunk stops subsequent chunks and stores confirmed delivery", async () => {
+  const started = deferred();
+  const release = deferred();
+  const original = "x".repeat(4500);
+  const h = createHarness({
+    generateTextFn: async () => fakeTextResult(`## messages\n${original}`),
+  });
+  const channel = await h.activate();
+  const send = h.channel.send;
+  let first = true;
+  h.channel.send = async (options) => {
+    if (first) {
+      first = false;
+      started.resolve();
+      await release.promise;
+    }
+    return send(options);
+  };
+  await h.receive("CREATE", {
+    message: createUserMessage(h, { id: randomUUID(), content: "first turn" }),
+  });
+  const sending = h.flush();
+  await started.promise;
+  await h.receive("CREATE", {
+    message: createUserMessage(h, { id: randomUUID(), content: "interrupt" }),
+  });
+  release.resolve();
+  await sending;
+  assert.deepEqual(h.sentMessages, ["x".repeat(1900)]);
+  const generation = await prisma.generation.findFirst({
+    where: { channelId: channel.id },
+  });
+  assert.equal(generation.status, "CANCELLED");
+  assert.deepEqual(JSON.parse(generation.output), [original]);
+  const messages = await prisma.message.findMany({
+    where: { generationId: generation.id, isBot: true },
+  });
+  assert.deepEqual(
+    messages.map((message) => message.content),
+    h.sentMessages,
+  );
+  assert.equal(
+    await prisma.conversationState.count({ where: { channelId: channel.id } }),
+    0,
+  );
+});
+
+test("message splitting runs after image tag policy and attaches the generated image to the final chunk", async (t) => {
+  const imageId = randomUUID().replaceAll("-", "").slice(0, 8);
+  const filename = `${imageId}.png`;
+  const imagePath = path.join(workspaceRoot, "content", "image", filename);
+  await fs.mkdir(path.dirname(imagePath), { recursive: true });
+  await fs.writeFile(imagePath, "test image attachment", { flag: "wx" });
+  t.after(() => fs.rm(imagePath, { force: true }));
+  const original = "x".repeat(4000);
+  const h = createHarness({
+    generateTextFn: async () => ({
+      ...fakeTextResult(`## messages\n${original}`),
+      steps: [{ toolResults: [{ output: { imageId } }] }],
+    }),
+  });
+  const channel = await h.activate();
+  const imageGeneration = await prisma.generation.create({
+    data: {
+      characterId: "fixture",
+      channelId: channel.id,
+      type: "IMAGE",
+      prompt: "minimal",
+      status: "COMPLETED",
+      output: filename,
+    },
+  });
+  const payloads = [];
+  const send = h.channel.send;
+  h.channel.send = async (options) => {
+    payloads.push(options);
+    return send(options);
+  };
+  await h.receive("CREATE", {
+    message: createUserMessage(h, {
+      id: randomUUID(),
+      content: "image please",
+    }),
+  });
+  await h.flush();
+  assert.deepEqual(
+    h.sentMessages.map((text) => text.length),
+    [1900, 1900, 200],
+  );
+  assert.ok(payloads.slice(0, -1).every((payload) => !payload.files));
+  assert.deepEqual(payloads.at(-1).files, [{ attachment: imagePath }]);
+  const generation = await prisma.generation.findFirst({
+    where: { channelId: channel.id, type: "CHAT" },
+  });
+  assert.equal(generation.status, "COMPLETED");
+  assert.deepEqual(JSON.parse(generation.output), [
+    `${original}\n[IMAGE:${imageId}]`,
+  ]);
+  const messages = await prisma.message.findMany({
+    where: { generationId: generation.id, isBot: true },
+    orderBy: { id: "asc" },
+  });
+  assert.deepEqual(
+    messages.map((message) => message.content),
+    h.sentMessages,
+  );
+  assert.deepEqual(JSON.parse(messages.at(-1).attachmentsJson), [
+    {
+      type: "generated_image",
+      imageId,
+      filename,
+      generationId: imageGeneration.id,
+    },
+  ]);
+});
+
+function createHarness({
+  generateTextFn,
+  messageTools = false,
+  humanize = { enabled: true },
+  messages = { maxLength: 1900 },
+}) {
   let now = 0;
   const conversationSession = new ConversationSession({ now: () => now });
   const bufferedRequests = [];
@@ -735,7 +990,13 @@ function createHarness({ generateTextFn }) {
   const channel = createMockChannel({
     channelId: `channel-${id}`,
     mockClient,
-    onSend: (content) => sentMessages.push(content),
+    onSend: (content) => {
+      assert.ok(
+        content.length <= 2000,
+        "Transport content exceeded 2000 characters",
+      );
+      sentMessages.push(content);
+    },
   });
   const config = {
     app: { language: "ko-KR" },
@@ -749,11 +1010,15 @@ function createHarness({ generateTextFn }) {
     },
     conversation: {
       maxContextMessages: 50,
+    },
+    tools: { maxSteps: 5 },
+    messages,
+    humanize: {
       typingDelayMin: 0,
       typingDelayMax: 0,
       typingDelayPerChar: 0,
+      ...humanize,
     },
-    tools: { maxSteps: 5 },
   };
   const configManager = {
     get: (key) => key.split(".").reduce((value, part) => value?.[part], config),
@@ -797,10 +1062,30 @@ function createHarness({ generateTextFn }) {
     configManager,
     sequenceBuilder,
   );
+  const actionRepository = new MessageActionRepository();
+  const messageActionService = new MessageActionService({
+    messageRepository,
+    messageService,
+    generationRepository,
+    actionRepository,
+  });
+  const toolRegistry = new ToolRegistry(configManager);
+  // Exercise the real definitions on the test channel without exposing them in the CLI app.
+  if (messageTools)
+    toolRegistry.registerAll([
+      { ...replyTool, platforms: ["cli"] },
+      { ...reactTool, platforms: ["cli"] },
+    ]);
   const chatGenerator = new ChatGenerator({
     configManager,
     generateTextFn,
     createLanguageModelFn: () => ({ modelId: "fake-model" }),
+    toolRegistry,
+    toolContextFactory: new ToolExecutionContextFactory({
+      configManager,
+      generationRepository,
+      messageActionService,
+    }),
   });
   const messageSender = new MessageSender(
     messageService,
@@ -864,6 +1149,8 @@ function createHarness({ generateTextFn }) {
     generationAbortRegistry,
     messageService,
     messageRepository,
+    messageActionService,
+    actionRepository,
     chatFlow,
     executeChat,
     historyService,
@@ -916,6 +1203,19 @@ function fakeTextResult(text) {
     steps: [],
     toolResults: [],
   };
+}
+
+function hasObservation(messages, role, content) {
+  return messages.some(
+    (entry) =>
+      entry.role === role &&
+      entry.content
+        .replace(
+          /^\[\d{4}년 \d{1,2}월 \d{1,2}일 [일월화수목금토]요일 (?:AM|PM) \d{1,2}:\d{2}\]\n/,
+          "",
+        )
+        .replace(/^#\d+ /, "") === content,
+  );
 }
 
 test("observed edit and deletion reach the model even after an earlier response", async () => {
@@ -1477,4 +1777,432 @@ test("replaying an older snapshot does not resurrect outputs discarded since it 
     ),
     false,
   );
+  assert.deepEqual(input.historyMessages, []);
+  assert.equal(input.pendingMessages.length, 2);
+});
+
+test("context includes all stored messages and handled events beyond the configured limit", async () => {
+  const requests = [];
+  const h = createHarness({
+    generateTextFn: async (request) => {
+      requests.push(request);
+      return fakeTextResult("## messages\nall history received");
+    },
+  });
+  const channel = await h.activate();
+  // Stored history has not yet been observed by this character.
+  for (let i = 0; i < 55; i++) {
+    await h.messageService.saveMessage(
+      createUserMessage(h, {
+        id: randomUUID(),
+        content: `historical ${i}`,
+      }),
+      null,
+      [],
+      { observed: false },
+    );
+  }
+  const initial = await h.eventRepository.snapshot(channel.id);
+  assert.equal(initial.events.length, 55);
+  assert.equal(initial.events[0].snapshotContent, "historical 0");
+  assert.ok(initial.events.every((event) => event.source === "HISTORY"));
+  await h.executeChat();
+  await h.receive("CREATE", {
+    message: createUserMessage(h, {
+      id: randomUUID(),
+      content: "latest input",
+    }),
+  });
+  await h.flush();
+  const messages = requests[1].messages;
+  const instructions = messages.findIndex((item) =>
+    item.content.includes("## Current Time"),
+  );
+  assert.equal(instructions, 57); // Identity, 55 historical reads, one delivered reply.
+  for (let i = 0; i < 55; i++) {
+    assert.match(messages[i + 1].content, new RegExp(`historical ${i}$`));
+    assert.deepEqual(messages[i + 1], requests[0].messages[i + 2]);
+  }
+  assert.equal(messages[56].role, "assistant");
+  assert.ok(
+    hasObservation(messages.slice(instructions + 1), "user", "latest input"),
+  );
+  assert.equal(messages.length, 59);
+});
+
+test("fixed numbers survive observation gaps, late history, edits, deletion and repository recreation", async () => {
+  const h = createHarness({
+    generateTextFn: async () => fakeTextResult("## messages\nreply"),
+  });
+  const channel = await h.activate();
+  const save = async (content, observed = true) =>
+    h.messageService.saveMessage(
+      createUserMessage(h, { id: randomUUID(), content }),
+      null,
+      [],
+      { observed },
+    );
+  const first = await save("chat 1");
+  const resumed = await save("chat 101"); // Nothing was stored during the offline interval.
+  const unseen = await save("stored but not read", false);
+  assert.equal(unseen.message.channelMessageNo, 3);
+  assert.equal(
+    await prisma.event.count({ where: { messageId: unseen.message.id } }),
+    0,
+  );
+  const late = await save("chat 11, discovered later", false);
+  assert.deepEqual(
+    [first, resumed, late].map((item) => item.message.channelMessageNo),
+    [1, 2, 4],
+  );
+  await h.messageService.updateMessage(
+    {
+      ...createUserMessage(h, {
+        id: resumed.message.platformId,
+        content: "edited 101",
+      }),
+    },
+    { observed: true },
+  );
+  await h.messageService.deleteMessages(
+    "cli",
+    [resumed.message.platformId],
+    channel.id,
+    { observed: true },
+  );
+  const duplicate = await h.messageService.saveMessage(
+    createUserMessage(h, {
+      id: first.message.platformId,
+      content: "late duplicate",
+    }),
+  );
+  assert.equal(duplicate.message.channelMessageNo, 1);
+  const repository = new MessageRepository({ get: () => 50 });
+  const newMessage = await repository.transaction((tx) =>
+    repository.upsertInTransaction(tx, {
+      platform: "cli",
+      platformId: randomUUID(),
+      channelId: channel.id,
+      content: "after restart",
+    }),
+  );
+  assert.equal(newMessage.channelMessageNo, 5);
+  const snapshot = await h.eventRepository.snapshot(channel.id);
+  assert.deepEqual(
+    snapshot.events
+      .filter((event) => event.messageId === resumed.message.id)
+      .map((event) => event.channelMessageNo),
+    [2, 2, 2],
+  );
+  const prepared = await new ChatContextPreparer(
+    h.historyService,
+    {
+      get: () => "minimal",
+    },
+    {
+      loadSequence: async () => [],
+      build: async (_sequence, input) => ({
+        systemInstruction: "",
+        context: input.pendingMessages,
+      }),
+    },
+  ).prepare(channel.id, h.botId);
+  assert.equal(
+    prepared.context.find((message) => message.id === late.message.id)
+      .channelMessageNo,
+    4,
+  );
+  const other = createHarness({
+    generateTextFn: async () => fakeTextResult(""),
+  });
+  const otherFirst = await other.messageService.saveMessage(
+    createUserMessage(other, { id: randomUUID(), content: "other" }),
+  );
+  assert.equal(otherFirst.message.channelMessageNo, 1);
+  assert.equal(
+    (await repository.findByChannelMessageNo(channel.id, 1)).id,
+    first.message.id,
+  );
+});
+
+test("concurrent message storage issues unique numbers and deduplicates platform deliveries", async () => {
+  const h = createHarness({ generateTextFn: async () => fakeTextResult("") });
+  const channel = await h.activate();
+  const records = Array.from({ length: 6 }, () => ({
+    platform: "cli",
+    platformId: randomUUID(),
+    channelId: channel.id,
+    content: "concurrent",
+  }));
+  const saved = await Promise.all(
+    [...records, records[0]].map((data) =>
+      h.messageService.recordMessageObservation(data),
+    ),
+  );
+  assert.equal(
+    saved[0].message.channelMessageNo,
+    saved.at(-1).message.channelMessageNo,
+  );
+  assert.deepEqual(
+    [...new Set(saved.map((item) => item.message.channelMessageNo))].sort(),
+    [1, 2, 3, 4, 5, 6],
+  );
+  assert.equal(
+    (await prisma.channel.findUnique({ where: { id: channel.id } }))
+      .lastMessageNo,
+    6,
+  );
+});
+
+test("failed first observation rolls back number allocation and tombstones keep their numbers", async () => {
+  const h = createHarness({ generateTextFn: async () => fakeTextResult("") });
+  const channel = await h.activate();
+  const create = h.eventRepository.create.bind(h.eventRepository);
+  h.eventRepository.create = async () => {
+    throw new Error("observation failed");
+  };
+  await assert.rejects(
+    h.messageService.saveMessage(
+      createUserMessage(h, {
+        id: randomUUID(),
+        content: "must roll back",
+      }),
+    ),
+    /observation failed/,
+  );
+  assert.equal(
+    (await prisma.channel.findUnique({ where: { id: channel.id } }))
+      .lastMessageNo,
+    0,
+  );
+  h.eventRepository.create = create;
+  const output = await h.channel.send({ content: "confirmed output" });
+  await h.messageService.deleteMessages(
+    "cli",
+    [output.platformMessageId],
+    channel.id,
+  );
+  const tombstone = await h.messageRepository.findByChannelMessageNo(
+    channel.id,
+    1,
+  );
+  assert.ok(tombstone.deletedAt);
+  const confirmed = await h.messageService.saveMessage(output);
+  assert.equal(confirmed.message.channelMessageNo, 1);
+  assert.equal(
+    (await prisma.channel.findUnique({ where: { id: channel.id } }))
+      .lastMessageNo,
+    1,
+  );
+});
+
+test("reply-only generations persist numbered output once, recover storage and support reroll", async () => {
+  const replies = [];
+  const results = [];
+  let call = 0;
+  const h = createHarness({
+    messageTools: true,
+    generateTextFn: async (request) => {
+      const input = { targetMessageNo: 1, text: `tool reply ${++call}` };
+      const [first, duplicate] = await Promise.all([
+        request.tools.reply.execute(input, { toolCallId: "first" }),
+        request.tools.reply.execute(input, { toolCallId: "duplicate" }),
+      ]);
+      results.push(first);
+      assert.deepEqual(first, duplicate);
+      assert.equal(first.success, true);
+      const receipt = await request.tools.reply.execute(input, {
+        toolCallId: "repeat",
+      });
+      assert.deepEqual(receipt, first);
+      return {
+        ...fakeTextResult(""),
+        steps: [
+          {
+            toolCalls: [{ toolName: "reply" }],
+            toolResults: [{ output: first }],
+          },
+        ],
+      };
+    },
+  });
+  h.channel.reply = async (id, payload) => {
+    replies.push(id);
+    return h.channel.send(payload);
+  };
+  const save = h.messageService.saveMessage.bind(h.messageService);
+  let failed = false;
+  h.messageService.saveMessage = async (message, ...args) => {
+    if (message.author.isBot && !failed) {
+      failed = true;
+      throw new Error("temporary storage failure");
+    }
+    return save(message, ...args);
+  };
+  const channel = await h.activate();
+  const original = createUserMessage(h, {
+    id: randomUUID(),
+    content: "reply to me",
+  });
+  await h.receive("CREATE", { message: original });
+  await h.flush();
+  assert.deepEqual(h.sentMessages, ["tool reply 1"]);
+  assert.deepEqual(results[0], {
+    success: true,
+    action: "reply",
+    targetMessageNo: 1,
+    messageNo: 2,
+  });
+  const generation = await prisma.generation.findFirst({
+    where: { channelId: channel.id },
+  });
+  assert.equal(generation.status, "COMPLETED");
+  assert.equal(
+    await prisma.messageAction.count({
+      where: { generationId: generation.id },
+    }),
+    1,
+  );
+  const output = await h.messageRepository.findByChannelMessageNo(
+    channel.id,
+    2,
+  );
+  assert.equal(output.generationId, generation.id);
+  const plan = await h.rerollConversation.prepare({
+    platform: "cli",
+    platformMessageId: output.platformId,
+  });
+  assert.equal(plan.status, "READY");
+  await h.rerollConversation.execute({
+    platform: "cli",
+    generationId: plan.generationId,
+    platformMessageIds: plan.platformMessageIds,
+    conversationRequest: {
+      channelPort: h.channel,
+      internalChannelId: channel.id,
+      botId: h.botId,
+    },
+  });
+  assert.deepEqual(replies, [
+    original.platformMessageId,
+    original.platformMessageId,
+  ]);
+  assert.equal(results[1].messageNo, 3);
+  assert.ok(
+    (await h.messageRepository.findByChannelMessageNo(channel.id, 2)).deletedAt,
+  );
+});
+
+test("react-only generations finish without issuing a message number", async () => {
+  let reactions = 0;
+  const h = createHarness({
+    messageTools: true,
+    generateTextFn: async (request) => {
+      const output = await request.tools.react.execute({
+        targetMessageNo: 1,
+        emoji: "👍",
+      });
+      assert.equal(output.success, true);
+      return {
+        ...fakeTextResult(""),
+        steps: [
+          { toolCalls: [{ toolName: "react" }], toolResults: [{ output }] },
+        ],
+      };
+    },
+  });
+  h.channel.react = async () => {
+    reactions++;
+  };
+  const channel = await h.activate();
+  await h.receive("CREATE", {
+    message: createUserMessage(h, {
+      id: randomUUID(),
+      content: "react please",
+    }),
+  });
+  await h.flush();
+  assert.equal(reactions, 1);
+  assert.deepEqual(h.sentMessages, []);
+  assert.equal(
+    (await prisma.channel.findUnique({ where: { id: channel.id } }))
+      .lastMessageNo,
+    1,
+  );
+  assert.equal(
+    (await prisma.generation.findFirst({ where: { channelId: channel.id } }))
+      .status,
+    "COMPLETED",
+  );
+  assert.equal(
+    (
+      await prisma.conversationState.findFirst({
+        where: { channelId: channel.id },
+      })
+    ).handledThroughEventId,
+    (await prisma.event.findFirst({ where: { channelId: channel.id } })).id,
+  );
+});
+
+test("recovered reply calls do not send a second acknowledgement", async () => {
+  const h = createHarness({
+    messageTools: true,
+    generateTextFn: async () =>
+      fakeTextResult(
+        '{"name":"reply","arguments":{"targetMessageNo":1,"text":"just this reply"}}',
+      ),
+  });
+  h.channel.reply = async (_id, payload) => h.channel.send(payload);
+  await h.activate();
+  await h.receive("CREATE", {
+    message: createUserMessage(h, { id: randomUUID(), content: "reply" }),
+  });
+  await h.flush();
+  assert.deepEqual(h.sentMessages, ["just this reply"]);
+});
+
+test("interruption during a tool reply preserves confirmed delivery and cancels the remaining output", async () => {
+  const started = deferred();
+  const release = deferred();
+  let requests = 0;
+  const h = createHarness({
+    messageTools: true,
+    generateTextFn: async (request) => {
+      if (++requests > 1) return fakeTextResult("## messages\nfresh response");
+      await request.tools.reply.execute({
+        targetMessageNo: 1,
+        text: "confirmed tool reply",
+      });
+      return fakeTextResult("## messages\nstale remainder");
+    },
+  });
+  h.channel.reply = async (_id, payload) => {
+    started.resolve();
+    await release.promise;
+    return h.channel.send(payload);
+  };
+  const channel = await h.activate();
+  await h.receive("CREATE", {
+    message: createUserMessage(h, { id: randomUUID(), content: "first" }),
+  });
+  const first = h.flush();
+  await started.promise;
+  // Receiving this input must not wait for the tool's external delivery.
+  await h.receive("CREATE", {
+    message: createUserMessage(h, { id: randomUUID(), content: "interrupt" }),
+  });
+  release.resolve();
+  await first;
+  assert.deepEqual(h.sentMessages, ["confirmed tool reply"]);
+  const generation = await prisma.generation.findFirst({
+    where: { channelId: channel.id },
+  });
+  assert.equal(generation.status, "CANCELLED");
+  const output = await prisma.message.findFirst({
+    where: { channelId: channel.id, isBot: true },
+  });
+  assert.equal(output.generationId, generation.id);
+  assert.equal(output.channelMessageNo, 3);
+  await h.flush();
+  assert.deepEqual(h.sentMessages, ["confirmed tool reply", "fresh response"]);
 });

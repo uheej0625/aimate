@@ -11,6 +11,7 @@ export class HistoryMessageFormatter {
   formatMessage(message, promptByGenerationId = new Map()) {
     return {
       id: message.id,
+      channelMessageNo: message.channelMessageNo,
       authorId: message.authorId,
       authorPlatformId: message.author?.platformId ?? message.authorPlatformId,
       content: this.renderContentForAI(message, promptByGenerationId),

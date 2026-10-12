@@ -58,7 +58,8 @@ model Channel {
   platform   String
   platformId String
 
-  scope String? // "global" | "server" | "channel"
+  scope         String? // "global" | "server" | "channel"
+  lastMessageNo Int     @default(0)
 
   serverId String?
   server   Server? @relation(fields: [serverId], references: [id])
@@ -89,6 +90,8 @@ model Message {
   channelId String
   channel   Channel @relation(fields: [channelId], references: [id])
 
+  channelMessageNo Int
+
   content         String
   attachmentsJson String?
 
@@ -106,6 +109,7 @@ model Message {
   updatedAt DateTime @updatedAt
 
   @@unique([platform, platformId])
+  @@unique([channelId, channelMessageNo])
 }
 
 model Event {
@@ -177,11 +181,24 @@ model Generation {
   sentAt      DateTime?
   discardedAt DateTime?
 
-  messages Message[]
-  events   Event[]
+  messages       Message[]
+  events         Event[]
+  messageActions MessageAction[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// Durable receipts prevent repeating external tool actions within a generation.
+model MessageAction {
+  id           Int        @id @default(autoincrement())
+  generationId Int
+  generation   Generation @relation(fields: [generationId], references: [id])
+  key          String
+  resultJson   String?
+  createdAt    DateTime   @default(now())
+
+  @@unique([generationId, key])
 }
 
 model Memory {

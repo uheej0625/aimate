@@ -5,6 +5,7 @@ import {
   getRequiredCharacterId,
   resolveCharacterFile,
   resolveCharacterFileById,
+  validateCharacterConfig,
 } from "../../src/character/config.js";
 
 function createConfigManager(character) {
@@ -47,5 +48,20 @@ test("character config rejects missing or invalid character IDs", () => {
   assert.throws(
     () => getRequiredCharacterId(createConfigManager("Alice")),
     /Invalid character ID: Alice/,
+  );
+});
+
+test("character config requires a valid IANA timezone", () => {
+  assert.deepStrictEqual(
+    validateCharacterConfig({ timezone: " Asia/Seoul ", feature: true }),
+    { timezone: "Asia/Seoul", feature: true },
+  );
+  assert.throws(
+    () => validateCharacterConfig({}),
+    /Missing required character timezone/,
+  );
+  assert.throws(
+    () => validateCharacterConfig({ timezone: "Mars/Olympus" }),
+    /Invalid character timezone.*Mars\/Olympus/,
   );
 });

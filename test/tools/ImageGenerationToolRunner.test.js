@@ -22,7 +22,7 @@ test("executeImageGenerationTool renders prompts, passes references, and records
     });
     await fs.writeFile(
       path.join(tmpDir, "content", "prompts", "test", "image", "photo.md"),
-      "Scene={{data.scene}}\nSources={{data.sourceImageRefs}}\nTime={{data.hour}}",
+      "Scene={{data.scene}}\nSources={{data.sourceImageRefs}}\nTime={{system.now.raw}}",
     );
     await fs.writeFile(
       path.join(tmpDir, "content", "character", "reference.png"),
@@ -45,13 +45,7 @@ test("executeImageGenerationTool renders prompts, passes references, and records
         status,
         details,
       ) => {
-        calls.push([
-          "complete",
-          generationId,
-          expectedStatus,
-          status,
-          details,
-        ]);
+        calls.push(["complete", generationId, expectedStatus, status, details]);
         return true;
       },
     };
@@ -69,7 +63,7 @@ test("executeImageGenerationTool renders prompts, passes references, and records
     const configManager = {
       get: (key) => {
         if (key === "ai.image.prompt") return "test";
-        if (key === "app.timeZone") return "Asia/Seoul";
+        if (key === "app.timezone") return "Asia/Seoul";
         return null;
       },
     };
@@ -96,6 +90,10 @@ test("executeImageGenerationTool renders prompts, passes references, and records
     const generateCall = calls.find(([name]) => name === "generateImage");
     assert.match(generateCall[1], /Scene=cafe/);
     assert.match(generateCall[1], /Sources=\[IMAGE:source123\]/);
+    assert.match(
+      generateCall[1],
+      /Time=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+09:00/,
+    );
     assert.deepStrictEqual(generateCall[2].image, [
       path.join(tmpDir, "content", "character", "reference.png"),
       path.join(tmpDir, "content", "image", "source123.png"),
@@ -120,6 +118,82 @@ test("executeImageGenerationTool renders prompts, passes references, and records
       result.instruction,
       new RegExp(`\\[IMAGE:${result.imageId}\\]`),
     );
+  } finally {
+    process.chdir(originalCwd);
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("image prompts use configured timezones and the time-context switch", async () => {
+  const originalCwd = process.cwd();
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aimate-image-time-"));
+  process.chdir(tmpDir);
+
+  try {
+    const promptDir = path.join(tmpDir, "content", "prompts", "test", "image");
+    await fs.mkdir(promptDir, { recursive: true });
+    await fs.writeFile(
+      path.join(promptDir, "photo.md"),
+      "Scene={{data.scene}}{{#if data.includeTimeContext}}\nTime={{system.now.raw}}{{/if}}",
+    );
+
+    const cases = [
+      { name: "default", settings: {}, suffix: "+09:00" },
+      {
+        name: "app timezone",
+        settings: { "app.timezone": "UTC" },
+        suffix: "+00:00",
+      },
+      {
+        name: "image timezone overrides app timezone",
+        settings: {
+          "app.timezone": "UTC",
+          "ai.image.timeZone": "Asia/Kathmandu",
+        },
+        suffix: "+05:45",
+      },
+      {
+        name: "time context disabled",
+        settings: { "ai.image.includeTimeContext": false },
+        suffix: null,
+      },
+    ];
+
+    for (const { name, settings, suffix } of cases) {
+      let rendered;
+      await executeImageGenerationTool(
+        { scene: "cafe" },
+        {
+          configManager: {
+            get: (key) => ({ "ai.image.prompt": "test", ...settings })[key],
+          },
+          imageGenerator: {
+            generate: async (prompt) => {
+              rendered = prompt;
+              return { buffer: Buffer.from("generated image") };
+            },
+          },
+          generationRepository: {
+            create: async () => ({ id: "gen-time" }),
+            updateDetailsAndStatusIfCurrent: async () => true,
+          },
+          channel: { id: "channel-1" },
+        },
+        {
+          toolName: "generate_photo",
+          templateFile: "photo.md",
+          describe: () => "Generated photo",
+        },
+      );
+
+      if (suffix) {
+        assert.match(rendered, /^Scene=cafe\nTime=\d{4}-\d{2}-\d{2}T/);
+        assert.ok(rendered.endsWith(suffix), `${name}: ${rendered}`);
+        assert.ok(Number.isFinite(Date.parse(rendered.split("Time=")[1])));
+      } else {
+        assert.equal(rendered, "Scene=cafe", name);
+      }
+    }
   } finally {
     process.chdir(originalCwd);
     await fs.rm(tmpDir, { recursive: true, force: true });
@@ -249,7 +323,8 @@ test("executeImageGenerationTool forwards cancellation and never completes an ab
     let receivedSignal;
     const generationRepository = {
       create: async () => ({ id: "gen-cancelled" }),
-      updateDetails: async () => assert.fail("aborted generation must not save output"),
+      updateDetails: async () =>
+        assert.fail("aborted generation must not save output"),
       updateStatusIfCurrent: async (_id, expected, status) => {
         assert.equal(expected, "PROCESSING");
         statuses.push(status);
@@ -308,11 +383,7 @@ test("executeImageGenerationTool rejects completion after the generation was can
     const transitions = [];
     const generationRepository = {
       create: async () => ({ id: "gen-cancelled-before-completion" }),
-      updateDetailsAndStatusIfCurrent: async (
-        _id,
-        expectedStatus,
-        status,
-      ) => {
+      updateDetailsAndStatusIfCurrent: async (_id, expectedStatus, status) => {
         transitions.push([expectedStatus, status]);
         return false;
       },

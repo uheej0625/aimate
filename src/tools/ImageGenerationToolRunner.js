@@ -1,15 +1,12 @@
 import crypto from "crypto";
 import fs from "fs/promises";
 import path from "path";
-import {
-  buildTemplateContext,
-  renderTemplateFile,
-} from "../utils/renderTemplate.js";
+import { renderTemplateFile } from "../utils/renderTemplate.js";
+import { buildTemplateContext } from "../utils/templateContext.js";
 import {
   buildSourceImageContext,
   resolveSourceImagePaths,
 } from "./imageReferenceUtils.js";
-import { buildCurrentTimeContext } from "./timeContextUtils.js";
 
 export async function executeImageGenerationTool(args, context, spec) {
   const {
@@ -164,7 +161,7 @@ async function renderImagePrompt({
     configManager?.get("ai.image.includeTimeContext") !== false;
   const timeZone =
     configManager?.get("ai.image.timeZone") ||
-    configManager?.get("app.timeZone") ||
+    configManager?.get("app.timezone") ||
     "Asia/Seoul";
   const templatePath = path.join(
     process.cwd(),
@@ -178,10 +175,12 @@ async function renderImagePrompt({
     ...args,
     sourceImageRefs: buildSourceImageContext(sourceImages),
     includeTimeContext,
-    ...(includeTimeContext ? buildCurrentTimeContext({ timeZone }) : {}),
   };
 
-  return renderTemplateFile(templatePath, buildTemplateContext(templateData));
+  return renderTemplateFile(
+    templatePath,
+    buildTemplateContext(templateData, { timeZone }),
+  );
 }
 
 async function resolveReferenceImagePaths(referenceImages = []) {

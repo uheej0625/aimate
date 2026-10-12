@@ -5,5 +5,7 @@
     "month": 1,
     "day": 1
   },
-  "timezone": "Asia/Seoul"
+  "schoolEnrollment": {
+    "year": 2024
+  }
 }

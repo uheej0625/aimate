@@ -5,6 +5,7 @@ import { SequenceBuilder } from "../../../src/chat/context/SequenceBuilder.js";
 test("SequenceBuilder tests", async (t) => {
   let lastRenderFileOptions = null;
   const mockPromptComposer = {
+    buildContext: async ({ data }) => ({ data }),
     renderFile: async (source, options) => {
       lastRenderFileOptions = options;
       const basename = source.replace(/\\/g, "/").split("/").pop();

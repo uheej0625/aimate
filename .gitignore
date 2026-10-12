@@ -7,7 +7,13 @@ test/.tmp/
 prisma/migrations/
 content/characters
 content/image
-content/prompts/ultimate
-content/prompts/experimental
-content/prompts/legacy
+content/prompts/
 AGENTS.md
+
+# Obsidian local state (shared app.json stays tracked)
+docs/.obsidian/*
+!docs/.obsidian/app.json
+docs/.trash/
+
+# Local prompt comparison snapshots and reports
+.local/

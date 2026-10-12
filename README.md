@@ -2,6 +2,8 @@
 
 Discord와 CLI에서 동작하는 AI 대화 봇입니다. 단순 질의응답이 아니라 **실제 친구처럼 짧은 메시지를 여러 번 주고받는 경험**을 목표로 합니다.
 
+개발 구조와 동작은 [AiMate 개발 위키](docs/홈.md)에서 확인할 수 있습니다. 옵시디언에서는 `docs/` 폴더를 보관함으로 열어주세요.
+
 ---
 
 ## 무슨 봇인가요?
@@ -112,7 +114,9 @@ xAI Responses API의 서버사이드 도구는 AiMate의 일반 도구(`getTime`
 
 ### 캐릭터 설정
 
-`config/default.json`의 `character`로 활성 캐릭터를 고릅니다. `content/characters/<character>/` 안의 `variables.json`, `identity.md`, `reference.png`으로 이름, 나이, 말투, 성격과 셀피 기준 이미지를 정의합니다. 변경은 다음 실행부터 적용됩니다.
+`config/default.json`의 `character`로 활성 캐릭터를 고릅니다. `content/characters/<character>/` 안의 `config.json`, `variables.json`, `identity.md`, `reference.png`으로 동작 설정, 이름, 나이, 말투, 성격과 셀피 기준 이미지를 정의합니다. 변경은 다음 실행부터 적용됩니다.
+
+캐릭터별 동작 설정은 같은 디렉터리의 필수 파일인 `config.json`에 둡니다. 예를 들어 `{ "timezone": "Asia/Seoul" }`로 유효한 IANA 시간대를 지정합니다. 파일이 없거나 `timezone`이 누락·오류이면 애플리케이션 시작이 설정 오류로 중단됩니다. 생일·입학 연도 같은 프로필 데이터는 `variables.json`에 둡니다. 관찰 시각, 현재 시각(`system.now`), 나이·학년 계산은 캐릭터의 `timezone`을 사용하고, 날짜 표기 언어는 `app.language`를 따릅니다.
 
 ---
 
@@ -143,7 +147,7 @@ content/
 [`src/application/contracts.js`](src/application/contracts.js)의 내부 계약으로
 변환한 뒤 동일한 처리 흐름을 탑니다. 플랫폼 진입점은 애플리케이션
 유스케이스만 호출하며 Repository에 직접 접근하지 않습니다. 자세한 의존
-방향과 메시지 처리 흐름은 [`docs/architecture.md`](docs/architecture.md)를
+방향과 메시지 처리 흐름은 [전체 아키텍처](docs/구조/전체%20아키텍처.md)를
 참조하세요.
 
 ---

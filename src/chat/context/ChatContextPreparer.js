@@ -8,18 +8,15 @@ export class ChatContextPreparer {
    * @param {import('../../messages/HistoryService.js').HistoryService} historyService
    * @param {import('../../config/ConfigManager.js').default} configManager
    * @param {import('./SequenceBuilder.js').SequenceBuilder} sequenceBuilder
-   * @param {import('../memory/MemoryService.js').MemoryService|null} [memoryService]
    */
   constructor(
     historyService,
     configManager,
     sequenceBuilder,
-    memoryService = null,
   ) {
     this.historyService = historyService;
     this.configManager = configManager;
     this.sequenceBuilder = sequenceBuilder;
-    this.memoryService = memoryService;
   }
 
   /**
@@ -34,12 +31,12 @@ export class ChatContextPreparer {
     channelRecord = null,
     rerollGenerationId = null,
   ) {
+    const referenceDate = new Date();
     const {
       historyMessages = [],
       pendingMessages = [],
       messageIds = [],
       inputMessages = [],
-      lastUserPlatformAccountId = null,
       eventSnapshot,
     } = await this.historyService.fetchHistoryData(
       channelId,
@@ -49,12 +46,6 @@ export class ChatContextPreparer {
 
     const promptName = getRequiredChatPromptName(this.configManager);
     const sequenceDef = await this.sequenceBuilder.loadSequence(promptName);
-    const memories = this.memoryService
-      ? await this.memoryService.loadForPlatformAccount(
-          lastUserPlatformAccountId,
-        )
-      : [];
-    const userMemories = this.memoryService?.formatForContext(memories);
     const { systemInstruction, context } = await this.sequenceBuilder.build(
       sequenceDef,
       {
@@ -63,24 +54,16 @@ export class ChatContextPreparer {
         botId,
         channelRecord,
         promptName,
-        data: { userMemories },
+        referenceDate,
       },
     );
 
-    const contextWithMemories = prependMemoryContext(context, userMemories);
-
     return {
-      context: contextWithMemories,
+      context,
       systemInstruction,
       messageIds,
       inputMessages,
       eventSnapshot,
     };
   }
-}
-
-function prependMemoryContext(context, userMemories) {
-  if (!userMemories) return context;
-
-  return [{ role: "user", content: userMemories }, ...context];
 }

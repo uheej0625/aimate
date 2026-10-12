@@ -122,3 +122,45 @@ function createDiscordMessage(overrides = {}) {
     ...overrides,
   };
 }
+
+test("Discord replies require an existing target and normalize confirmed delivery", async () => {
+  let options;
+  const channel = adaptChannel({
+    id: "channel-1",
+    send: async (payload) => {
+      options = payload;
+      return createDiscordMessage({ content: payload.content });
+    },
+  });
+  const message = await channel.reply("target-id", { content: "reply" });
+  assert.deepEqual(options, {
+    content: "reply",
+    reply: { messageReference: "target-id", failIfNotExists: true },
+    allowedMentions: { repliedUser: false },
+  });
+  assert.equal(message.platformMessageId, "message-1");
+  assert.equal(message.content, "reply");
+});
+
+test("Discord reactions fetch the current target and respect cancellation before reacting", async () => {
+  let received;
+  const emojis = [];
+  const controller = new AbortController();
+  const channel = adaptChannel({
+    id: "channel-1",
+    messages: {
+      fetch: async (options) => {
+        received = options;
+        return { react: async (emoji) => emojis.push(emoji) };
+      },
+    },
+  });
+  await channel.react("target-id", "👍");
+  assert.deepEqual(received, { message: "target-id", force: true });
+  controller.abort();
+  await assert.rejects(
+    channel.react("target-id", "😴", { abortSignal: controller.signal }),
+    /abort/i,
+  );
+  assert.deepEqual(emojis, ["👍"]);
+});

@@ -119,7 +119,7 @@ export class ChatFlow {
         prepared.systemInstruction,
         channelPort.platform,
         channelRecord,
-        { abortSignal },
+        { abortSignal, channelPort, generationId: generation.id, delivery },
       );
       if (!isCurrent()) return await cancel("aborted_during_generation");
       const accepted = await run(async () => {
@@ -136,7 +136,7 @@ export class ChatFlow {
       for (const message of aiResult.messages) {
         if (
           !isCurrent() ||
-          !(await this.messageSender.sendChunk(
+          !(await this.messageSender.send(
             channelPort,
             message,
             generation.id,
@@ -148,7 +148,7 @@ export class ChatFlow {
       }
       if (!sentAt)
         throw new Error(
-          "The generated response contained no deliverable messages.",
+          "The generated response contained no deliverable messages or successful message actions.",
         );
       const completed = await run(async () => {
         if (!isCurrent()) return false;

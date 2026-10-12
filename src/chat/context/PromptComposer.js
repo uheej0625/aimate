@@ -1,9 +1,6 @@
 import fs from "fs/promises";
-import {
-  buildRuntimeContext,
-  buildSystemContext,
-  renderTemplate,
-} from "../../utils/renderTemplate.js";
+import { renderTemplate } from "../../utils/renderTemplate.js";
+import { buildTemplateContext } from "../../utils/templateContext.js";
 import { CharacterContextBuilder } from "../../character/CharacterContextBuilder.js";
 
 export class PromptComposer {
@@ -32,19 +29,23 @@ export class PromptComposer {
    *
    * @param {Object} [options]
    * @param {Object} [options.data]
+   * @param {Date} [options.referenceDate]
    * @returns {Promise<Object>}
    */
-  async buildContext({ data = {} } = {}) {
-    const system = buildSystemContext();
+  async buildContext({ data = {}, referenceDate = new Date() } = {}) {
+    const config = this.configManager?.getAll?.() ?? {};
+    const characterConfig = await this.characterContextBuilder.loadConfig();
+    const context = buildTemplateContext(data, {
+      referenceDate,
+      timeZone: characterConfig.timezone,
+    });
     const characterContext = await this.characterContextBuilder.build({
-      system,
+      system: context.system,
     });
 
     return {
-      data,
-      system,
-      runtime: buildRuntimeContext(),
-      config: this.configManager?.getAll?.() ?? {},
+      ...context,
+      config,
       character: {
         ...characterContext,
         toString: () => characterContext.identity,
@@ -58,7 +59,10 @@ export class PromptComposer {
    * @returns {Promise<string>}
    */
   async render(template, options = {}) {
-    return renderTemplate(template, await this.buildContext(options));
+    return renderTemplate(
+      template,
+      options.context ?? (await this.buildContext(options)),
+    );
   }
 
   /**

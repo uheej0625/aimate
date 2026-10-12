@@ -32,7 +32,7 @@ export class ChatGenerationFailureHandler {
     });
 
     try {
-      await this.messageSender.sendChunk(
+      await this.messageSender.send(
         channel,
         FALLBACK_ERROR_MESSAGE,
         generation?.id,
