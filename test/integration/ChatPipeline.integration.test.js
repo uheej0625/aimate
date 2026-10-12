@@ -731,7 +731,254 @@ test("chat pipeline aborts an in-flight generation when interrupted", async () =
   assert.deepStrictEqual(harness.sentMessages, ["두 번째 응답"]);
 });
 
-function createHarness({ generateTextFn, messageTools = false }) {
+test("message delivery splits long text within the transport limit and stores original output separately", async () => {
+  const original = "가".repeat(4600);
+  const h = createHarness({
+    generateTextFn: async () =>
+      fakeTextResult(`## messages\n${original}[BREAK]마지막`),
+  });
+  const channel = await h.activate();
+  await h.receive("CREATE", {
+    message: createUserMessage(h, {
+      id: randomUUID(),
+      content: "long reply please",
+    }),
+  });
+  await h.flush();
+  assert.deepEqual(
+    h.sentMessages.map((text) => text.length),
+    [1900, 1900, 800, 3],
+  );
+  assert.equal(h.sentMessages.slice(0, -1).join(""), original);
+  const generation = await prisma.generation.findFirst({
+    where: { channelId: channel.id },
+  });
+  assert.equal(generation.status, "COMPLETED");
+  assert.deepEqual(JSON.parse(generation.output), [original, "마지막"]);
+  const messages = await prisma.message.findMany({
+    where: { generationId: generation.id, isBot: true },
+    orderBy: { id: "asc" },
+  });
+  assert.deepEqual(
+    messages.map((message) => message.content),
+    h.sentMessages,
+  );
+  const events = await prisma.event.findMany({
+    where: { generationId: generation.id, kind: "SENT" },
+    orderBy: { id: "asc" },
+  });
+  assert.deepEqual(
+    events.map((event) => event.snapshotContent),
+    h.sentMessages,
+  );
+});
+
+test("message delivery sends oversized code as independently fenced messages", async () => {
+  const body = "const n = 1;\n" + "x".repeat(4500) + "\n  done();\n";
+  const original = `\`\`\`js\n${body}\`\`\``;
+  const h = createHarness({
+    generateTextFn: async () => fakeTextResult(`## messages\n${original}`),
+  });
+  const channel = await h.activate();
+  await h.receive("CREATE", {
+    message: createUserMessage(h, { id: randomUUID(), content: "code please" }),
+  });
+  await h.flush();
+  assert.ok(h.sentMessages.length > 1);
+  assert.ok(
+    h.sentMessages.every(
+      (text) =>
+        text.length <= 1900 &&
+        text.startsWith("```js\n") &&
+        text.endsWith("\n```"),
+    ),
+  );
+  assert.equal(h.sentMessages.map((text) => text.slice(6, -4)).join(""), body);
+  const generation = await prisma.generation.findFirst({
+    where: { channelId: channel.id },
+  });
+  assert.equal(generation.status, "COMPLETED");
+  assert.deepEqual(JSON.parse(generation.output), [original]);
+});
+
+test("disabled humanize still splits long messages and preserves model bubble order", async () => {
+  const original = "x".repeat(70);
+  const h = createHarness({
+    humanize: { enabled: false },
+    messages: { maxLength: 32 },
+    generateTextFn: async () =>
+      fakeTextResult(`## messages\n${original}[BREAK]second`),
+  });
+  const channel = await h.activate();
+  await h.receive("CREATE", {
+    message: createUserMessage(h, { id: randomUUID(), content: "disabled" }),
+  });
+  await h.flush();
+  assert.deepEqual(h.sentMessages, [
+    "x".repeat(32),
+    "x".repeat(32),
+    "x".repeat(6),
+    "second",
+  ]);
+  const generation = await prisma.generation.findFirst({
+    where: { channelId: channel.id },
+  });
+  assert.equal(generation.status, "COMPLETED");
+  assert.deepEqual(JSON.parse(generation.output), [original, "second"]);
+});
+
+test("disabled humanize delivers text beyond the transport limit successfully", async () => {
+  const original = "x".repeat(2001);
+  const h = createHarness({
+    humanize: { enabled: false },
+    generateTextFn: async () => fakeTextResult(`## messages\n${original}`),
+  });
+  const channel = await h.activate();
+  await h.receive("CREATE", {
+    message: createUserMessage(h, {
+      id: randomUUID(),
+      content: "disabled oversized",
+    }),
+  });
+  await h.flush();
+  const generation = await prisma.generation.findFirst({
+    where: { channelId: channel.id },
+  });
+  assert.equal(generation.status, "COMPLETED");
+  assert.deepEqual(JSON.parse(generation.output), [original]);
+  assert.deepEqual(h.sentMessages, ["x".repeat(1900), "x".repeat(101)]);
+  const messages = await prisma.message.findMany({
+    where: { generationId: generation.id, isBot: true },
+    orderBy: { id: "asc" },
+  });
+  assert.deepEqual(
+    messages.map((message) => message.content),
+    h.sentMessages,
+  );
+});
+
+test("interruption during a split chunk stops subsequent chunks and stores confirmed delivery", async () => {
+  const started = deferred();
+  const release = deferred();
+  const original = "x".repeat(4500);
+  const h = createHarness({
+    generateTextFn: async () => fakeTextResult(`## messages\n${original}`),
+  });
+  const channel = await h.activate();
+  const send = h.channel.send;
+  let first = true;
+  h.channel.send = async (options) => {
+    if (first) {
+      first = false;
+      started.resolve();
+      await release.promise;
+    }
+    return send(options);
+  };
+  await h.receive("CREATE", {
+    message: createUserMessage(h, { id: randomUUID(), content: "first turn" }),
+  });
+  const sending = h.flush();
+  await started.promise;
+  await h.receive("CREATE", {
+    message: createUserMessage(h, { id: randomUUID(), content: "interrupt" }),
+  });
+  release.resolve();
+  await sending;
+  assert.deepEqual(h.sentMessages, ["x".repeat(1900)]);
+  const generation = await prisma.generation.findFirst({
+    where: { channelId: channel.id },
+  });
+  assert.equal(generation.status, "CANCELLED");
+  assert.deepEqual(JSON.parse(generation.output), [original]);
+  const messages = await prisma.message.findMany({
+    where: { generationId: generation.id, isBot: true },
+  });
+  assert.deepEqual(
+    messages.map((message) => message.content),
+    h.sentMessages,
+  );
+  assert.equal(
+    await prisma.conversationState.count({ where: { channelId: channel.id } }),
+    0,
+  );
+});
+
+test("message splitting runs after image tag policy and attaches the generated image to the final chunk", async (t) => {
+  const imageId = randomUUID().replaceAll("-", "").slice(0, 8);
+  const filename = `${imageId}.png`;
+  const imagePath = path.join(workspaceRoot, "content", "image", filename);
+  await fs.mkdir(path.dirname(imagePath), { recursive: true });
+  await fs.writeFile(imagePath, "test image attachment", { flag: "wx" });
+  t.after(() => fs.rm(imagePath, { force: true }));
+  const original = "x".repeat(4000);
+  const h = createHarness({
+    generateTextFn: async () => ({
+      ...fakeTextResult(`## messages\n${original}`),
+      steps: [{ toolResults: [{ output: { imageId } }] }],
+    }),
+  });
+  const channel = await h.activate();
+  const imageGeneration = await prisma.generation.create({
+    data: {
+      characterId: "fixture",
+      channelId: channel.id,
+      type: "IMAGE",
+      prompt: "minimal",
+      status: "COMPLETED",
+      output: filename,
+    },
+  });
+  const payloads = [];
+  const send = h.channel.send;
+  h.channel.send = async (options) => {
+    payloads.push(options);
+    return send(options);
+  };
+  await h.receive("CREATE", {
+    message: createUserMessage(h, {
+      id: randomUUID(),
+      content: "image please",
+    }),
+  });
+  await h.flush();
+  assert.deepEqual(
+    h.sentMessages.map((text) => text.length),
+    [1900, 1900, 200],
+  );
+  assert.ok(payloads.slice(0, -1).every((payload) => !payload.files));
+  assert.deepEqual(payloads.at(-1).files, [{ attachment: imagePath }]);
+  const generation = await prisma.generation.findFirst({
+    where: { channelId: channel.id, type: "CHAT" },
+  });
+  assert.equal(generation.status, "COMPLETED");
+  assert.deepEqual(JSON.parse(generation.output), [
+    `${original}\n[IMAGE:${imageId}]`,
+  ]);
+  const messages = await prisma.message.findMany({
+    where: { generationId: generation.id, isBot: true },
+    orderBy: { id: "asc" },
+  });
+  assert.deepEqual(
+    messages.map((message) => message.content),
+    h.sentMessages,
+  );
+  assert.deepEqual(JSON.parse(messages.at(-1).attachmentsJson), [
+    {
+      type: "generated_image",
+      imageId,
+      filename,
+      generationId: imageGeneration.id,
+    },
+  ]);
+});
+
+function createHarness({
+  generateTextFn,
+  messageTools = false,
+  humanize = { enabled: true },
+  messages = { maxLength: 1900 },
+}) {
   let now = 0;
   const conversationSession = new ConversationSession({ now: () => now });
   const bufferedRequests = [];
@@ -743,7 +990,13 @@ function createHarness({ generateTextFn, messageTools = false }) {
   const channel = createMockChannel({
     channelId: `channel-${id}`,
     mockClient,
-    onSend: (content) => sentMessages.push(content),
+    onSend: (content) => {
+      assert.ok(
+        content.length <= 2000,
+        "Transport content exceeded 2000 characters",
+      );
+      sentMessages.push(content);
+    },
   });
   const config = {
     app: { language: "ko-KR" },
@@ -757,11 +1010,15 @@ function createHarness({ generateTextFn, messageTools = false }) {
     },
     conversation: {
       maxContextMessages: 50,
+    },
+    tools: { maxSteps: 5 },
+    messages,
+    humanize: {
       typingDelayMin: 0,
       typingDelayMax: 0,
       typingDelayPerChar: 0,
+      ...humanize,
     },
-    tools: { maxSteps: 5 },
   };
   const configManager = {
     get: (key) => key.split(".").reduce((value, part) => value?.[part], config),

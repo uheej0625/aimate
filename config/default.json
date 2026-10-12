@@ -46,7 +46,13 @@
   "conversation": {
     "maxContextMessages": 20,
     "maxHistoryDays": 30,
-    "bufferTimeout": 5000,
+    "bufferTimeout": 5000
+  },
+  "messages": {
+    "maxLength": 1900
+  },
+  "humanize": {
+    "enabled": true,
     "typingDelayMin": 1000,
     "typingDelayMax": 2000,
     "typingDelayPerChar": 60

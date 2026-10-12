@@ -136,7 +136,7 @@ export class ChatFlow {
       for (const message of aiResult.messages) {
         if (
           !isCurrent() ||
-          !(await this.messageSender.sendChunk(
+          !(await this.messageSender.send(
             channelPort,
             message,
             generation.id,
