@@ -29,7 +29,7 @@ export async function generateChatReply({
 }) {
   if (context.length === 0) {
     return {
-      messages: ["..."],
+      messages: [],
       apiRequests: [],
       apiResponses: [],
     };

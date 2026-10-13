@@ -51,16 +51,17 @@ export async function snapshot({
 
 export function checkContract(text = "") {
   const violations = [];
-  const match = text
-    .trim()
-    .match(
-      /^# response\r?\n\s*\r?\n?## messages\r?\n(?:[ \t]*\r?\n)*([^\r\n]+)$/,
-    );
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+  const match = trimmed.match(
+    /^# response\r?\n\s*\r?\n?## messages(?:\r?\n(?:[ \t]*\r?\n)*([^\r\n]+))?$/,
+  );
   if (!match)
     return [
-      "Expected # response, ## messages and a single nonempty body line.",
+      "Expected # response, ## messages and an empty or single-line body.",
     ];
   const body = match[1];
+  if (!body) return [];
   if (body.split("[BREAK]").some((chunk) => !chunk.trim())) {
     violations.push("Empty message around [BREAK].");
   }

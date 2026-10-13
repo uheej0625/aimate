@@ -74,7 +74,7 @@ export class ChatGenerationLifecycle {
     return { shouldProceed: updated };
   }
 
-  async complete(generationId, sentAt = new Date()) {
+  async complete(generationId, sentAt = null) {
     return await this.generationRepository.completeChat(generationId, sentAt);
   }
 

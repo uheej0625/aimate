@@ -25,3 +25,34 @@ test("AIResponseParser splits raw text with break markers", () => {
 
   assert.deepStrictEqual(result.messages, ["first", "second"]);
 });
+
+test("AIResponseParser accepts silent responses without leaking other sections", () => {
+  const parser = new AIResponseParser();
+  for (const text of [
+    "",
+    " \n\t",
+    "## messages",
+    "## messages\n",
+    "# response\n\n## messages",
+    "## messages\n## state\ninternal",
+    "## messages\n\n## state\ninternal",
+    "# response\r\n\r\n## messages \t\r\n\r\n## state\r\ninternal",
+    "## messages\n [BREAK] \n## state\ninternal",
+  ]) {
+    assert.deepStrictEqual(
+      parser.parse(text).messages,
+      [],
+      JSON.stringify(text),
+    );
+  }
+});
+
+test("AIResponseParser keeps multiline messages and excludes later sections", () => {
+  const parser = new AIResponseParser();
+  assert.deepStrictEqual(
+    parser.parse(
+      "# response\n## messages\nfirst\nsecond [BREAK] third\n## state\ninternal",
+    ).messages,
+    ["first\nsecond", "third"],
+  );
+});

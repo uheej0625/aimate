@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert";
 import { ChatGenerator } from "../../src/ai/ChatGenerator.js";
 
-test("ChatGenerator returns an ellipsis for empty context", async () => {
+test("ChatGenerator returns no messages or API requests for empty context", async () => {
   const generator = new ChatGenerator({
     configManager: {
       get: () => null,
@@ -11,7 +11,7 @@ test("ChatGenerator returns an ellipsis for empty context", async () => {
 
   const result = await generator.generate([], "system");
 
-  assert.deepStrictEqual(result.messages, ["..."]);
+  assert.deepStrictEqual(result.messages, []);
   assert.deepStrictEqual(result.apiRequests, []);
   assert.deepStrictEqual(result.apiResponses, []);
 });

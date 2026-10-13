@@ -45,7 +45,7 @@ export class ChatFlow {
     let channelRecord;
     let abortSignal;
     let deliveredAt;
-    let sentAt;
+    let sentAt = null;
     let settled = false;
     const payload = () => ({
       generation,
@@ -146,7 +146,7 @@ export class ChatFlow {
           return await cancel("send_cancelled");
         }
       }
-      if (!sentAt)
+      if (!sentAt && aiResult.messages.length > 0)
         throw new Error(
           "The generated response contained no deliverable messages or successful message actions.",
         );
