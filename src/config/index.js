@@ -55,8 +55,10 @@ export function createConfigManager({
   env = process.env,
   watch = !isTestRuntime(),
 } = {}) {
-  const manager = new ConfigManager(configPath, { watch });
-  return applyEnvOverrides(manager, env);
+  return new ConfigManager(configPath, {
+    watch,
+    onLoad: (manager) => applyEnvOverrides(manager, env),
+  });
 }
 
 /**

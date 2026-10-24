@@ -7,12 +7,13 @@ import chokidar from "chokidar";
  * Provides CRUD operations for JSON config files
  */
 class ConfigManager {
-  constructor(configPath = "./config.json", { watch = true } = {}) {
+  constructor(configPath = "./config.json", { watch = true, onLoad } = {}) {
     this.configPath = path.resolve(configPath);
     this.config = null;
     this.watcher = null;
     this.changeCallbacks = [];
     this.watch = watch;
+    this.onLoad = onLoad;
 
     this.load();
     if (this.watch) {
@@ -28,6 +29,7 @@ class ConfigManager {
     try {
       const data = fs.readFileSync(this.configPath, "utf8");
       this.config = JSON.parse(data);
+      this.onLoad?.(this);
       return this.config;
     } catch (error) {
       console.error(
