@@ -13,7 +13,8 @@ export default {
   async execute(client, { botAccountService }) {
     logger.info(
       {
-        tag: client.user.tag,
+        event: "platform.ready",
+        platformUserId: client.user.id,
         guilds: client.guilds.cache.size,
         users: client.users.cache.size,
       },
@@ -29,7 +30,10 @@ export default {
         displayName: client.user.globalName,
       });
     } catch (error) {
-      logger.error({ err: error }, "Failed to initialize bot platform account");
+      logger.error(
+        { event: "bot_account.init.failed", err: error },
+        "Failed to initialize bot platform account",
+      );
     }
 
     // 봇 상태 설정

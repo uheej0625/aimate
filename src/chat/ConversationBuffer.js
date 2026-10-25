@@ -1,4 +1,4 @@
-import { createLogger } from "../core/logger.js";
+import { createLogger, elapsedMs, withLogContext } from "../core/logger.js";
 
 const logger = createLogger("ConversationBuffer");
 
@@ -36,6 +36,22 @@ export class ConversationBuffer {
 
   schedule(request) {
     const key = this.getKey(request.channelPort);
+    const fields = {
+      platform: request.channelPort.platform,
+      platformChannelId: request.channelPort.platformChannelId,
+      channelId: request.internalChannelId,
+      turnId: request.turnId,
+    };
+    const scheduledAt = performance.now();
+    logger.debug(
+      {
+        ...fields,
+        event: "buffer.scheduled",
+        replaced: this.buffers.has(key),
+        timeoutMs: this.BUFFER_TIMEOUT,
+      },
+      "Conversation buffer scheduled",
+    );
 
     // Clear existing timer if any (user is still typing)
     if (this.buffers.has(key)) {
@@ -45,16 +61,26 @@ export class ConversationBuffer {
     // Set new timer
     const timer = setTimeout(() => {
       this.buffers.delete(key);
-      this.chatFlow.execute(request).catch((error) => {
-        logger.error(
-          {
-            err: error,
-            platform: request.channelPort.platform,
-            platformChannelId: request.channelPort.platformChannelId,
-          },
-          "ChatFlow error",
-        );
-      });
+      logger.debug(
+        {
+          ...fields,
+          event: "buffer.fired",
+          durationMs: elapsedMs(scheduledAt),
+        },
+        "Conversation buffer fired",
+      );
+      withLogContext(fields, () => this.chatFlow.execute(request)).catch(
+        (error) => {
+          logger.error(
+            {
+              err: error,
+              ...fields,
+              event: "buffer.execution.failed",
+            },
+            "ChatFlow error",
+          );
+        },
+      );
     }, this.BUFFER_TIMEOUT);
 
     this.buffers.set(key, { timer, turnId: request.turnId });
@@ -80,6 +106,15 @@ export class ConversationBuffer {
       clearTimeout(timer);
       this.buffers.delete(key);
       this.conversationSession.settle(key, turnId);
+      logger.debug(
+        {
+          event: "buffer.cleared",
+          platform: channel.platform,
+          platformChannelId: channel.platformChannelId,
+          turnId,
+        },
+        "Conversation buffer cleared",
+      );
       return true;
     }
 
@@ -97,10 +132,15 @@ export class ConversationBuffer {
    * Clear all buffers. (graceful shutdown 시 호출)
    */
   clearAll() {
+    const count = this.buffers.size;
     for (const { timer } of this.buffers.values()) {
       clearTimeout(timer);
     }
     this.buffers.clear();
     this.conversationSession.clearAll();
+    logger.debug(
+      { event: "buffer.cleared_all", count },
+      "Conversation buffers cleared",
+    );
   }
 }

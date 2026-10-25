@@ -1,7 +1,7 @@
 import { readdirSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
-import { createLogger } from "../../../core/logger.js";
+import { createLogger, withLogContext } from "../../../core/logger.js";
 
 const logger = createLogger("Discord:EventHandler");
 
@@ -24,9 +24,24 @@ export async function loadEvents(client, dependencies = {}) {
     const eventModule = event.default || event;
     const context = { client, ...dependencies };
     const execute = (...args) => {
-      eventModule.execute(...args, context).catch((error) => {
+      const item = args[0];
+      withLogContext(
+        {
+          platform: "discord",
+          platformEvent: eventModule.name,
+          platformChannelId: item?.channelId ?? item?.channel?.id,
+        },
+        async () => eventModule.execute(...args, context),
+      ).catch((error) => {
         logger.error(
-          { err: error, event: eventModule.name },
+          {
+            err: error,
+            event: "platform.event.failed",
+            platform: "discord",
+            platformChannelId: item?.channelId ?? item?.channel?.id,
+            interactionId: item?.commandName ? item.id : undefined,
+            platformEvent: eventModule.name,
+          },
           "Discord event failed",
         );
       });
@@ -39,5 +54,8 @@ export async function loadEvents(client, dependencies = {}) {
     }
   }
 
-  logger.info({ count: eventFiles.length }, "Events loaded");
+  logger.info(
+    { event: "platform.events.loaded", count: eventFiles.length },
+    "Events loaded",
+  );
 }

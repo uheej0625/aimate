@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 /** Serializes short conversation transitions, never model calls or delivery. */
 export class ConversationSession {
   constructor({
@@ -34,7 +36,7 @@ export class ConversationSession {
 
   begin(key, at = this.now()) {
     const previous = this.states.get(key);
-    const turnId = Symbol("conversation turn");
+    const turnId = randomUUID();
     this.states.set(key, {
       turnId,
       startedAt: this.isWatching(key, at) ? previous.startedAt : at,

@@ -1,4 +1,4 @@
-import { createLogger } from "./logger.js";
+import { createLogger, elapsedMs } from "./logger.js";
 
 const logger = createLogger("Shutdown");
 
@@ -27,17 +27,27 @@ export function registerShutdown({
     if (shuttingDown) return;
     shuttingDown = true;
 
-    logger.info({ signal }, "Shutting down gracefully...");
+    const startedAt = performance.now();
+    logger.info(
+      { event: "app.shutdown.started", signal },
+      "Shutting down gracefully",
+    );
 
     // 1. 대기 중인 모든 타이머 정리
     conversationBuffer.clearAll();
-    logger.info("Conversation buffers cleared");
+    logger.debug(
+      { event: "app.shutdown.buffers_cleared" },
+      "Conversation buffers cleared",
+    );
 
     // 2. 진행 중인 모델 요청 abort
     if (generationAbortRegistry) {
       const aborted = generationAbortRegistry.abortAll();
       if (aborted > 0) {
-        logger.info({ count: aborted }, "Aborted in-flight model requests");
+        logger.info(
+          { event: "app.shutdown.requests_aborted", count: aborted },
+          "Aborted in-flight model requests",
+        );
       }
     }
 
@@ -46,41 +56,62 @@ export function registerShutdown({
       const cancelled = await generationRepository?.cancelInProgress();
       if (cancelled > 0) {
         logger.info(
-          { count: cancelled },
+          { event: "app.shutdown.generations_cancelled", count: cancelled },
           "Cancelled in-progress generations",
         );
       }
     } catch (error) {
-      logger.error({ err: error }, "Failed to cancel generations");
+      logger.error(
+        { event: "app.shutdown.cancel.failed", err: error },
+        "Failed to cancel generations",
+      );
     }
 
     // 4. Discord 클라이언트 종료
     if (client) {
       try {
         client.destroy();
-        logger.info("Discord client destroyed");
+        logger.debug(
+          { event: "app.shutdown.client_closed" },
+          "Discord client destroyed",
+        );
       } catch (error) {
-        logger.error({ err: error }, "Failed to destroy client");
+        logger.error(
+          { event: "app.shutdown.client.failed", err: error },
+          "Failed to destroy client",
+        );
       }
     }
 
     // 5. Config watcher 종료
     if (configManager) {
       configManager.close();
-      logger.info("Config watcher closed");
+      logger.debug(
+        { event: "app.shutdown.config_closed" },
+        "Config watcher closed",
+      );
     }
 
     // 6. Prisma 연결 종료
     if (disconnectDatabase) {
       try {
         await disconnectDatabase();
-        logger.info("Database connection closed");
+        logger.debug(
+          { event: "app.shutdown.database_closed" },
+          "Database connection closed",
+        );
       } catch (error) {
-        logger.error({ err: error }, "Failed to disconnect database");
+        logger.error(
+          { event: "app.shutdown.database.failed", err: error },
+          "Failed to disconnect database",
+        );
       }
     }
 
-    logger.info("Shutdown complete.");
+    logger.info(
+      { event: "app.shutdown.completed", durationMs: elapsedMs(startedAt) },
+      "Shutdown complete",
+    );
     process.exit(0);
   };
 

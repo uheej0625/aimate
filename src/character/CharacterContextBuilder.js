@@ -3,10 +3,7 @@ import path from "path";
 import { createLogger } from "../core/logger.js";
 import { buildSystemContext } from "../utils/templateContext.js";
 import { renderTemplate } from "../utils/renderTemplate.js";
-import {
-  loadRequiredCharacterConfig,
-  resolveCharacterFile,
-} from "./config.js";
+import { loadRequiredCharacterConfig, resolveCharacterFile } from "./config.js";
 
 const logger = createLogger("CharacterContextBuilder");
 
@@ -34,7 +31,8 @@ export class CharacterContextBuilder {
     this.variablesPath = path.resolve(process.cwd(), variablesPath);
     this.configPath = path.resolve(
       process.cwd(),
-      options.configPath ?? path.join(path.dirname(this.variablesPath), "config.json"),
+      options.configPath ??
+        path.join(path.dirname(this.variablesPath), "config.json"),
     );
   }
 
@@ -76,7 +74,11 @@ export class CharacterContextBuilder {
       if (e.code !== "ENOENT") throw e;
 
       logger.warn(
-        { err: e, filePath: this.variablesPath },
+        {
+          event: "character.variables.missing",
+          err: e,
+          filePath: this.variablesPath,
+        },
         "Character variables file not found; continuing without variables",
       );
       return {};

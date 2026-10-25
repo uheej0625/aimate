@@ -52,7 +52,16 @@ export class EventBus {
         await listener(payload);
       } catch (error) {
         errors.push(error);
-        this.logger.error({ err: error, eventName }, "Event listener failed");
+        this.logger.error(
+          {
+            event: "event.listener.failed",
+            err: error,
+            eventName,
+            generationId: payload.generation?.id,
+            channelId: payload.channelRecord?.id,
+          },
+          "Event listener failed",
+        );
       }
     }
 

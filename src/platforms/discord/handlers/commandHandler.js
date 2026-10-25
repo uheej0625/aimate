@@ -27,11 +27,14 @@ export async function loadCommands(client, dependencies = {}) {
       });
     } else {
       logger.warn(
-        { file },
+        { event: "platform.command.skipped", file },
         'Skipped: missing required "data" or "execute" property',
       );
     }
   }
 
-  logger.info({ count: client.commands.size }, "Commands loaded");
+  logger.info(
+    { event: "platform.commands.loaded", count: client.commands.size },
+    "Commands loaded",
+  );
 }

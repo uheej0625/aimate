@@ -20,7 +20,7 @@ const { createLogger } = await import("../../core/logger.js");
 const logger = createLogger("CLI");
 
 (async () => {
-  logger.info("🔧 Initializing CLI Mode...");
+  logger.info({ event: "app.starting", platform: "cli" }, "Starting CLI");
 
   const mockClient = createMockClient({ botId: CLI_BOT_ID });
   const platformClients = new Map([["cli", mockClient]]);
@@ -42,7 +42,10 @@ const logger = createLogger("CLI");
     disconnectDatabase: () => prisma.$disconnect(),
   });
 
-  logger.info("🤖 Initializing bot platform account...");
+  logger.debug(
+    { event: "bot_account.init.started" },
+    "Initializing bot platform account",
+  );
   try {
     await botAccountService.initBotAccount({
       platform: "cli",
@@ -50,7 +53,7 @@ const logger = createLogger("CLI");
     });
   } catch (error) {
     logger.fatal(
-      { err: error },
+      { event: "bot_account.init.failed", err: error },
       "❌ Failed to initialize bot platform account",
     );
     process.exit(1);

@@ -1,6 +1,9 @@
 import fs from "fs";
 import path from "path";
 import chokidar from "chokidar";
+import { createLogger } from "../core/logger.js";
+
+const logger = createLogger("ConfigManager");
 
 /**
  * Configuration file manager with hot-reload support
@@ -32,9 +35,13 @@ class ConfigManager {
       this.onLoad?.(this);
       return this.config;
     } catch (error) {
-      console.error(
-        `Failed to load config from ${this.configPath}:`,
-        error.message,
+      logger.error(
+        {
+          event: "config.load.failed",
+          configPath: this.configPath,
+          err: error,
+        },
+        "Configuration load failed",
       );
       this.config = {};
       return null;
@@ -54,9 +61,13 @@ class ConfigManager {
       );
       return true;
     } catch (error) {
-      console.error(
-        `Failed to save config to ${this.configPath}:`,
-        error.message,
+      logger.error(
+        {
+          event: "config.save.failed",
+          configPath: this.configPath,
+          err: error,
+        },
+        "Configuration save failed",
       );
       return false;
     }
@@ -90,7 +101,10 @@ class ConfigManager {
       target[lastKey] = value;
       return this.save();
     } catch (error) {
-      console.error(`Failed to set ${key}:`, error.message);
+      logger.error(
+        { event: "config.set.failed", key, err: error },
+        "Configuration update failed",
+      );
       return false;
     }
   }
@@ -113,7 +127,10 @@ class ConfigManager {
       target[lastKey] = value;
       return true;
     } catch (error) {
-      console.error(`Failed to set ${key}:`, error.message);
+      logger.error(
+        { event: "config.set.failed", key, err: error },
+        "In-memory configuration update failed",
+      );
       return false;
     }
   }
@@ -135,7 +152,10 @@ class ConfigManager {
       }
       return false;
     } catch (error) {
-      console.error(`Failed to delete ${key}:`, error.message);
+      logger.error(
+        { event: "config.delete.failed", key, err: error },
+        "Configuration delete failed",
+      );
       return false;
     }
   }
@@ -168,14 +188,20 @@ class ConfigManager {
         const newConfig = this.load();
 
         if (newConfig) {
-          console.log("✓ Configuration reloaded from file");
           this.notifyChange(oldConfig, newConfig);
+          logger.info(
+            { event: "config.reloaded", configPath: this.configPath },
+            "Configuration reloaded",
+          );
         }
       }, 100);
     });
 
     this.watcher.on("error", (error) => {
-      console.error("Config watcher error:", error.message);
+      logger.error(
+        { event: "config.watcher.failed", err: error },
+        "Configuration watcher failed",
+      );
     });
   }
 
@@ -199,7 +225,10 @@ class ConfigManager {
       try {
         callback(newConfig, oldConfig);
       } catch (error) {
-        console.error("Config change callback error:", error.message);
+        logger.error(
+          { event: "config.callback.failed", err: error },
+          "Configuration change callback failed",
+        );
       }
     });
   }

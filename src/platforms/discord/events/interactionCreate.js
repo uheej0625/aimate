@@ -1,5 +1,9 @@
 import { Events } from "discord.js";
-import { createLogger } from "../../../core/logger.js";
+import {
+  createLogger,
+  elapsedMs,
+  withLogContext,
+} from "../../../core/logger.js";
 
 const logger = createLogger("Discord:Interaction");
 
@@ -17,38 +21,52 @@ export default {
     )
       return;
 
-    const command = client.commands.get(interaction.commandName);
+    return withLogContext(
+      {
+        platform: "discord",
+        platformChannelId: interaction.channelId,
+        interactionId: interaction.id,
+        commandName: interaction.commandName,
+        platformUserId: interaction.user?.id,
+      },
+      async () => {
+        const command = client.commands.get(interaction.commandName);
 
-    if (!command) {
-      logger.error(
-        { commandName: interaction.commandName },
-        "Command not found",
-      );
-      return;
-    }
+        if (!command) {
+          logger.error({ event: "command.not_found" }, "Command not found");
+          return;
+        }
 
-    try {
-      await command.execute(interaction);
-      logger.info(
-        { user: interaction.user.tag, command: interaction.commandName },
-        "Command executed",
-      );
-    } catch (error) {
-      logger.error(
-        { err: error, command: interaction.commandName },
-        "Error executing command",
-      );
+        const startedAt = performance.now();
+        logger.info({ event: "command.started" }, "Command started");
+        try {
+          await command.execute(interaction);
+          logger.info(
+            { event: "command.completed", durationMs: elapsedMs(startedAt) },
+            "Command handler completed",
+          );
+        } catch (error) {
+          logger.error(
+            {
+              event: "command.failed",
+              err: error,
+              durationMs: elapsedMs(startedAt),
+            },
+            "Error executing command",
+          );
 
-      const errorMessage = {
-        content: "명령어 실행 중 오류가 발생했습니다.",
-        ephemeral: true,
-      };
+          const errorMessage = {
+            content: "명령어 실행 중 오류가 발생했습니다.",
+            ephemeral: true,
+          };
 
-      if (interaction.replied || interaction.deferred) {
-        await interaction.followUp(errorMessage);
-      } else {
-        await interaction.reply(errorMessage);
-      }
-    }
+          if (interaction.replied || interaction.deferred) {
+            await interaction.followUp(errorMessage);
+          } else {
+            await interaction.reply(errorMessage);
+          }
+        }
+      },
+    );
   },
 };

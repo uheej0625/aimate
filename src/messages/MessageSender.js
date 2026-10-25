@@ -1,4 +1,4 @@
-import { createLogger } from "../core/logger.js";
+import { createLogger, elapsedMs, withLogContext } from "../core/logger.js";
 import { GeneratedImageAttachmentResolver } from "./GeneratedImageAttachmentResolver.js";
 import { MessageSplitter } from "./MessageSplitter.js";
 import { TypingPacer } from "../humanize/TypingPacer.js";
@@ -52,8 +52,20 @@ export class MessageSender {
     if (!text) return true;
 
     const maxLength = this.configManager.get("messages.maxLength") ?? 1900;
-    for (const chunk of this.messageSplitter.split(text, maxLength)) {
-      if (!(await this._sendChunk(channel, chunk, generationId, delivery))) {
+    const chunks = this.messageSplitter.split(text, maxLength);
+    for (const [chunkIndex, chunk] of chunks.entries()) {
+      if (
+        !(await withLogContext(
+          {
+            platform: channel.platform,
+            platformChannelId: channel.platformChannelId,
+            generationId,
+            chunkIndex,
+            chunkCount: chunks.length,
+          },
+          () => this._sendChunk(channel, chunk, generationId, delivery),
+        ))
+      ) {
         return false;
       }
     }
@@ -71,14 +83,29 @@ export class MessageSender {
       allowFailure = false,
     } = {},
   ) {
-    if (!isCurrent()) return false;
+    if (!isCurrent()) {
+      logger.debug(
+        { event: "message.send.skipped", reason: "stale_turn" },
+        "Message delivery skipped",
+      );
+      return false;
+    }
     if (!text) return true;
 
     const { cleanText, files, generatedImageAttachments } =
       await this.generatedImageAttachmentResolver.resolve(text);
 
     // 텍스트도 없고 파일도 없으면 스킵
-    if (!cleanText && files.length === 0) return true;
+    if (!cleanText && files.length === 0) {
+      logger.debug(
+        {
+          event: "message.send.skipped",
+          reason: "empty_after_attachment_resolution",
+        },
+        "Message delivery skipped",
+      );
+      return true;
+    }
 
     if (this.configManager.get("humanize.enabled") !== false) {
       await channel.sendTyping();
@@ -87,6 +114,10 @@ export class MessageSender {
         max: this.configManager.get("humanize.typingDelayMax"),
         perChar: this.configManager.get("humanize.typingDelayPerChar"),
       });
+      logger.debug(
+        { event: "message.send.pacing", delayMs: delay },
+        "Message typing delay",
+      );
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
 
@@ -98,7 +129,12 @@ export class MessageSender {
         const allowed = allowFailure ? ["FAILED"] : ["GENERATED"];
         if (!generation || !allowed.includes(generation.status)) {
           logger.debug(
-            { generationId },
+            {
+              event: "message.send.skipped",
+              generationId,
+              status: generation?.status,
+              reason: "generation_status",
+            },
             "Generation cancelled, stopping message send",
           );
           return null;
@@ -109,14 +145,44 @@ export class MessageSender {
       const sendOptions = {};
       if (cleanText) sendOptions.content = cleanText;
       if (files.length > 0) sendOptions.files = files;
+      logger.debug(
+        {
+          event: "message.send.started",
+          textLength: cleanText.length,
+          attachmentCount: files.length,
+        },
+        "Message delivery started",
+      );
 
       // Release the queue once delivery has started; its network round trip is slow.
-      return { delivery: channel.send(sendOptions) };
+      const startedAt = performance.now();
+      return { delivery: channel.send(sendOptions), startedAt };
     });
     if (!started) return false;
-    const message = await started.delivery;
+    let message;
+    try {
+      message = await started.delivery;
+    } catch (error) {
+      logger.error(
+        {
+          event: "message.send.failed",
+          err: error,
+          durationMs: elapsedMs(started.startedAt),
+        },
+        "Message delivery failed",
+      );
+      throw error;
+    }
     const observedAt = new Date();
     onDelivered();
+    logger.debug(
+      {
+        event: "message.send.completed",
+        platformMessageId: message.platformMessageId,
+        durationMs: elapsedMs(started.startedAt),
+      },
+      "Message delivery confirmed",
+    );
 
     // Save message with all related entities
     const save = () =>
@@ -132,11 +198,34 @@ export class MessageSender {
       await save();
     } catch (error) {
       logger.warn(
-        { err: error, platformMessageId: message.platformMessageId },
+        {
+          event: "message.storage.retry",
+          err: error,
+          platformMessageId: message.platformMessageId,
+        },
         "Retrying storage of confirmed delivery",
       );
-      await save();
+      try {
+        await save();
+      } catch (retryError) {
+        logger.error(
+          {
+            event: "message.storage.failed",
+            err: retryError,
+            platformMessageId: message.platformMessageId,
+          },
+          "Confirmed delivery could not be stored",
+        );
+        throw retryError;
+      }
     }
+    logger.debug(
+      {
+        event: "message.storage.completed",
+        platformMessageId: message.platformMessageId,
+      },
+      "Delivered message stored",
+    );
 
     return true;
   }

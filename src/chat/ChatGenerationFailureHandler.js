@@ -20,7 +20,14 @@ export class ChatGenerationFailureHandler {
     try {
       await this.generationLifecycle.fail(generation?.id);
     } catch (dbError) {
-      logger.error({ err: dbError }, "Failed to update generation status");
+      logger.error(
+        {
+          event: "generation.failure_status.failed",
+          generationId: generation?.id,
+          err: dbError,
+        },
+        "Failed to update generation status",
+      );
     }
 
     const platform = channel.platform;
@@ -32,14 +39,31 @@ export class ChatGenerationFailureHandler {
     });
 
     try {
-      await this.messageSender.send(
+      const sent = await this.messageSender.send(
         channel,
         FALLBACK_ERROR_MESSAGE,
         generation?.id,
         { ...delivery, allowFailure: true },
       );
+      logger[sent === false ? "debug" : "info"](
+        {
+          event:
+            sent === false
+              ? "generation.fallback.skipped"
+              : "generation.fallback.sent",
+          generationId: generation?.id,
+        },
+        "Generation failure fallback handled",
+      );
     } catch (sendError) {
-      logger.error({ err: sendError }, "Failed to send error message");
+      logger.error(
+        {
+          event: "generation.fallback.failed",
+          generationId: generation?.id,
+          err: sendError,
+        },
+        "Failed to send error message",
+      );
     }
   }
 }

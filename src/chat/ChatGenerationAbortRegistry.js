@@ -1,3 +1,7 @@
+import { createLogger } from "../core/logger.js";
+
+const logger = createLogger("ChatGenerationAbortRegistry");
+
 /**
  * Tracks active chat model requests so a newer message can interrupt them.
  */
@@ -19,17 +23,26 @@ export class ChatGenerationAbortRegistry {
     return controller.signal;
   }
 
-  abortChannel(channelId) {
+  abortChannel(channelId, reason = "superseded") {
     const generations = this.entries.get(channelId);
     if (!generations) return 0;
 
     this.entries.delete(channelId);
 
     let count = 0;
-    for (const controller of generations.values()) {
+    for (const [generationId, controller] of generations) {
       if (!controller.signal.aborted) {
         controller.abort();
         count += 1;
+        logger.debug(
+          {
+            event: "generation.abort_requested",
+            channelId,
+            generationId,
+            reason,
+          },
+          "Model request abort requested",
+        );
       }
     }
 
@@ -43,7 +56,7 @@ export class ChatGenerationAbortRegistry {
   abortAll() {
     let count = 0;
     for (const channelId of this.entries.keys()) {
-      count += this.abortChannel(channelId);
+      count += this.abortChannel(channelId, "shutdown");
     }
     return count;
   }

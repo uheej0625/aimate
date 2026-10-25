@@ -20,11 +20,17 @@ client.commands = new Collection();
 
 // 에러 처리
 client.on("error", (error) => {
-  logger.error({ err: error }, "Discord client error");
+  logger.error(
+    { event: "platform.client.failed", platform: "discord", err: error },
+    "Discord client error",
+  );
 });
 
 process.on("unhandledRejection", (error) => {
-  logger.error({ err: error }, "Unhandled promise rejection");
+  logger.error(
+    { event: "process.unhandled_rejection", err: error },
+    "Unhandled promise rejection",
+  );
 });
 
 export default client;

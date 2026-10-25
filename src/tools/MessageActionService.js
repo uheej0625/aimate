@@ -1,4 +1,7 @@
 import { createHash } from "node:crypto";
+import { createLogger, elapsedMs } from "../core/logger.js";
+
+const logger = createLogger("MessageActionService");
 
 /** Resolves fixed channel references and records confirmed platform actions. */
 export class MessageActionService {
@@ -49,7 +52,19 @@ export class MessageActionService {
       .update(JSON.stringify([action, targetMessageNo, value]))
       .digest("hex");
     const executionKey = `${generationId}:${key}`;
-    if (this.inFlight.has(executionKey)) return this.inFlight.get(executionKey);
+    if (this.inFlight.has(executionKey)) {
+      logger.debug(
+        {
+          event: "message.action.reused",
+          action,
+          targetMessageNo,
+          generationId,
+          reason: "in_flight",
+        },
+        "Reusing in-flight message action",
+      );
+      return this.inFlight.get(executionKey);
+    }
     const execution = this.perform(
       action,
       targetMessageNo,
@@ -62,6 +77,7 @@ export class MessageActionService {
   }
 
   async perform(action, targetMessageNo, value, key, context) {
+    const startedAt = performance.now();
     const { channel, channelPort, generationId, delivery, abortSignal } =
       context;
     const run = delivery?.run ?? ((operation) => operation());
@@ -121,6 +137,17 @@ export class MessageActionService {
       }
     });
     if (!started.claimed) {
+      logger.debug(
+        {
+          event: "message.action.reused",
+          action,
+          targetMessageNo,
+          generationId,
+          reason: "receipt",
+          receiptId: started.receipt.id,
+        },
+        "Reusing message action receipt",
+      );
       if (!started.receipt.resultJson)
         throw new Error(
           "This action was already started; its outcome is unknown. It will not be repeated.",
@@ -131,6 +158,17 @@ export class MessageActionService {
     try {
       message = await started.dispatch;
     } catch (error) {
+      logger[abortSignal?.aborted ? "debug" : "warn"](
+        {
+          event: "message.action.failed",
+          action,
+          targetMessageNo,
+          generationId,
+          err: error,
+          durationMs: elapsedMs(startedAt),
+        },
+        "Message action delivery failed",
+      );
       const result = { error: error.message };
       await this.actionRepository.recordResult(started.receipt.id, result);
       return result;
@@ -143,6 +181,17 @@ export class MessageActionService {
       observedAt: new Date().toISOString(),
     };
     delivery?.onDelivered?.();
+    logger.debug(
+      {
+        event: "message.action.confirmed",
+        action,
+        targetMessageNo,
+        generationId,
+        platformMessageId: message?.platformMessageId,
+        durationMs: elapsedMs(startedAt),
+      },
+      "Message action delivery confirmed",
+    );
     // Save the receipt first so storage can be retried without sending again.
     await this.retry(() =>
       this.actionRepository.recordResult(started.receipt.id, confirmed),
@@ -178,7 +227,11 @@ export class MessageActionService {
   async retry(operation) {
     try {
       return await operation();
-    } catch {
+    } catch (error) {
+      logger.warn(
+        { event: "message.action.storage.retry", err: error },
+        "Retrying confirmed message action storage",
+      );
       return await operation();
     }
   }

@@ -23,7 +23,14 @@ const logger = createLogger("App");
 
 const main = async () => {
   try {
-    logger.info("Starting AiMate");
+    logger.info(
+      {
+        event: "app.starting",
+        platform: "discord",
+        environment: configManager.get("app.environment"),
+      },
+      "Starting AiMate",
+    );
 
     const app = await createDiscordApplication({ configManager, client });
 
@@ -41,7 +48,10 @@ const main = async () => {
     await client.login(getRequiredDiscordToken(configManager));
   } catch (error) {
     const exitCode = error instanceof ConfigurationError ? 78 : 1;
-    logger.fatal({ err: error, exitCode }, "Failed to start bot");
+    logger.fatal(
+      { event: "app.start.failed", err: error, exitCode },
+      "Failed to start bot",
+    );
     process.exit(exitCode);
   }
 };

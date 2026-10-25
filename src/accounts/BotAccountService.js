@@ -52,7 +52,12 @@ export class BotAccountService {
     });
 
     logger.info(
-      { accountId: account.id, created },
+      {
+        event: "bot_account.initialized",
+        platform,
+        accountId: account.id,
+        created,
+      },
       "Bot platform account initialized",
     );
 

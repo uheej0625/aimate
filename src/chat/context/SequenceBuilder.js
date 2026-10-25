@@ -1,9 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
 import { pathToFileURL } from "url";
-import { createLogger } from "../../core/logger.js";
-
-const logger = createLogger("SequenceBuilder");
 const OBSERVATION_TIME_GAP_MS = 5 * 60 * 1000;
 
 export class SequenceBuilder {

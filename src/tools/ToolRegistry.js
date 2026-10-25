@@ -2,7 +2,7 @@ import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 import { tool } from "ai";
-import { createLogger } from "../core/logger.js";
+import { createLogger, elapsedMs, withLogContext } from "../core/logger.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -103,12 +103,22 @@ export class ToolRegistry {
             this.register(toolDef);
           }
         } catch (err) {
-          console.error(`Failed to load tool from ${file}:`, err);
+          logger.error(
+            { event: "tools.load.failed", file, err },
+            "Tool module failed to load",
+          );
         }
       }
     } catch (err) {
-      console.error(`Failed to read tool directory ${dirPath}:`, err);
+      logger.error(
+        { event: "tools.directory.failed", directory: dirPath, err },
+        "Tool directory failed to load",
+      );
     }
+    logger.info(
+      { event: "tools.loaded", toolCount: this.tools.size },
+      "Application tools loaded",
+    );
   }
 
   /**
@@ -142,33 +152,88 @@ export class ToolRegistry {
   }
 
   createToolSet(platform, context) {
+    const activeTools = this.getActiveTools(platform);
+    logger.debug(
+      {
+        event: "tools.selected",
+        platform,
+        toolNames: activeTools.map((tool) => tool.name),
+      },
+      "Application tools selected",
+    );
     return Object.fromEntries(
-      this.getActiveTools(platform).map((toolDef) => [
+      activeTools.map((toolDef) => [
         toolDef.name,
         tool({
           description: toolDef.description,
           inputSchema: toolDef.inputSchema,
           execute: async (input, options = {}) => {
-            try {
-              const result = await toolDef.execute(input ?? {}, {
-                ...context,
+            const abortSignal = options.abortSignal ?? context?.abortSignal;
+            return withLogContext(
+              {
+                platform,
+                channelId: context?.channel?.id,
+                generationId: context?.generationId,
+                toolName: toolDef.name,
                 toolCallId: options.toolCallId,
-                messages: options.messages,
-                abortSignal: options.abortSignal ?? context.abortSignal,
-              });
+              },
+              async () => {
+                const startedAt = performance.now();
+                logger.info(
+                  { event: "tool.started" },
+                  "Application tool started",
+                );
+                try {
+                  const result = await toolDef.execute(input ?? {}, {
+                    ...context,
+                    toolCallId: options.toolCallId,
+                    messages: options.messages,
+                    abortSignal,
+                  });
 
-              logger.info(
-                { tool: toolDef.name, input, result },
-                "Tool executed",
-              );
-              return result;
-            } catch (error) {
-              logger.error(
-                { err: error, toolName: toolDef.name },
-                "Tool execution error",
-              );
-              return { error: error.message };
-            }
+                  const cancelled = abortSignal?.aborted;
+                  const failed =
+                    result?.error != null ||
+                    result?.success === false ||
+                    result?.status === "error" ||
+                    result?.status === "failed";
+                  logger[cancelled ? "debug" : failed ? "warn" : "info"](
+                    {
+                      event: cancelled
+                        ? "tool.cancelled"
+                        : failed
+                          ? "tool.failed"
+                          : "tool.completed",
+                      outcome: cancelled
+                        ? "cancelled"
+                        : failed
+                          ? "failed"
+                          : "success",
+                      durationMs: elapsedMs(startedAt),
+                      reason: failed
+                        ? result?.error != null
+                          ? "returned_error"
+                          : "reported_failure"
+                        : undefined,
+                    },
+                    "Application tool finished",
+                  );
+                  return result;
+                } catch (error) {
+                  const cancelled =
+                    abortSignal?.aborted || error.name === "AbortError";
+                  logger[cancelled ? "debug" : "error"](
+                    {
+                      event: cancelled ? "tool.cancelled" : "tool.failed",
+                      err: error,
+                      durationMs: elapsedMs(startedAt),
+                    },
+                    "Application tool execution stopped",
+                  );
+                  return { error: error.message };
+                }
+              },
+            );
           },
         }),
       ]),
