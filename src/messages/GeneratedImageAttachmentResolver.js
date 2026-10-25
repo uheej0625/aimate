@@ -29,7 +29,7 @@ export class GeneratedImageAttachmentResolver {
       const imageId = normalizeImageId(parsedValue);
       if (!GENERATED_IMAGE_ID_REGEX.test(imageId)) {
         logger.warn(
-          { imageId: parsedValue },
+          { event: "image.attachment.skipped", reason: "invalid_id" },
           "Invalid generated image ID, skipping attachment",
         );
         continue;
@@ -40,7 +40,11 @@ export class GeneratedImageAttachmentResolver {
         await this.generationRepository.findCompletedImageByOutput(filename);
       if (!generation || generation.type !== "IMAGE") {
         logger.warn(
-          { imageId },
+          {
+            event: "image.attachment.skipped",
+            reason: "generation_not_found",
+            imageId,
+          },
           "Completed image generation not found, skipping attachment",
         );
         continue;
@@ -49,7 +53,11 @@ export class GeneratedImageAttachmentResolver {
       const localPath = imageIdToPath(imageId);
       if (!isRegularFile(localPath)) {
         logger.warn(
-          { imageId },
+          {
+            event: "image.attachment.skipped",
+            reason: "file_not_found",
+            imageId,
+          },
           "Generated image file not found, skipping attachment",
         );
         continue;
@@ -71,7 +79,6 @@ export class GeneratedImageAttachmentResolver {
       generatedImageAttachments,
     };
   }
-
 }
 
 function isRegularFile(filePath) {

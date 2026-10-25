@@ -1,6 +1,6 @@
 import fs from "fs/promises";
 import { generateImage } from "ai";
-import { createLogger } from "../core/logger.js";
+import { createLogger, elapsedMs } from "../core/logger.js";
 import { getAiSettings, getProviderOptions, stripEmpty } from "./config.js";
 import { createImageModel } from "./models.js";
 import { serializeMetadata } from "./metadata.js";
@@ -24,9 +24,7 @@ export async function generateImageFile(configManager, prompt, options = {}) {
   const request = stripEmpty({
     model: imageModel,
     prompt:
-      imageBuffers.length > 0
-        ? { text: prompt, images: imageBuffers }
-        : prompt,
+      imageBuffers.length > 0 ? { text: prompt, images: imageBuffers } : prompt,
     size: options.size,
     providerOptions: getProviderOptions(settings),
     maxRetries: settings.maxRetries,
@@ -35,6 +33,8 @@ export async function generateImageFile(configManager, prompt, options = {}) {
 
   logger.info(
     {
+      event: "model.started",
+      purpose: "image",
       provider: settings.provider,
       model: settings.model,
       hasReferenceImages: imageBuffers.length > 0,
@@ -42,12 +42,55 @@ export async function generateImageFile(configManager, prompt, options = {}) {
     "Generating image",
   );
 
-  const response = await generateImage(request);
-  const image = response.image;
-
-  if (!image?.uint8Array) {
-    throw new Error("Image generation response did not include image data.");
+  const startedAt = performance.now();
+  let response;
+  let image;
+  try {
+    response = await generateImage(request);
+    image = response.image;
+    if (!image?.uint8Array) {
+      throw new Error("Image generation response did not include image data.");
+    }
+  } catch (error) {
+    const cancelled =
+      options.abortSignal?.aborted || error.name === "AbortError";
+    logger[cancelled ? "debug" : "warn"](
+      {
+        event: cancelled ? "model.cancelled" : "model.failed",
+        purpose: "image",
+        provider: settings.provider,
+        model: settings.model,
+        errorType: error.name,
+        statusCode: error.statusCode ?? error.lastError?.statusCode,
+        durationMs: elapsedMs(startedAt),
+      },
+      "Image model ended without a result",
+    );
+    throw error;
   }
+  logger.info(
+    {
+      event: "model.completed",
+      purpose: "image",
+      provider: settings.provider,
+      model: settings.model,
+      durationMs: elapsedMs(startedAt),
+      imageBytes: image.uint8Array.length,
+      inputTokens: response.usage?.inputTokens,
+      outputTokens: response.usage?.outputTokens,
+      totalTokens: response.usage?.totalTokens,
+    },
+    "Image model completed",
+  );
+  if (response.warnings?.length)
+    logger.warn(
+      {
+        event: "model.warnings",
+        purpose: "image",
+        warningCount: response.warnings.length,
+      },
+      "Image model returned warnings",
+    );
 
   return {
     buffer: Buffer.from(image.uint8Array),

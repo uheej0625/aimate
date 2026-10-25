@@ -205,6 +205,31 @@ test("raw contract check catches parser fallbacks, extra lines, bad separators a
   }
 });
 
+test("contract checks and evaluation accept silence without requiring tools", async () => {
+  for (const text of [
+    "",
+    " \n\t",
+    "# response\n## messages",
+    "# response\r\n\r\n## messages\r\n \t",
+  ]) {
+    assert.deepEqual(checkContract(text), []);
+    const result = await evaluate({
+      prepared,
+      testCase: cases[0],
+      configManager: manager(),
+      createLanguageModelFn: () => ({}),
+      generateTextFn: async () => modelResult(text),
+    });
+    assert.equal(result.status, "completed");
+    assert.deepEqual(result.messages, []);
+    assert.deepEqual(result.violations, []);
+  }
+  assert.ok(
+    checkContract("# response\n## messages\n## state\ninternal").length,
+  );
+  assert.ok(checkContract("# response\n## messages\n[BREAK]").length);
+});
+
 test("evaluation captures original output before parser or text-tool recovery", async () => {
   const plain = await evaluate({
     prepared,

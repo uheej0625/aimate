@@ -25,7 +25,10 @@ let token;
 try {
   token = getRequiredDiscordToken(configManager);
 } catch (error) {
-  logger.fatal({ err: error }, "Discord token configuration is invalid");
+  logger.fatal(
+    { event: "commands.deploy.failed", err: error },
+    "Discord token configuration is invalid",
+  );
   process.exit(1);
 }
 
@@ -39,7 +42,10 @@ for (const file of commandFiles) {
   const command = mod.default || mod;
   if (command?.data) {
     commands.push(command.data);
-    logger.info({ command: command.data.name }, "📌 등록 예정");
+    logger.debug(
+      { event: "commands.deploy.selected", commandName: command.data.name },
+      "Command selected for deployment",
+    );
   }
 }
 
@@ -49,7 +55,10 @@ try {
   const application = await rest.get(Routes.currentApplication());
   const clientId = application.id;
 
-  logger.info({ count: commands.length }, "🚀 Discord에 커맨드 등록 시작...");
+  logger.info(
+    { event: "commands.deploy.started", count: commands.length },
+    "Deploying Discord commands",
+  );
 
   const guildId = process.env.DISCORD_GUILD_ID;
 
@@ -60,21 +69,32 @@ try {
       body: commands,
     });
     logger.info(
-      { guildId, count: data.length },
-      "✅ 길드에 커맨드를 즉시 등록했습니다.",
+      {
+        event: "commands.deploy.completed",
+        guildId,
+        scope: "guild",
+        count: data.length,
+      },
+      "Discord guild commands deployed",
     );
   } else {
     // 전역 등록 (반영까지 최대 1시간 소요)
     data = await rest.put(Routes.applicationCommands(clientId), {
       body: commands,
     });
-    logger.info({ count: data.length }, "✅ 커맨드를 전역 등록했습니다.");
-    logger.info("⏳ 전역 커맨드 반영까지 최대 1시간이 걸릴 수 있습니다.");
     logger.info(
-      "   즉시 테스트하려면 DISCORD_GUILD_ID를 .env에 추가한 후 다시 실행하세요.",
+      {
+        event: "commands.deploy.completed",
+        scope: "global",
+        count: data.length,
+      },
+      "Discord global commands deployed",
     );
   }
 } catch (error) {
-  logger.fatal({ err: error }, "❌ 커맨드 등록 중 오류");
+  logger.fatal(
+    { event: "commands.deploy.failed", err: error },
+    "Discord command deployment failed",
+  );
   process.exit(1);
 }

@@ -79,6 +79,26 @@ test("ChatGenerationLifecycle cancels active chat generations for a channel", as
   assert.deepStrictEqual(calls, [["channel-1", "CHAT"]]);
 });
 
+test("ChatGenerationLifecycle completes without inventing a delivery timestamp", async () => {
+  const calls = [];
+  const lifecycle = new ChatGenerationLifecycle(
+    {
+      completeChat: async (...args) => {
+        calls.push(args);
+        return true;
+      },
+    },
+    {},
+  );
+  const sentAt = new Date("2026-10-13T01:00:00Z");
+  await lifecycle.complete(7);
+  await lifecycle.complete(8, sentAt);
+  assert.deepStrictEqual(calls, [
+    [7, null],
+    [8, sentAt],
+  ]);
+});
+
 test("ChatGenerationLifecycle does not overwrite cancelled generations", async () => {
   const transitions = [];
   const lifecycle = new ChatGenerationLifecycle(

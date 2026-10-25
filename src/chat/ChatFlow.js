@@ -1,5 +1,5 @@
 import { AppEvents } from "../core/EventBus.js";
-import { createLogger } from "../core/logger.js";
+import { createLogger, elapsedMs, withLogContext } from "../core/logger.js";
 
 const logger = createLogger("ChatFlow");
 
@@ -29,7 +29,20 @@ export class ChatFlow {
     });
   }
 
-  async execute({
+  execute(request) {
+    return withLogContext(
+      {
+        platform: request.channelPort.platform,
+        platformChannelId: request.channelPort.platformChannelId,
+        channelId: request.internalChannelId,
+        generationType: "CHAT",
+        rerollGenerationId: request.rerollGenerationId ?? undefined,
+      },
+      () => this.executeTurn(request),
+    );
+  }
+
+  async executeTurn({
     channelPort,
     internalChannelId,
     botId,
@@ -45,8 +58,33 @@ export class ChatFlow {
     let channelRecord;
     let abortSignal;
     let deliveredAt;
-    let sentAt;
+    let sentAt = null;
     let settled = false;
+    const startedAt = performance.now();
+    let stage = "start";
+    let stageStartedAt = startedAt;
+    const fields = () => ({ turnId, generationId: generation?.id });
+    logger.debug(
+      { ...fields(), event: "generation.requested" },
+      "Chat generation requested",
+    );
+    const nextStage = (next) => {
+      logger.debug(
+        {
+          ...fields(),
+          event: "generation.stage.completed",
+          stage,
+          durationMs: elapsedMs(stageStartedAt),
+        },
+        "Generation stage completed",
+      );
+      stage = next;
+      stageStartedAt = performance.now();
+      logger.debug(
+        { ...fields(), event: "generation.stage.started", stage },
+        "Generation stage started",
+      );
+    };
     const payload = () => ({
       generation,
       channelRecord,
@@ -54,6 +92,17 @@ export class ChatFlow {
     });
     const cancel = async (reason) => {
       if (generation) await this.generationLifecycle.cancel(generation.id);
+      logger.info(
+        {
+          ...fields(),
+          event: "generation.cancelled",
+          reason,
+          stage,
+          delivered: !!sentAt,
+          durationMs: elapsedMs(startedAt),
+        },
+        "Chat generation cancelled",
+      );
       await this.eventBus.emitAsync(AppEvents.GenerationCancelled, {
         ...payload(),
         reason,
@@ -88,105 +137,157 @@ export class ChatFlow {
         );
         return true;
       });
-      if (!started) return;
-      await this.eventBus.emitAsync(AppEvents.GenerationStarted, {
-        ...payload(),
-      });
-
-      const prepared = await run(async () => {
-        if (!isCurrent()) return null;
-        const input = await this.chatContextPreparer.prepare(
-          internalChannelId,
-          botId,
-          channelRecord,
-          rerollGenerationId,
+      if (!started) {
+        logger.debug(
+          { ...fields(), event: "generation.skipped", reason: "stale_turn" },
+          "Stale turn skipped",
         );
-        const recorded = await this.generationLifecycle.recordInput(
-          generation.id,
-          input,
-        );
-        return recorded === false ? null : input;
-      });
-      if (!prepared) return await cancel("cancelled_before_input_record");
-      if (
-        !isCurrent() ||
-        !(await this.generationLifecycle.canGenerate(generation.id))
-      ) {
-        return await cancel("status_changed");
+        return;
       }
-      const aiResult = await this.chatGenerator.generate(
-        prepared.context,
-        prepared.systemInstruction,
-        channelPort.platform,
-        channelRecord,
-        { abortSignal, channelPort, generationId: generation.id, delivery },
-      );
-      if (!isCurrent()) return await cancel("aborted_during_generation");
-      const accepted = await run(async () => {
-        if (!isCurrent()) return false;
-        return (
-          await this.generationLifecycle.recordGeneratedOutput(
-            generation.id,
-            aiResult,
-          )
-        ).shouldProceed;
-      });
-      if (!accepted) return await cancel("cancelled_during_generation");
+      await withLogContext(fields(), async () => {
+        logger.info({ event: "generation.started" }, "Chat generation started");
+        await this.eventBus.emitAsync(AppEvents.GenerationStarted, {
+          ...payload(),
+        });
 
-      for (const message of aiResult.messages) {
+        nextStage("prepare_input");
+        const prepared = await run(async () => {
+          if (!isCurrent()) return null;
+          const input = await this.chatContextPreparer.prepare(
+            internalChannelId,
+            botId,
+            channelRecord,
+            rerollGenerationId,
+          );
+          const recorded = await this.generationLifecycle.recordInput(
+            generation.id,
+            input,
+          );
+          return recorded === false ? null : input;
+        });
+        if (!prepared) return await cancel("cancelled_before_input_record");
         if (
           !isCurrent() ||
-          !(await this.messageSender.send(
-            channelPort,
-            message,
-            generation.id,
-            delivery,
-          ))
+          !(await this.generationLifecycle.canGenerate(generation.id))
         ) {
-          return await cancel("send_cancelled");
+          return await cancel("status_changed");
         }
-      }
-      if (!sentAt)
-        throw new Error(
-          "The generated response contained no deliverable messages or successful message actions.",
+        logger.debug(
+          {
+            event: "generation.input.prepared",
+            contextMessageCount: prepared.context.length,
+            inputMessageCount: prepared.messageIds.length,
+            eventCount: prepared.eventSnapshot?.events?.length ?? 0,
+          },
+          "Generation input prepared",
         );
-      const completed = await run(async () => {
-        if (!isCurrent()) return false;
-        const result = await this.generationLifecycle.complete(
-          generation.id,
-          sentAt,
+        nextStage("model");
+        const aiResult = await this.chatGenerator.generate(
+          prepared.context,
+          prepared.systemInstruction,
+          channelPort.platform,
+          channelRecord,
+          { abortSignal, channelPort, generationId: generation.id, delivery },
         );
-        if (result) {
-          session.settle(key, turnId, deliveredAt);
-          settled = true;
+        if (!isCurrent()) return await cancel("aborted_during_generation");
+        nextStage("record_output");
+        const accepted = await run(async () => {
+          if (!isCurrent()) return false;
+          return (
+            await this.generationLifecycle.recordGeneratedOutput(
+              generation.id,
+              aiResult,
+            )
+          ).shouldProceed;
+        });
+        if (!accepted) return await cancel("cancelled_during_generation");
+
+        nextStage("delivery");
+        for (const message of aiResult.messages) {
+          if (
+            !isCurrent() ||
+            !(await this.messageSender.send(
+              channelPort,
+              message,
+              generation.id,
+              delivery,
+            ))
+          ) {
+            return await cancel("send_cancelled");
+          }
         }
-        return result;
-      });
-      if (!completed) return await cancel("cancelled_before_completion");
-      // Consumers receive the same fixed input that was used by this generation.
-      generation.input = JSON.stringify({
-        messages: prepared.inputMessages.map((content, index) => ({
-          id: prepared.messageIds[index],
-          content,
-        })),
-        eventSnapshot: prepared.eventSnapshot,
-      });
-      await this.eventBus.emitAsync(AppEvents.GenerationCompleted, {
-        ...payload(),
-        aiResult,
+        if (!sentAt && aiResult.messages.length > 0)
+          throw new Error(
+            "The generated response contained no deliverable messages or successful message actions.",
+          );
+        nextStage("complete");
+        const completed = await run(async () => {
+          if (!isCurrent()) return false;
+          const result = await this.generationLifecycle.complete(
+            generation.id,
+            sentAt,
+          );
+          if (result) {
+            session.settle(key, turnId, deliveredAt);
+            settled = true;
+          }
+          return result;
+        });
+        if (!completed) return await cancel("cancelled_before_completion");
+        logger.debug(
+          {
+            event: "generation.stage.completed",
+            stage,
+            durationMs: elapsedMs(stageStartedAt),
+          },
+          "Generation stage completed",
+        );
+        logger.info(
+          {
+            event: "generation.completed",
+            messageCount: aiResult.messages.length,
+            delivered: !!sentAt,
+            durationMs: elapsedMs(startedAt),
+          },
+          "Chat generation completed",
+        );
+        // Consumers receive the same fixed input that was used by this generation.
+        generation.input = JSON.stringify({
+          messages: prepared.inputMessages.map((content, index) => ({
+            id: prepared.messageIds[index],
+            content,
+          })),
+          eventSnapshot: prepared.eventSnapshot,
+        });
+        await this.eventBus.emitAsync(AppEvents.GenerationCompleted, {
+          ...payload(),
+          aiResult,
+        });
       });
     } catch (error) {
       if (generation && !isCurrent()) {
         await cancel("aborted_during_generation");
       } else {
-        logger.error({ err: error }, "Error processing response");
-        await this.failureHandler.handle({
-          error,
-          generation,
-          channelRecord,
-          channel: channelPort,
-          delivery: { run, isCurrent },
-        });
+        logger.error(
+          {
+            ...fields(),
+            event: "generation.failed",
+            err: error,
+            stage,
+            stageDurationMs: elapsedMs(stageStartedAt),
+            durationMs: elapsedMs(startedAt),
+          },
+          "Chat generation failed",
+        );
+        await withLogContext(fields(), () =>
+          this.failureHandler.handle({
+            error,
+            generation,
+            channelRecord,
+            channel: channelPort,
+            delivery: { run, isCurrent },
+          }),
+        );
       }
     } finally {
       if (generation)

@@ -1,6 +1,9 @@
 import { jsonSchema } from "ai";
 import { Readability } from "@mozilla/readability";
 import { JSDOM } from "jsdom";
+import { createLogger } from "../../core/logger.js";
+
+const logger = createLogger("FetchUrl");
 
 /** @type {import('../ToolRegistry.js').ToolDef} */
 export default {
@@ -119,7 +122,10 @@ export default {
     const truncated = text.length > maxLength;
 
     if (response.url !== url) {
-      console.log(`[fetch_url] Redirected: ${url} -> ${response.url}`);
+      logger.debug(
+        { event: "fetch.redirected" },
+        "URL fetch followed a redirect",
+      );
     }
 
     return {
@@ -149,8 +155,9 @@ function extractReadableText(html, url) {
       return article.textContent.replace(/\s+/g, " ").trim();
     }
   } catch (err) {
-    console.warn(
-      `[fetch_url] Readability failed, falling back to tag stripping: ${err.message}`,
+    logger.warn(
+      { event: "fetch.readability.fallback", err },
+      "Readability failed; using tag stripping",
     );
   }
 

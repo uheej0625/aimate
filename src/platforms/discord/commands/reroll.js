@@ -49,7 +49,12 @@ export default {
       } catch (error) {
         if (error.code === 10008) deletedIds.push(platformMessageId);
         logger.warn(
-          { err: error, platformId: platformMessageId },
+          {
+            event: "reroll.message_delete.failed",
+            err: error,
+            platformMessageId,
+            generationId: plan.generationId,
+          },
           "Discord 메시지 개별 삭제 실패 (이미 지워졌을 수 있음)",
         );
       }
@@ -73,11 +78,18 @@ export default {
         },
       });
       logger.info(
-        { generationId: plan.generationId, deletedCount },
+        {
+          event: "reroll.completed",
+          generationId: plan.generationId,
+          deletedCount,
+        },
         "재생성(Reroll)을 위해 기존 메시지 삭제 완료",
       );
     } catch (err) {
-      logger.error({ err }, "재생성(Reroll) 중 ChatFlow 실행 실패");
+      logger.error(
+        { event: "reroll.failed", generationId: plan.generationId, err },
+        "재생성(Reroll) 중 ChatFlow 실행 실패",
+      );
     }
   },
 };

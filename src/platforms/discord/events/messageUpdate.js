@@ -11,7 +11,11 @@ export default {
       await messageHandler.handle(adaptIncomingMessage(newMessage, "UPDATE"));
     } catch (error) {
       logger.error(
-        { err: error, messageId: newMessage.id },
+        {
+          event: "platform.message_update.failed",
+          err: error,
+          platformMessageId: newMessage.id,
+        },
         "Message update failed",
       );
     }

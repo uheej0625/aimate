@@ -1,7 +1,7 @@
 import { generateText, stepCountIs } from "ai";
 import { AIResponseParser } from "../chat/response/AIResponseParser.js";
 import { GeneratedImageTagPolicy } from "../chat/response/GeneratedImageTagPolicy.js";
-import { createLogger } from "../core/logger.js";
+import { createLogger, elapsedMs } from "../core/logger.js";
 import { getAiSettings, getGenerationSettings } from "./config.js";
 import { composeDialectTools } from "./dialects.js";
 import { createLanguageModel } from "./models.js";
@@ -28,8 +28,12 @@ export async function generateChatReply({
   abortSignal,
 }) {
   if (context.length === 0) {
+    logger.debug(
+      { event: "model.skipped", reason: "empty_context" },
+      "Chat model skipped",
+    );
     return {
-      messages: ["..."],
+      messages: [],
       apiRequests: [],
       apiResponses: [],
     };
@@ -47,6 +51,19 @@ export async function generateChatReply({
     tools: Object.keys(tools).length > 0 ? tools : undefined,
     stopWhen: stepCountIs(configManager.get("tools.maxSteps") ?? 5),
     abortSignal,
+    onStepFinish: (step) => {
+      logger.debug(
+        {
+          event: "model.step.completed",
+          stepNumber: step.stepNumber,
+          finishReason: step.finishReason,
+          ...summarizeUsage(step.usage),
+          toolCallCount: step.toolCalls?.length ?? 0,
+          warningCount: step.warnings?.length ?? 0,
+        },
+        "Chat model step completed",
+      );
+    },
     ...getGenerationSettings(settings),
   };
   const requestMetadata = toRequestMetadata({
@@ -57,7 +74,65 @@ export async function generateChatReply({
     appTools,
   });
   const apiRequests = [serializeMetadata(requestMetadata)];
-  const result = await generateTextFn(request);
+  const startedAt = performance.now();
+  const modelFields = { provider: settings.provider, model: settings.model };
+  logger.info(
+    {
+      ...modelFields,
+      event: "model.started",
+      purpose: "chat",
+      contextMessageCount: messages.length,
+      toolCount: Object.keys(tools).length,
+      maxSteps: configManager.get("tools.maxSteps") ?? 5,
+      maxRetries: settings.maxRetries,
+    },
+    "Chat model started",
+  );
+  let result;
+  try {
+    result = await generateTextFn(request);
+  } catch (error) {
+    const cancelled = abortSignal?.aborted || error.name === "AbortError";
+    logger[cancelled ? "debug" : "warn"](
+      {
+        ...modelFields,
+        event: cancelled ? "model.cancelled" : "model.failed",
+        purpose: "chat",
+        errorType: error.name,
+        statusCode: error.statusCode ?? error.lastError?.statusCode,
+        durationMs: elapsedMs(startedAt),
+      },
+      "Chat model ended without a result",
+    );
+    throw error;
+  }
+  logger.info(
+    {
+      ...modelFields,
+      event: "model.completed",
+      purpose: "chat",
+      durationMs: elapsedMs(startedAt),
+      finishReason: result.finishReason,
+      stepCount: result.steps?.length ?? 1,
+      ...summarizeUsage(result.totalUsage ?? result.usage),
+      toolCallCount: (result.steps ?? [result]).reduce(
+        (count, step) => count + (step.toolCalls?.length ?? 0),
+        0,
+      ),
+    },
+    "Chat model completed",
+  );
+  const warningCount = result.steps?.length
+    ? result.steps.reduce(
+        (count, step) => count + (step.warnings?.length ?? 0),
+        0,
+      )
+    : (result.warnings?.length ?? 0);
+  if (warningCount)
+    logger.warn(
+      { ...modelFields, event: "model.warnings", warningCount },
+      "Chat model returned warnings",
+    );
   const recoveredTextToolCall = await recoverTextToolCall(
     result,
     appTools,
@@ -83,6 +158,14 @@ export async function generateChatReply({
     ...generatedImageTagPolicy.appendMissingTags(parsed, generatedImageTags),
     apiRequests,
     apiResponses: [serializeMetadata(responseMetadata)],
+  };
+}
+
+export function summarizeUsage(usage) {
+  return {
+    inputTokens: usage?.inputTokens,
+    outputTokens: usage?.outputTokens,
+    totalTokens: usage?.totalTokens,
   };
 }
 
@@ -114,6 +197,7 @@ async function recoverTextToolCall(result, appTools, messages, abortSignal) {
   if (fenced) candidate = fenced[1].trim();
   if (!candidate.startsWith("{") || !candidate.endsWith("}")) return null;
 
+  let toolName;
   try {
     const call = JSON.parse(candidate);
     const valid =
@@ -126,9 +210,10 @@ async function recoverTextToolCall(result, appTools, messages, abortSignal) {
       typeof call.arguments === "object" &&
       !Array.isArray(call.arguments);
     if (!valid) return null;
+    toolName = call.name;
 
     logger.warn(
-      { tool: call.name },
+      { event: "model.tool_call.recovered", toolName: call.name },
       "Model returned a tool call as text; executing the application tool directly",
     );
     if (abortSignal?.aborted) return null;
@@ -138,7 +223,12 @@ async function recoverTextToolCall(result, appTools, messages, abortSignal) {
     });
     if (abortSignal?.aborted) return null;
     return { toolName: call.name, input: call.arguments, output };
-  } catch (_error) {
+  } catch (error) {
+    if (toolName)
+      logger.warn(
+        { event: "model.tool_call.recovery_failed", toolName, err: error },
+        "Text tool call recovery failed",
+      );
     return null;
   }
 }

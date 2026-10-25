@@ -4,6 +4,7 @@ import { jsonSchema } from "ai";
 import { ToolRegistry } from "../../src/tools/ToolRegistry.js";
 import reply from "../../src/tools/definitions/reply.js";
 import react from "../../src/tools/definitions/react.js";
+import { captureLogs } from "../helpers/logs.js";
 
 test("ToolRegistry creates AI SDK toolsets with runtime context", async () => {
   let received = null;
@@ -46,6 +47,61 @@ test("ToolRegistry creates AI SDK toolsets with runtime context", async () => {
   assert.strictEqual(received.context.imageGenerator.id, "image-generator");
   assert.ok(received.context.abortSignal);
   assert.ok(!Object.hasOwn(received.context, "ai"));
+});
+
+test("tool logs classify returned errors and aborts without logging payloads", async (t) => {
+  const records = captureLogs(t);
+  const registry = new ToolRegistry({ has: () => false });
+  for (const [name, execute] of Object.entries({
+    ok: async () => ({ content: "PRIVATE_RESULT" }),
+    returned_error: async () => ({ error: "PRIVATE_RETURNED_ERROR" }),
+    thrown_error: async () => {
+      throw Object.assign(new Error("tool failed"), {
+        responseBody: "PRIVATE_BODY",
+      });
+    },
+    cancelled: async () => {
+      throw new DOMException("Aborted", "AbortError");
+    },
+  })) {
+    registry.register({
+      name,
+      description: name,
+      inputSchema: jsonSchema({ type: "object" }),
+      execute,
+    });
+  }
+  const tools = registry.createToolSet("discord", {
+    generationId: "gen-1",
+    channel: { id: "channel-1" },
+  });
+  for (const name of Object.keys(tools))
+    await tools[name].execute(
+      { prompt: "PRIVATE_INPUT" },
+      { toolCallId: name },
+    );
+  const terminal = records.filter((row) =>
+    ["tool.completed", "tool.failed", "tool.cancelled"].includes(row.event),
+  );
+  assert.deepStrictEqual(
+    terminal.map((row) => [row.toolName, row.event, row.level]),
+    [
+      ["ok", "tool.completed", 30],
+      ["returned_error", "tool.failed", 40],
+      ["thrown_error", "tool.failed", 50],
+      ["cancelled", "tool.cancelled", 20],
+    ],
+  );
+  assert.ok(
+    terminal.every(
+      (row) =>
+        row.generationId === "gen-1" &&
+        row.channelId === "channel-1" &&
+        row.toolCallId === row.toolName &&
+        row.durationMs >= 0,
+    ),
+  );
+  assert.doesNotMatch(JSON.stringify(records), /PRIVATE_/);
 });
 
 test("message action definitions are exposed only on Discord", async () => {

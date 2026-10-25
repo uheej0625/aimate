@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import fs from "fs/promises";
 import path from "path";
+import { createLogger, elapsedMs, withLogContext } from "../core/logger.js";
 import { renderTemplateFile } from "../utils/renderTemplate.js";
 import { buildTemplateContext } from "../utils/templateContext.js";
 import {
@@ -8,7 +9,10 @@ import {
   resolveSourceImagePaths,
 } from "./imageReferenceUtils.js";
 
+const logger = createLogger("ImageGenerationToolRunner");
+
 export async function executeImageGenerationTool(args, context, spec) {
+  const startedAt = performance.now();
   const {
     imageGenerator,
     configManager,
@@ -62,55 +66,103 @@ export async function executeImageGenerationTool(args, context, spec) {
     fallbackApiRequest.image = imagePaths;
   }
 
-  try {
-    throwIfAborted(abortSignal);
-    const result = await imageGenerator.generate(prompt, generateImageOptions);
-    throwIfAborted(abortSignal);
-    const imageBuffer = result.buffer || result;
-    const outputPath = await writeGeneratedImage(filename, imageBuffer);
-    throwIfAborted(abortSignal);
-
-    const completed =
-      await generationRepository.updateDetailsAndStatusIfCurrent(
-        generationId,
-        "PROCESSING",
-        "COMPLETED",
-        {
-          apiRequest: result.request || fallbackApiRequest,
-          apiResponse: result.response || {
-            status: "success",
-            tool: spec.toolName,
-          },
-          output: filename,
-        },
-      );
-    if (!completed) {
-      throw new DOMException(
-        "Image generation was cancelled before completion",
-        "AbortError",
-      );
-    }
-
-    return {
-      status: "success",
-      imageId,
+  return withLogContext(
+    {
       generationId,
-      outputPath,
-      instruction: `Image generated successfully! You MUST include this tag somewhere in your response message exactly like this so the user can see it: [IMAGE:${imageId}]`,
-      description: spec.describe(args),
-    };
-  } catch (err) {
-    if (abortSignal?.aborted || isAbortError(err)) {
-      await cancelImageGeneration(generationRepository, generationId);
-      throw err;
-    }
-    await generationRepository.updateDetails(generationId, {
-      apiRequest: fallbackApiRequest,
-      apiResponse: { error: err.message, stack: err.stack },
-    });
-    await generationRepository.updateStatus(generationId, "FAILED");
-    throw err;
-  }
+      parentGenerationId: context.generationId,
+      generationType: "IMAGE",
+      channelId: channel.id,
+      toolName: spec.toolName,
+    },
+    async () => {
+      let stage = "model";
+      logger.info(
+        { event: "generation.started", referenceImageCount: imagePaths.length },
+        "Image generation started",
+      );
+      try {
+        throwIfAborted(abortSignal);
+        const result = await imageGenerator.generate(
+          prompt,
+          generateImageOptions,
+        );
+        throwIfAborted(abortSignal);
+        const imageBuffer = result.buffer || result;
+        stage = "write_file";
+        const outputPath = await writeGeneratedImage(filename, imageBuffer);
+        throwIfAborted(abortSignal);
+
+        stage = "record_output";
+        const completed =
+          await generationRepository.updateDetailsAndStatusIfCurrent(
+            generationId,
+            "PROCESSING",
+            "COMPLETED",
+            {
+              apiRequest: result.request || fallbackApiRequest,
+              apiResponse: result.response || {
+                status: "success",
+                tool: spec.toolName,
+              },
+              output: filename,
+            },
+          );
+        if (!completed) {
+          throw new DOMException(
+            "Image generation was cancelled before completion",
+            "AbortError",
+          );
+        }
+
+        logger.info(
+          {
+            event: "generation.completed",
+            imageId,
+            imageBytes: imageBuffer.length,
+            durationMs: elapsedMs(startedAt),
+          },
+          "Image generation completed",
+        );
+        return {
+          status: "success",
+          imageId,
+          generationId,
+          outputPath,
+          instruction: `Image generated successfully! You MUST include this tag somewhere in your response message exactly like this so the user can see it: [IMAGE:${imageId}]`,
+          description: spec.describe(args),
+        };
+      } catch (err) {
+        if (abortSignal?.aborted || isAbortError(err)) {
+          await cancelImageGeneration(generationRepository, generationId);
+          logger.info(
+            {
+              event: "generation.cancelled",
+              reason: "aborted",
+              stage,
+              durationMs: elapsedMs(startedAt),
+            },
+            "Image generation cancelled",
+          );
+          throw err;
+        }
+        await generationRepository.updateDetails(generationId, {
+          apiRequest: fallbackApiRequest,
+          apiResponse: { error: err.message, stack: err.stack },
+        });
+        await generationRepository.updateStatus(generationId, "FAILED");
+        logger.warn(
+          {
+            event: "generation.failed",
+            stage,
+            err,
+            durationMs: elapsedMs(startedAt),
+          },
+          "Image generation failed",
+        );
+        throw err;
+      }
+    },
+  );
 }
 
 async function cancelImageGeneration(generationRepository, generationId) {

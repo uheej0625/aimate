@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { MessageSender } from "../../src/messages/MessageSender.js";
+import { captureLogs } from "../helpers/logs.js";
 
 test("MessageSender injects pacing after attachment resolution and reads current delay settings", async () => {
   const config = {
@@ -95,6 +96,48 @@ function createHarness(config) {
   };
   return { sender, channel, sent, saved, pacing, typing: () => typing };
 }
+
+test("delivery logs distinguish storage retry, permanent storage failure and transport failure", async (t) => {
+  const records = captureLogs(t);
+  const h = createHarness({ "humanize.enabled": false });
+  h.channel.platform = "discord";
+  h.channel.platformChannelId = "channel-1";
+  let attempts = 0;
+  h.sender.messageService.saveMessage = async () => {
+    if (++attempts === 1) throw new Error("temporary database failure");
+  };
+  await h.sender.send(h.channel, "PRIVATE_TEXT", "retry");
+  const retried = records.filter((row) => row.generationId === "retry");
+  assert.equal(
+    retried.filter((row) => row.event === "message.storage.retry").length,
+    1,
+  );
+  assert.ok(retried.some((row) => row.event === "message.storage.completed"));
+  assert.ok(!retried.some((row) => row.level >= 50));
+
+  h.sender.messageService.saveMessage = async () => {
+    throw new Error("database unavailable");
+  };
+  await assert.rejects(h.sender.send(h.channel, "PRIVATE_TEXT", "storage"));
+  const failed = records.find(
+    (row) =>
+      row.generationId === "storage" && row.event === "message.storage.failed",
+  );
+  assert.equal(failed.platformMessageId, "sent-2");
+  assert.equal(h.sent.length, 2);
+
+  h.channel.send = async () => {
+    throw new Error("transport unavailable");
+  };
+  await assert.rejects(h.sender.send(h.channel, "PRIVATE_TEXT", "transport"));
+  assert.ok(
+    records.some(
+      (row) =>
+        row.generationId === "transport" && row.event === "message.send.failed",
+    ),
+  );
+  assert.doesNotMatch(JSON.stringify(records), /PRIVATE_TEXT/);
+});
 
 test("disabled humanize splits and stores long messages without typing, pacing or timers", async (t) => {
   t.mock.method(globalThis, "setTimeout", () => {

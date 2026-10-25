@@ -36,7 +36,14 @@ async function deleteSingle(msg) {
   } catch (e) {
     // DM 채널에서 상대방 메세지는 삭제 불가 (Discord API 제한)
     if (e.code === 50003) return "skipped";
-    logger.error({ err: e, messageId: msg.id }, "개별 삭제 실패");
+    logger.error(
+      {
+        event: "platform.message_delete.failed",
+        err: e,
+        platformMessageId: msg.id,
+      },
+      "개별 삭제 실패",
+    );
     return "failed";
   }
 }
@@ -69,7 +76,14 @@ async function deleteDiscordMessages(channel, messages) {
           if (!result.has(msg.id)) countResult(await deleteSingle(msg), msg.id);
         }
       } catch (error) {
-        logger.error({ err: error }, "bulkDelete 실패, 개별 삭제로 전환");
+        logger.warn(
+          {
+            event: "platform.bulk_delete.fallback",
+            err: error,
+            messageCount: batch.length,
+          },
+          "Bulk deletion failed; deleting individually",
+        );
         for (const msg of batch) countResult(await deleteSingle(msg), msg.id);
       }
     }

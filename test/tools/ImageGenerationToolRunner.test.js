@@ -4,8 +4,10 @@ import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import { executeImageGenerationTool } from "../../src/tools/ImageGenerationToolRunner.js";
+import { captureLogs } from "../helpers/logs.js";
 
-test("executeImageGenerationTool renders prompts, passes references, and records output", async () => {
+test("executeImageGenerationTool renders prompts, passes references, and records output", async (t) => {
+  const records = captureLogs(t);
   const originalCwd = process.cwd();
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aimate-image-tool-"));
   process.chdir(tmpDir);
@@ -74,6 +76,7 @@ test("executeImageGenerationTool renders prompts, passes references, and records
         imageGenerator,
         configManager,
         generationRepository,
+        generationId: "parent-chat",
         channel: { id: "channel-1" },
       },
       {
@@ -88,6 +91,14 @@ test("executeImageGenerationTool renders prompts, passes references, and records
     );
 
     const generateCall = calls.find(([name]) => name === "generateImage");
+    const completedLog = records.find(
+      (row) => row.event === "generation.completed",
+    );
+    assert.strictEqual(completedLog.generationId, "gen-1");
+    assert.strictEqual(completedLog.parentGenerationId, "parent-chat");
+    assert.strictEqual(completedLog.generationType, "IMAGE");
+    assert.strictEqual(completedLog.channelId, "channel-1");
+    assert.doesNotMatch(JSON.stringify(records), /Scene=cafe/);
     assert.match(generateCall[1], /Scene=cafe/);
     assert.match(generateCall[1], /Sources=\[IMAGE:source123\]/);
     assert.match(

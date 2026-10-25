@@ -55,7 +55,7 @@
  * @property {ChannelPort} channelPort
  * @property {string} internalChannelId
  * @property {string} botId
- * @property {symbol} [turnId] - Current in-memory conversation owner
+ * @property {string} [turnId] - UUID identifying the current in-memory conversation owner
  * @property {number} [rerollGenerationId] - Original fixed input to replay
  */
 

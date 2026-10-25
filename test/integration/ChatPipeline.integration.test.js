@@ -235,6 +235,165 @@ test("chat pipeline persists history and multiple model-free replies", async () 
   );
 });
 
+for (const response of [
+  "",
+  " \n\t",
+  "# response\n\n## messages",
+  "## messages\n\n## state\ninternal",
+]) {
+  test(`silent response ${JSON.stringify(response)} completes and consumes input without delivery`, async () => {
+    let requests = 0;
+    const completed = [];
+    const h = createHarness({
+      generateTextFn: async () => {
+        if (++requests === 1) {
+          h.setTime(500_000);
+          return fakeTextResult(response);
+        }
+        return fakeTextResult("## messages\nnext reply");
+      },
+    });
+    h.eventBus.on(AppEvents.GenerationCompleted, ({ aiResult }) =>
+      completed.push(aiResult),
+    );
+    h.channel.sendTyping = () =>
+      assert.fail("Silent responses must not start typing");
+    const channel = await h.activate();
+    await h.receive("CREATE", {
+      message: createUserMessage(h, {
+        id: randomUUID(),
+        content: "no reply needed",
+      }),
+    });
+    await h.flush();
+
+    const generation = await prisma.generation.findFirst({
+      where: { channelId: channel.id },
+    });
+    assert.equal(generation.status, "COMPLETED");
+    assert.equal(generation.output, "[]");
+    assert.equal(generation.sentAt, null);
+    assert.ok(generation.apiRequest);
+    assert.ok(generation.apiResponse);
+    assert.deepEqual(completed[0].messages, []);
+    assert.deepEqual(h.sentMessages, []);
+    assert.equal(
+      await prisma.message.count({ where: { channelId: channel.id } }),
+      1,
+    );
+    assert.equal(
+      await prisma.event.count({
+        where: { channelId: channel.id, kind: "SENT" },
+      }),
+      0,
+    );
+    assert.equal(
+      (await prisma.channel.findUnique({ where: { id: channel.id } }))
+        .lastMessageNo,
+      1,
+    );
+    const snapshot = JSON.parse(generation.input).eventSnapshot;
+    assert.equal(
+      (
+        await prisma.conversationState.findFirst({
+          where: { channelId: channel.id },
+        })
+      ).handledThroughEventId,
+      snapshot.throughInclusive,
+    );
+    assert.deepEqual(
+      (await h.historyService.fetchHistoryData(channel.id, h.botId))
+        .inputMessages,
+      [],
+    );
+
+    const key = h.conversationSession.key(h.channel);
+    h.setTime(1_099_999);
+    assert.equal(h.conversationSession.isWatching(key), true);
+    h.setTime(1_100_000);
+    assert.equal(h.conversationSession.isWatching(key), false);
+
+    h.channel.sendTyping = async () => {};
+    await h.receive("CREATE", {
+      message: createUserMessage(h, {
+        id: randomUUID(),
+        content: "please reply now",
+      }),
+    });
+    await h.flush();
+    const next = await prisma.generation.findFirst({
+      where: { channelId: channel.id },
+      orderBy: { id: "desc" },
+    });
+    assert.equal(next.status, "COMPLETED");
+    assert.ok(next.sentAt instanceof Date);
+    assert.deepEqual(
+      JSON.parse(next.input).messages.map(({ content }) => content),
+      ["please reply now"],
+    );
+    assert.deepEqual(h.sentMessages, ["next reply"]);
+    assert.equal(completed.length, 2);
+  });
+}
+
+test("silent results from an interrupted generation do not advance the cursor", async () => {
+  const started = deferred();
+  const release = deferred();
+  const h = createHarness({
+    generateTextFn: async () => {
+      started.resolve();
+      await release.promise;
+      return fakeTextResult("");
+    },
+  });
+  const channel = await h.activate();
+  await h.receive("CREATE", {
+    message: createUserMessage(h, { id: randomUUID(), content: "first" }),
+  });
+  const pending = h.flush();
+  await started.promise;
+  await h.receive("CREATE", {
+    message: createUserMessage(h, { id: randomUUID(), content: "interrupt" }),
+  });
+  release.resolve();
+  await pending;
+  assert.equal(
+    (await prisma.generation.findFirst({ where: { channelId: channel.id } }))
+      .status,
+    "CANCELLED",
+  );
+  assert.equal(
+    await prisma.conversationState.count({ where: { channelId: channel.id } }),
+    0,
+  );
+  assert.deepEqual(h.sentMessages, []);
+});
+
+test("undeliverable image-only output still fails instead of becoming silence", async () => {
+  const h = createHarness({
+    generateTextFn: async () => fakeTextResult("## messages\n[IMAGE:invalid]"),
+  });
+  const channel = await h.activate();
+  await h.receive("CREATE", {
+    message: createUserMessage(h, {
+      id: randomUUID(),
+      content: "image please",
+    }),
+  });
+  await h.flush();
+  const generation = await prisma.generation.findFirst({
+    where: { channelId: channel.id },
+  });
+  assert.equal(generation.status, "FAILED");
+  assert.deepEqual(JSON.parse(generation.output), ["[IMAGE:invalid]"]);
+  assert.equal(
+    await prisma.conversationState.count({ where: { channelId: channel.id } }),
+    0,
+  );
+  assert.equal(h.sentMessages.length, 1);
+  assert.match(h.sentMessages[0], /답변 생성 중 오류/);
+});
+
 for (const content of ["", " \n\t"]) {
   test(`empty or whitespace input ${JSON.stringify(content)} is stored and answered`, async () => {
     const modelRequests = [];
@@ -904,74 +1063,75 @@ test("interruption during a split chunk stops subsequent chunks and stores confi
   );
 });
 
-test("message splitting runs after image tag policy and attaches the generated image to the final chunk", async (t) => {
-  const imageId = randomUUID().replaceAll("-", "").slice(0, 8);
-  const filename = `${imageId}.png`;
-  const imagePath = path.join(workspaceRoot, "content", "image", filename);
-  await fs.mkdir(path.dirname(imagePath), { recursive: true });
-  await fs.writeFile(imagePath, "test image attachment", { flag: "wx" });
-  t.after(() => fs.rm(imagePath, { force: true }));
-  const original = "x".repeat(4000);
-  const h = createHarness({
-    generateTextFn: async () => ({
-      ...fakeTextResult(`## messages\n${original}`),
-      steps: [{ toolResults: [{ output: { imageId } }] }],
-    }),
+for (const original of ["", "x".repeat(4000)]) {
+  test(`image tag policy delivers generated images with ${original.length} text characters`, async (t) => {
+    const imageId = randomUUID().replaceAll("-", "").slice(0, 8);
+    const filename = `${imageId}.png`;
+    const imagePath = path.join(workspaceRoot, "content", "image", filename);
+    await fs.mkdir(path.dirname(imagePath), { recursive: true });
+    await fs.writeFile(imagePath, "test image attachment", { flag: "wx" });
+    t.after(() => fs.rm(imagePath, { force: true }));
+    const h = createHarness({
+      generateTextFn: async () => ({
+        ...fakeTextResult(`## messages\n${original}`),
+        steps: [{ toolResults: [{ output: { imageId } }] }],
+      }),
+    });
+    const channel = await h.activate();
+    const imageGeneration = await prisma.generation.create({
+      data: {
+        characterId: "fixture",
+        channelId: channel.id,
+        type: "IMAGE",
+        prompt: "minimal",
+        status: "COMPLETED",
+        output: filename,
+      },
+    });
+    const payloads = [];
+    const send = h.channel.send;
+    h.channel.send = async (options) => {
+      payloads.push(options);
+      return send(options);
+    };
+    await h.receive("CREATE", {
+      message: createUserMessage(h, {
+        id: randomUUID(),
+        content: "image please",
+      }),
+    });
+    await h.flush();
+    assert.deepEqual(
+      h.sentMessages.map((text) => text.length),
+      original ? [1900, 1900, 200] : [0],
+    );
+    assert.ok(payloads.slice(0, -1).every((payload) => !payload.files));
+    assert.deepEqual(payloads.at(-1).files, [{ attachment: imagePath }]);
+    const generation = await prisma.generation.findFirst({
+      where: { channelId: channel.id, type: "CHAT" },
+    });
+    assert.equal(generation.status, "COMPLETED");
+    assert.deepEqual(JSON.parse(generation.output), [
+      `${original}\n[IMAGE:${imageId}]`.trim(),
+    ]);
+    const messages = await prisma.message.findMany({
+      where: { generationId: generation.id, isBot: true },
+      orderBy: { id: "asc" },
+    });
+    assert.deepEqual(
+      messages.map((message) => message.content),
+      h.sentMessages,
+    );
+    assert.deepEqual(JSON.parse(messages.at(-1).attachmentsJson), [
+      {
+        type: "generated_image",
+        imageId,
+        filename,
+        generationId: imageGeneration.id,
+      },
+    ]);
   });
-  const channel = await h.activate();
-  const imageGeneration = await prisma.generation.create({
-    data: {
-      characterId: "fixture",
-      channelId: channel.id,
-      type: "IMAGE",
-      prompt: "minimal",
-      status: "COMPLETED",
-      output: filename,
-    },
-  });
-  const payloads = [];
-  const send = h.channel.send;
-  h.channel.send = async (options) => {
-    payloads.push(options);
-    return send(options);
-  };
-  await h.receive("CREATE", {
-    message: createUserMessage(h, {
-      id: randomUUID(),
-      content: "image please",
-    }),
-  });
-  await h.flush();
-  assert.deepEqual(
-    h.sentMessages.map((text) => text.length),
-    [1900, 1900, 200],
-  );
-  assert.ok(payloads.slice(0, -1).every((payload) => !payload.files));
-  assert.deepEqual(payloads.at(-1).files, [{ attachment: imagePath }]);
-  const generation = await prisma.generation.findFirst({
-    where: { channelId: channel.id, type: "CHAT" },
-  });
-  assert.equal(generation.status, "COMPLETED");
-  assert.deepEqual(JSON.parse(generation.output), [
-    `${original}\n[IMAGE:${imageId}]`,
-  ]);
-  const messages = await prisma.message.findMany({
-    where: { generationId: generation.id, isBot: true },
-    orderBy: { id: "asc" },
-  });
-  assert.deepEqual(
-    messages.map((message) => message.content),
-    h.sentMessages,
-  );
-  assert.deepEqual(JSON.parse(messages.at(-1).attachmentsJson), [
-    {
-      type: "generated_image",
-      imageId,
-      filename,
-      generationId: imageGeneration.id,
-    },
-  ]);
-});
+}
 
 function createHarness({
   generateTextFn,
@@ -2057,6 +2217,7 @@ test("reply-only generations persist numbered output once, recover storage and s
     where: { channelId: channel.id },
   });
   assert.equal(generation.status, "COMPLETED");
+  assert.ok(generation.sentAt instanceof Date);
   assert.equal(
     await prisma.messageAction.count({
       where: { generationId: generation.id },
@@ -2129,11 +2290,11 @@ test("react-only generations finish without issuing a message number", async () 
       .lastMessageNo,
     1,
   );
-  assert.equal(
-    (await prisma.generation.findFirst({ where: { channelId: channel.id } }))
-      .status,
-    "COMPLETED",
-  );
+  const generation = await prisma.generation.findFirst({
+    where: { channelId: channel.id },
+  });
+  assert.equal(generation.status, "COMPLETED");
+  assert.ok(generation.sentAt instanceof Date);
   assert.equal(
     (
       await prisma.conversationState.findFirst({
