@@ -29,6 +29,7 @@ test("registerShutdown uses injected dependencies in shutdown order", async () =
           return 1;
         },
       },
+      discordLogService: { close: async () => calls.push("logs") },
       client: { destroy: () => calls.push("platform") },
       disconnectDatabase: async () => calls.push("disconnect"),
     });
@@ -41,6 +42,7 @@ test("registerShutdown uses injected dependencies in shutdown order", async () =
       "buffers",
       "abort",
       "cancel",
+      "logs",
       "platform",
       "disconnect",
       "exit",

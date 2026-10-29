@@ -68,6 +68,13 @@ export class MessageHandler {
           );
           return { changed: false };
         }
+        if (channelRecord.logEnabled) {
+          logger.debug(
+            { event: "message.skipped", reason: "log_channel" },
+            "Message event skipped",
+          );
+          return { changed: false };
+        }
         channelId = channelRecord.id;
         return await withLogContext(
           { channelId: channelRecord.id },

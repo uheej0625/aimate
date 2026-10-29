@@ -68,6 +68,7 @@ export class ChatGenerationLifecycle {
           output: JSON.stringify(aiResult.messages),
           apiRequest,
           apiResponse,
+          metadata: { timings: { generatedAt: new Date().toISOString() } },
         },
       );
 

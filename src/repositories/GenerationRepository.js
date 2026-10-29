@@ -100,9 +100,20 @@ export class GenerationRepository {
         where: { id: generationId },
       });
       if (generation?.status !== "GENERATED") return false;
+      const metadata = JSON.parse(generation.metadata ?? "{}") ?? {};
       const result = await tx.generation.updateMany({
         where: { id: generationId, status: "GENERATED" },
-        data: { status: "COMPLETED", sentAt },
+        data: {
+          status: "COMPLETED",
+          sentAt,
+          metadata: JSON.stringify({
+            ...metadata,
+            timings: {
+              ...metadata.timings,
+              completedAt: new Date().toISOString(),
+            },
+          }),
+        },
       });
       if (result.count !== 1) return false;
       const snapshot = generation.input

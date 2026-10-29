@@ -8,13 +8,14 @@ client는 Guilds·GuildMessages·MessageContent·GuildMembers·DirectMessages in
 
 messageCreate·messageUpdate·messageDelete·messageDeleteBulk를 CREATE·UPDATE·DELETE 계약으로 전달한다. 부분 메시지 fetch는 loadMessage로 지연한다. 삭제는 ID 목록을 사용한다.
 
-`/활성화`는 현재 채널을 등록하고 선택한 global/server/channel scope를 저장한다. **현재 수신 조건은 해당 Channel record의 존재**다. scope에 따라 서버 전체로 활성화를 확장하는 로직이나 멘션·DM·features 설정별 응답 필터는 현재 MessageHandler에 없다. 등록되지 않은 DM도 자동 활성화되지 않는다.
+`/활성화`는 현재 채널을 등록하고 선택한 global/server/channel scope를 저장한다. **현재 수신 조건은 해당 Channel record가 존재하고 logEnabled가 false인 것**이다. 로그 채널의 생성·수정·삭제 이벤트는 MessageHandler에서 본문 조회·저장·응답 예약 전에 건너뛴다. scope에 따라 서버 전체로 활성화를 확장하는 로직이나 멘션·DM·features 설정별 응답 필터는 현재 MessageHandler에 없다. 등록되지 않은 DM도 자동 활성화되지 않는다.
 
 ## 명령
 
 | 종류 | 표시 이름 | 동작 |
 | --- | --- | --- |
 | 슬래시 | `활성화` | 현재 채널 등록 |
+| 슬래시 | `로그 채널` | 서버 관리자가 생성 로그 수신을 채널별 활성화/비활성화 |
 | 메시지 메뉴 | `이 메세지만 삭제` | 플랫폼 삭제 성공 후 공통 삭제 정책 반영 |
 | 메시지 메뉴 | `이 이후 메세지 삭제` | 대상 포함 후속 메시지 삭제, 확인된 ID만 반영 |
 | 메시지 메뉴 | `생성 정보 확인` | 연결된 Generation 상태·입력·출력 확인 |
@@ -23,6 +24,8 @@ messageCreate·messageUpdate·messageDelete·messageDeleteBulk를 CREATE·UPDATE
 삭제 명령은 플랫폼 bulk/개별 삭제 결과를 확인한 후 StoredMessageService로 전달한다. 플랫폼 이벤트가 중복 도착해도 공통 삭제 경로에서 중복 경험과 응답을 막는다. 삭제 권한이 없는 메시지는 DB에서 성공한 것처럼 처리하지 않는다.
 
 `npm run deploy`는 commands 디렉터리를 읽고 토큰으로 application ID를 조회해 명령 목록을 등록한다. `DISCORD_GUILD_ID`로 길드/전역 등록을 선택한다. 본문 prefix 명령 처리 기능은 현재 구현되어 있지 않다.
+
+`/로그 채널 상태:활성화`는 현재 채널로 이 서버의 생성 로그를 받는다. 선택 항목 `대상`으로 수신 채널을 지정한다. 수신 설정은 Channel.logEnabled에 저장해 재시작 후에도 유지한다. 첫 메시지부터 대기 카드에 원문을 누적하고 생성·응답 완료까지 같은 카드를 수정한다. 설정·권한·저장·장애 처리 계약은 [로그](../운영/로그.md)를 참고한다.
 
 ## 로더에서 실제 핸들러까지
 

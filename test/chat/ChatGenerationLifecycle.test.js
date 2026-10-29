@@ -49,6 +49,8 @@ test("ChatGenerationLifecycle keeps PROCESSING until output is recorded", async 
   });
 
   assert.deepStrictEqual(result, { shouldProceed: true });
+  const generatedAt = calls[0][3].metadata.timings.generatedAt;
+  assert.ok(Number.isFinite(Date.parse(generatedAt)));
   assert.deepStrictEqual(calls, [
     [
       7,
@@ -58,6 +60,7 @@ test("ChatGenerationLifecycle keeps PROCESSING until output is recorded", async 
         output: '["hello"]',
         apiRequest: "request",
         apiResponse: "response",
+        metadata: { timings: { generatedAt } },
       },
     ],
   ]);

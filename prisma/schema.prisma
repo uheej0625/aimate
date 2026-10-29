@@ -60,6 +60,7 @@ model Channel {
 
   scope         String? // "global" | "server" | "channel"
   lastMessageNo Int     @default(0)
+  logEnabled    Boolean @default(false)
 
   serverId String?
   server   Server? @relation(fields: [serverId], references: [id])

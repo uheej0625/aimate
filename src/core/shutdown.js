@@ -17,6 +17,7 @@ export function registerShutdown({
   conversationBuffer,
   generationAbortRegistry = null,
   generationRepository = null,
+  discordLogService = null,
   configManager = null,
   client = null,
   disconnectDatabase = null,
@@ -64,6 +65,16 @@ export function registerShutdown({
       logger.error(
         { event: "app.shutdown.cancel.failed", err: error },
         "Failed to cancel generations",
+      );
+    }
+
+    // Finish queued log edits while Discord and the database are still available.
+    try {
+      await discordLogService?.close();
+    } catch (error) {
+      logger.warn(
+        { event: "app.shutdown.logs.failed", err: error },
+        "Failed to flush Discord logs",
       );
     }
 

@@ -124,6 +124,291 @@ test.after(async () => {
   await fs.rm(`${databasePath}-shm`, { force: true });
 });
 
+test("Discord logs read existing records and API response text without changing the generation lifecycle", async (t) => {
+  const { DiscordLogRepository } = await import(
+    "../../src/platforms/discord/logging/DiscordLogRepository.js"
+  );
+  const { DiscordLogService } = await import(
+    "../../src/platforms/discord/logging/DiscordLogService.js"
+  );
+  const { toTextResultMetadata } = await import("../../src/ai/metadata.js");
+  const { generateText } = await import("ai");
+  const { MockLanguageModelV3 } = await import("ai/test");
+  const raw =
+    "  \n## messages\nfirst[BREAK]  second\n\n## state\noriginal state  ";
+  const result = await generateText({
+    model: new MockLanguageModelV3({
+      doGenerate: {
+        content: [{ type: "text", text: raw }],
+        finishReason: { unified: "stop", raw: "stop" },
+        usage: { inputTokens: { total: 1 }, outputTokens: { total: 2 } },
+        warnings: [],
+      },
+    }),
+    prompt: "local fixture",
+  });
+  const h = createHarness({
+    generateTextFn: async () => fakeTextResult("## messages\nreply"),
+  });
+  const guildId = randomUUID();
+  const logChannelId = randomUUID();
+  const sent = [];
+  const edits = [];
+  const logChannel = {
+    id: logChannelId,
+    guildId,
+    isSendable: () => true,
+    send: async ({ embeds }) => {
+      const id = randomUUID();
+      sent.push({ id, embed: embeds[0].toJSON() });
+      return { id };
+    },
+    messages: {
+      edit: async (id, { embeds }) =>
+        edits.push({ id, embed: embeds[0].toJSON() }),
+    },
+  };
+  const buffers = new Map();
+  const createLogs = () =>
+    new DiscordLogService({
+      client: { channels: { fetch: async () => logChannel } },
+      repository: new DiscordLogRepository(),
+      eventBus: h.eventBus,
+      conversationBuffer: { buffers },
+      configManager: {
+        get: (key) => (key === "character" ? "fixture" : "minimal"),
+      },
+    });
+  const logs = createLogs();
+  logs.start();
+  t.after(async () => {
+    await logs.close();
+    await logs.configure({ guildId, channelId: logChannelId, enabled: false });
+  });
+  await logs.configure({
+    guildId,
+    channelId: logChannelId,
+    enabled: true,
+  });
+  const logRecord = await prisma.channel.findUnique({
+    where: {
+      platform_platformId: { platform: "discord", platformId: logChannelId },
+    },
+    include: { server: true },
+  });
+  assert.equal(logRecord.logEnabled, true);
+  assert.equal(logRecord.server.platformId, guildId);
+  for (const kind of ["CREATE", "UPDATE", "DELETE"]) {
+    assert.deepEqual(
+      await h.messageHandler.handle({
+        kind,
+        channel: { platform: "discord", platformChannelId: logChannelId },
+        botId: h.botId,
+        loadMessage: () =>
+          assert.fail("A stored log channel must be filtered before hydration"),
+        platformMessageIds: [randomUUID()],
+      }),
+      { changed: false },
+    );
+  }
+  assert.equal(
+    await prisma.message.count({ where: { channelId: logRecord.id } }),
+    0,
+  );
+  assert.equal(
+    await prisma.event.count({ where: { channelId: logRecord.id } }),
+    0,
+  );
+  assert.equal(h.bufferedRequests.length, 0);
+  const input = {
+    ...createUserMessage(h, { id: randomUUID(), content: "user[BREAK]text" }),
+    platform: "discord",
+    platformChannelId: randomUUID(),
+    platformServerId: guildId,
+  };
+  const saved = await h.messageService.saveMessage(input);
+  const key = JSON.stringify(["discord", input.platformChannelId]);
+  buffers.set(key, { turnId: "waiting-turn" });
+  await logs.refresh();
+  assert.equal(
+    await prisma.generation.count({ where: { channelId: saved.channel.id } }),
+    0,
+  );
+  const pendingCard = sent.find((item) =>
+    item.embed.author.name.endsWith("GENERATION"),
+  );
+  assert.match(pendingCard.embed.title, /대기/);
+  const request = (embed) =>
+    embed.fields.find((item) => item.name === "요청").value;
+  assert.equal(request(pendingCard.embed), '#1 [메시지] "user[BREAK]text"');
+  const secondInput = {
+    ...input,
+    platformMessageId: randomUUID(),
+    content: "  second[BREAK]input  ",
+  };
+  await h.messageService.saveMessage(secondInput);
+  buffers.set(key, { turnId: "replacement-turn" });
+  await logs.refresh();
+  const updatedPending = edits.find((item) => item.id === pendingCard.id);
+  assert.match(updatedPending.embed.title, /대기/);
+  assert.equal(
+    request(updatedPending.embed),
+    '#1 [메시지] "user[BREAK]text"\n#2 [메시지] "  second[BREAK]input  "',
+  );
+  await h.messageService.updateMessage(
+    { ...secondInput, content: "edited[BREAK]input", editedAt: new Date() },
+    { observed: true },
+  );
+  await h.messageService.deleteMessages(
+    "discord",
+    [input.platformMessageId],
+    saved.channel.id,
+    { observed: true },
+  );
+  buffers.set(key, { turnId: "edited-turn" });
+  await logs.refresh();
+  const pendingRequest = request(edits.at(-1).embed);
+  assert.equal(
+    pendingRequest,
+    [
+      '#1 [메시지] "user[BREAK]text"',
+      '#2 [메시지] "  second[BREAK]input  "',
+      '#2 [수정] "  second[BREAK]input  " → "edited[BREAK]input"',
+      '#1 [삭제] "user[BREAK]text"',
+    ].join("\n"),
+  );
+  assert.equal(edits.at(-1).id, pendingCard.id);
+  const prepared = await h.historyService.fetchHistoryData(
+    saved.channel.id,
+    h.botId,
+  );
+  const generation = await h.generationRepository.create({
+    channelId: saved.channel.id,
+    prompt: "minimal",
+    status: "PROCESSING",
+    input: JSON.stringify({
+      messages: prepared.inputMessages.map((content, index) => ({
+        id: prepared.messageIds[index],
+        content,
+      })),
+      eventSnapshot: prepared.eventSnapshot,
+    }),
+  });
+  buffers.delete(key);
+  await h.eventBus.emitAsync(AppEvents.GenerationStarted, { generation });
+  await logs.flush();
+  assert.equal(
+    edits.find((item) => item.embed.author.name.endsWith("GENERATION")).id,
+    pendingCard.id,
+  );
+  await h.generationRepository.updateDetailsAndStatusIfCurrent(
+    generation.id,
+    "PROCESSING",
+    "GENERATED",
+    {
+      output: '["first","second"]',
+      apiResponse: toTextResultMetadata(result),
+      metadata: { timings: { generatedAt: new Date().toISOString() } },
+    },
+  );
+  await h.generationRepository.completeChat(generation.id, new Date());
+  assert.deepEqual(
+    await new DiscordLogRepository().pendingEvents(saved.channel.id, "fixture"),
+    [],
+  );
+  await logs.refresh();
+  const completed = edits
+    .filter((item) => item.embed.author.name.endsWith("GENERATION"))
+    .at(-1);
+  assert.equal(completed.id, pendingCard.id);
+  assert.equal(
+    request(completed.embed),
+    pendingRequest,
+    "Waiting and stored generation views use the same observations",
+  );
+  assert.match(completed.embed.title, /완료/);
+  const response = completed.embed.fields.find(
+    (item) => item.name === "응답",
+  ).value;
+  assert.ok(response.includes("first[BREAK]  second"));
+  assert.ok(response.startsWith("  "));
+  assert.ok(response.endsWith("  "));
+  const savedTiming = JSON.parse(
+    (await h.generationRepository.findById(generation.id)).metadata,
+  ).timings;
+  assert.ok(
+    Date.parse(savedTiming.completedAt) >= Date.parse(savedTiming.generatedAt),
+  );
+  assert.equal(
+    Object.keys(savedTiming).length,
+    2,
+    "Only stage boundaries are stored, without duplicating request or response text",
+  );
+  assert.equal(
+    sent.filter((item) => item.embed.author.name.endsWith("GENERATION")).length,
+    1,
+  );
+  assert.equal(
+    sent.length,
+    1,
+    "Message and Event rows do not create separate logs",
+  );
+  assert.ok(edits.every((item) => item.id === pendingCard.id));
+  await h.messageService.saveMessage({
+    ...input,
+    platformMessageId: randomUUID(),
+    content: "next batch",
+  });
+  buffers.set(key, { turnId: "next-batch" });
+  await logs.refresh();
+  const nextCard = sent
+    .filter((item) => item.embed.author.name.endsWith("GENERATION"))
+    .at(-1);
+  assert.notEqual(nextCard.id, pendingCard.id);
+  assert.equal(request(nextCard.embed), '#3 [메시지] "next batch"');
+  await logs.close();
+  const restarted = createLogs();
+  t.after(() => restarted.close());
+  restarted.start();
+  await restarted.refresh();
+  assert.equal(sent.length, 3, "Stored log settings survive a service restart");
+  const originals = [];
+  await restarted.showOriginal({
+    customId: `aimate-log:response:${generation.id}`,
+    guildId,
+    deferReply: async () => {},
+    editReply: async (payload) => originals.push(payload),
+    followUp: async (payload) => originals.push(payload),
+  });
+  assert.equal(originals.length, 1);
+  assert.deepEqual(Object.keys(originals[0]), ["files"]);
+  const fullResponse = originals[0].files[0].attachment.toString("utf8");
+  assert.deepEqual(
+    JSON.parse(fullResponse),
+    JSON.parse(
+      (await h.generationRepository.findById(generation.id)).apiResponse,
+    ),
+  );
+  assert.equal(
+    await new DiscordLogRepository().generation(generation.id, randomUUID()),
+    null,
+  );
+  await restarted.configure({
+    guildId,
+    channelId: logChannelId,
+    enabled: false,
+  });
+  await restarted.close();
+  const disabled = createLogs();
+  await disabled.refresh();
+  await disabled.close();
+  assert.equal(sent.length, 3, "Disabled log settings also survive a restart");
+  const disabledRecord = await prisma.channel.findUnique({
+    where: { id: logRecord.id },
+  });
+  assert.equal(disabledRecord.logEnabled, false);
+});
+
 test("chat pipeline persists history and multiple model-free replies", async () => {
   const modelRequests = [];
   const responses = [

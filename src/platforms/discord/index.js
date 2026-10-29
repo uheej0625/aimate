@@ -39,6 +39,7 @@ const main = async () => {
       conversationBuffer: app.conversationBuffer,
       generationAbortRegistry: app.generationAbortRegistry,
       generationRepository: app.generationRepository,
+      discordLogService: app.discordLogService,
       configManager,
       client,
       disconnectDatabase: () => prisma.$disconnect(),

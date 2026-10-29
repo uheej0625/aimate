@@ -1,6 +1,8 @@
 import { createContainer } from "../../core/container.js";
 import { loadCommands } from "./handlers/commandHandler.js";
 import { loadEvents } from "./handlers/eventHandler.js";
+import { DiscordLogRepository } from "./logging/DiscordLogRepository.js";
+import { DiscordLogService } from "./logging/DiscordLogService.js";
 
 export async function createDiscordApplication({ configManager, client }) {
   const platformClients = new Map([["discord", client]]);
@@ -9,12 +11,28 @@ export async function createDiscordApplication({ configManager, client }) {
     configManager,
     platformClients,
   });
+  const discordLogService = new DiscordLogService({
+    client,
+    repository: new DiscordLogRepository(),
+    eventBus: app.eventBus,
+    conversationBuffer: app.conversationBuffer,
+    configManager,
+  });
+  discordLogService.start();
 
   await loadEvents(client, {
-    messageHandler: app.messageHandler,
+    discordLogService,
+    messageHandler: {
+      async handle(event) {
+        const result = await app.messageHandler.handle(event);
+        if (result.changed) void discordLogService.refresh();
+        return result;
+      },
+    },
     botAccountService: app.botAccountService,
   });
   await loadCommands(client, {
+    discordLogService,
     activateChannel: app.activateChannel,
     storedMessageService: app.storedMessageService,
     getGenerationInfo: app.getGenerationInfo,
@@ -22,5 +40,5 @@ export async function createDiscordApplication({ configManager, client }) {
     messageHandler: app.messageHandler,
   });
 
-  return app;
+  return { ...app, discordLogService };
 }

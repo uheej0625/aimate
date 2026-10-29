@@ -72,6 +72,30 @@ test("new input starts watching and cancels active generation before buffering",
   assert.equal(h.session.isCurrent(h.key, h.requests[0].turnId), true);
 });
 
+test("log channels skip creation, edits and deletions before hydration or storage", async () => {
+  const h = harness({
+    saveMessage: () => assert.fail("Log messages must not be stored"),
+    updateMessage: () => assert.fail("Log edits must not be stored"),
+    deleteMessages: () => assert.fail("Log deletions must not be stored"),
+  });
+  h.handler.channelRepository.findByPlatformId = async () => ({
+    id: "internal",
+    logEnabled: true,
+  });
+  for (const kind of ["CREATE", "UPDATE", "DELETE"]) {
+    assert.deepEqual(
+      await h.handle(kind, {
+        message: undefined,
+        loadMessage: () => assert.fail("Log messages must not be hydrated"),
+      }),
+      { changed: false },
+    );
+  }
+  assert.deepEqual(h.calls, []);
+  assert.equal(h.requests.length, 0);
+  assert.equal(h.session.isWatching(h.key), false);
+});
+
 test("bots and duplicate events do not start or prolong watching", async () => {
   const h = harness({
     saveMessage: async () => ({ changed: false }),
