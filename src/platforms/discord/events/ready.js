@@ -35,11 +35,5 @@ export default {
         "Failed to initialize bot platform account",
       );
     }
-
-    // 봇 상태 설정
-    client.user.setPresence({
-      activities: [{ name: "Discord", type: 0 }],
-      status: "online",
-    });
   },
 };

@@ -10,6 +10,19 @@ messageCreate·messageUpdate·messageDelete·messageDeleteBulk를 CREATE·UPDATE
 
 `/활성화`는 현재 채널을 등록하고 선택한 global/server/channel scope를 저장한다. **현재 수신 조건은 해당 Channel record가 존재하고 logEnabled가 false인 것**이다. 로그 채널의 생성·수정·삭제 이벤트는 MessageHandler에서 본문 조회·저장·응답 예약 전에 건너뛴다. scope에 따라 서버 전체로 활성화를 확장하는 로직이나 멘션·DM·features 설정별 응답 필터는 현재 MessageHandler에 없다. 등록되지 않은 DM도 자동 활성화되지 않는다.
 
+## 봇 프레즌스
+
+시작 시 온라인·활동 없음으로 접속하며 ready 이벤트는 프레즌스를 덮어쓰지 않는다. AI는 두 Discord 전용 도구를 사용한다.
+
+- `set_discord_status`: `status`를 `online`, `idle`, `dnd`, `invisible`, `offline` 중 하나로 변경한다. 활동은 유지한다.
+- `set_discord_activity`: `activities` 목록 전체를 교체한다. 각 항목은 `type`과 `name`을 지정하며 빈 배열로 모두 지운다. 접속 상태는 유지한다.
+
+활동 유형은 `PLAYING`, `LISTENING`, `WATCHING`, `CUSTOM`, `COMPETING`이다. 스트리밍과 URL은 지원하지 않는다. CUSTOM 외의 name에는 자연어 설명이나 약칭 대신 실제 게임의 정식 전체 이름을 쓰도록 안내한다. CUSTOM의 name에는 표시할 문구를 넣으며 도구가 Discord의 `name: "Custom Status"`, `state: "표시할 문구"`로 변환한다. 두 도구 모두 변경을 남용하지 않도록 안내하며 특히 CUSTOM은 꼭 필요할 때만 사용한다. 게임명 선택과 사용 빈도는 모델 지침이며 코드의 게임명 검증이나 호출 횟수 제한은 아니다.
+
+예를 들어 `{"activities":[{"type":"PLAYING","name":"Stardew Valley"}]}`는 게임 활동을 표시하고, `{"activities":[]}`는 활동을 지운다. 잘못된 상태·활동 유형·미지원 필드는 전송 전에 오류로 반환한다. SDK 실행 오류는 ToolRegistry에서 모델용 error로 변환한다.
+
+상태는 모든 서버에서 공유하며 저장하지 않고 재시작 시 초기화한다. 도구 성공은 Gateway 갱신 요청을 전송했다는 의미다.
+
 ## 명령
 
 | 종류 | 표시 이름 | 동작 |
@@ -45,8 +58,8 @@ Discord 삭제 이벤트가 명령의 DB 반영보다 먼저 처리되면 명령
 
 ## 근거와 검증
 
-구현: `src/platforms/discord/client.js`, `src/platforms/discord/adapter.js`, `src/platforms/discord/events/`, `src/platforms/discord/commands/`, `src/platforms/discord/deploy.js`.
+구현: `src/platforms/discord/client.js`, `src/platforms/discord/adapter.js`, `src/platforms/discord/events/`, `src/platforms/discord/commands/`, `src/platforms/discord/deploy.js`, `src/tools/definitions/setDiscordStatus.js`, `src/tools/definitions/setDiscordActivity.js`.
 
-테스트: `test/platforms/discord/adapter.test.js`, `test/platforms/discord/deletionCommands.test.js`, `test/platforms/discord/createDiscordApplication.test.js`.
+테스트: `test/platforms/discord/adapter.test.js`, `test/platforms/discord/deletionCommands.test.js`, `test/platforms/discord/createDiscordApplication.test.js`, `test/platforms/discord/presence.test.js`(기본 활동 없음·ready 덮어쓰기 방지), `test/tools/discordPresence.test.js`(실제 discord.js Gateway 패킷·상태/활동 독립 변경·5가지 활동·삭제·스트리밍 거부·등록/플랫폼 필터).
 
 [홈](../홈.md) · [플랫폼 독립 계약](../구조/플랫폼%20독립%20계약.md) · [생성과 전송 및 재생성](../대화/생성과%20전송%20및%20재생성.md)

@@ -36,11 +36,6 @@ ai:
     includeTimeContext: true
     maxRetries: 3
     providerOptions: {}
-discord:
-  commandPrefix: "!"
-  botStatus: online
-  activityType: PLAYING
-  activityName: 채팅 중...
 conversation:
   maxContextMessages: 20
   maxHistoryDays: 30

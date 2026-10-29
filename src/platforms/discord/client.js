@@ -5,6 +5,7 @@ const logger = createLogger("DiscordClient");
 
 // Discord 클라이언트 생성
 const client = new Client({
+  presence: { status: "online", activities: [], afk: false, since: null },
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
