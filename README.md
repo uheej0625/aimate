@@ -35,12 +35,17 @@ cp .env.example .env
 | `AIMATE_DISCORD_<CHARACTER_ID>_TOKEN`   | 캐릭터별 Discord 봇 토큰          |
 | `AI_GATEWAY_API_KEY`                    | Vercel AI Gateway 키              |
 | `OPENAI_API_KEY`                        | OpenAI 직접 연동 키               |
+| `OPENAI_COMPATIBLE_API_KEY`             | OpenAI-compatible 연동 키         |
 | `XAI_API_KEY`                           | xAI 직접 연동 키                  |
 | `GOOGLE_GENERATIVE_AI_API_KEY`          | Google Generative AI 키           |
 | `VERTEX_PROJECT_ID`                     | Vertex AI 프로젝트 ID             |
 | `VERTEX_LOCATION`                       | Vertex AI 리전                    |
 
-AI provider는 Vercel AI SDK provider 이름을 그대로 씁니다. `config/default.json`의 `ai.chat.provider`, `ai.image.provider`에는 `gateway`, `openai`, `google`, `vertex`, `openaiCompatible`, `xai` 중 하나를 넣습니다. AI Gateway를 쓰면 `provider`를 `gateway`로 두고 `model`을 `openai/gpt-5-mini`처럼 Gateway 모델 ID로 설정합니다.
+API 키와 서비스 계정 인증 정보는 환경 변수로만 설정합니다. 로컬에서는 Git에서 제외한 `.env`를 사용하고, 배포에서는 실행 환경의 비밀 값 주입 기능을 사용합니다. YAML에는 `secrets`나 `ai.<purpose>.apiKey`를 넣지 않습니다. AI 인증은 시작 시 일반 설정과 분리해서 읽으므로 변경 후에는 재시작합니다. `scripts/setup.js`는 토큰·API 키·private key 입력을 숨깁니다.
+
+Vertex 프로젝트와 리전은 비밀 값이 아니며 `config/default.yaml`의 `ai.vertex.projectId`, `ai.vertex.location`에서 설정합니다. `VERTEX_PROJECT_ID`, `VERTEX_LOCATION`이 비어 있지 않으면 해당 값이 우선합니다. 명시 인증에는 `VERTEX_CLIENT_EMAIL`, `VERTEX_PRIVATE_KEY`를 함께 지정하고, 둘 다 없으면 Google Application Default Credentials를 사용합니다. 한쪽만 지정하면 시작 시 오류입니다.
+
+AI provider는 Vercel AI SDK provider 이름을 그대로 씁니다. `config/default.yaml`의 `ai.chat.provider`, `ai.image.provider`에는 `gateway`, `openai`, `google`, `vertex`, `openaiCompatible`, `xai` 중 하나를 넣습니다. AI Gateway를 쓰면 `provider`를 `gateway`로 두고 `model`을 `openai/gpt-5-mini`처럼 Gateway 모델 ID로 설정합니다.
 
 `ai.chat.prompt`와 `ai.image.prompt`에는 `content/prompts/` 아래에 존재하는 프롬프트 팩 이름을 지정해야 합니다. `character`에는 `content/characters/` 아래에 존재하는 캐릭터 ID를 지정하며, 해당 ID의 대문자·하이픈 치환 값으로 Discord 토큰 환경변수 이름을 만듭니다. 예를 들어 `character: "alice-v2"`는 `AIMATE_DISCORD_ALICE_V2_TOKEN`을 사용합니다. 프로젝트에서 사용하는 프롬프트 팩은 별도 라이선스와 개발 상태 때문에 Git에서 제외될 수 있습니다.
 
@@ -114,7 +119,7 @@ xAI Responses API의 서버사이드 도구는 AiMate의 일반 도구(`getTime`
 
 ### 캐릭터 설정
 
-`config/default.json`의 `character`로 활성 캐릭터를 고릅니다. `content/characters/<character>/` 안의 `config.json`, `variables.json`, `identity.md`, `reference.png`으로 동작 설정, 이름, 나이, 말투, 성격과 셀피 기준 이미지를 정의합니다. 변경은 다음 실행부터 적용됩니다.
+`config/default.yaml`의 `character`로 활성 캐릭터를 고릅니다. `content/characters/<character>/` 안의 `config.json`, `variables.json`, `identity.md`, `reference.png`으로 동작 설정, 이름, 나이, 말투, 성격과 셀피 기준 이미지를 정의합니다. 변경은 다음 실행부터 적용됩니다.
 
 캐릭터별 동작 설정은 같은 디렉터리의 필수 파일인 `config.json`에 둡니다. 예를 들어 `{ "timezone": "Asia/Seoul" }`로 유효한 IANA 시간대를 지정합니다. 파일이 없거나 `timezone`이 누락·오류이면 애플리케이션 시작이 설정 오류로 중단됩니다. 생일·입학 연도 같은 프로필 데이터는 `variables.json`에 둡니다. 관찰 시각, 현재 시각(`system.now`), 나이·학년 계산은 캐릭터의 `timezone`을 사용하고, 날짜 표기 언어는 `app.language`를 따릅니다.
 

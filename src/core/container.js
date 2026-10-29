@@ -19,6 +19,7 @@ import { GeneratedImageTagPolicy } from "../chat/response/GeneratedImageTagPolic
 import { GeneratedImageAttachmentResolver } from "../messages/GeneratedImageAttachmentResolver.js";
 import { HistoryMessageFormatter } from "../messages/HistoryMessageFormatter.js";
 import { validateAiConfig } from "../config/index.js";
+import { loadAiCredentials } from "../ai/credentials.js";
 import { MessageHandler } from "../messages/MessageHandler.js";
 import { ConversationBuffer } from "../chat/ConversationBuffer.js";
 import { ConversationSession } from "../chat/ConversationSession.js";
@@ -44,13 +45,14 @@ import { ChannelCatalog } from "../application/ChannelCatalog.js";
  */
 export async function createContainer({
   configManager,
+  credentials = loadAiCredentials(),
   platformClients = new Map(),
 }) {
   if (!configManager) {
     throw new Error("createContainer requires a configManager.");
   }
 
-  await validateAiConfig(configManager);
+  await validateAiConfig(configManager, undefined, credentials);
 
   const characterContextBuilder = new CharacterContextBuilder({
     configManager,
@@ -90,7 +92,7 @@ export async function createContainer({
   const toolRegistry = new ToolRegistry(configManager);
   await toolRegistry.loadFromDirectory();
 
-  const imageGenerator = new ImageGenerator(configManager);
+  const imageGenerator = new ImageGenerator(configManager, { credentials });
   const toolContextFactory = new ToolExecutionContextFactory({
     configManager,
     imageGenerator,
@@ -119,6 +121,7 @@ export async function createContainer({
   );
   const chatGenerator = new ChatGenerator({
     configManager,
+    credentials,
     toolRegistry,
     responseParser,
     generatedImageTagPolicy,

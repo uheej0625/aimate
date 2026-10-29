@@ -47,6 +47,8 @@ function createRootLogger({ level = "info", isDev = false, destination } = {}) {
       redact: {
         paths: [
           "secrets",
+          "credentials",
+          "*.credentials",
           "authorization",
           "apiKey",
           "token",

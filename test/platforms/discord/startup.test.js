@@ -5,6 +5,7 @@ import { cp, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { stringify } from "yaml";
 
 const projectRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -13,6 +14,7 @@ async function runStartup(
   changeConfig = () => {},
   token = "test-token",
   characterConfig = { timezone: "UTC" },
+  credentials = { OPENAI_API_KEY: "test-key" },
 ) {
   const directory = await mkdtemp(path.join(tmpdir(), "aimate-startup-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
@@ -33,12 +35,11 @@ async function runStartup(
       chat: { provider: "openai", model: "test-model", prompt: "minimal" },
       image: { provider: "openai", model: "test-image", prompt: "minimal" },
     },
-    secrets: { openaiApiKey: "test-key" },
   };
   changeConfig(config);
   await writeFile(
-    path.join(directory, "config/default.json"),
-    JSON.stringify(config),
+    path.join(directory, "config/default.yaml"),
+    stringify(config),
   );
   if (characterConfig) {
     const characterDirectory = path.join(
@@ -71,6 +72,7 @@ export default {
       PATH: process.env.PATH,
       DATABASE_URL: `file:${path.join(directory, "unused.db")}`,
       AIMATE_DISCORD_STARTUP_TEST_TOKEN: token,
+      ...credentials,
     },
     encoding: "utf8",
     timeout: 15000,
@@ -81,7 +83,10 @@ function assertFailure(result, exitCode, message) {
   assert.ifError(result.error);
   assert.strictEqual(result.status, exitCode, result.stdout + result.stderr);
   assert.match(result.stdout, message);
-  assert.strictEqual((result.stdout.match(/Failed to start bot/g) ?? []).length, 1);
+  assert.strictEqual(
+    (result.stdout.match(/Failed to start bot/g) ?? []).length,
+    1,
+  );
 }
 
 test("Discord startup exits with 78 for invalid native tool configuration", async (t) => {
@@ -92,9 +97,7 @@ test("Discord startup exits with 78 for invalid native tool configuration", asyn
 });
 
 test("Discord startup exits with 78 for missing AI credentials", async (t) => {
-  const result = await runStartup(t, (config) => {
-    delete config.secrets.openaiApiKey;
-  });
+  const result = await runStartup(t, undefined, undefined, undefined, {});
   assertFailure(result, 78, /OPENAI_API_KEY/);
 });
 

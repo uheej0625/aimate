@@ -1,6 +1,7 @@
 import { AIResponseParser } from "../chat/response/AIResponseParser.js";
 import { GeneratedImageTagPolicy } from "../chat/response/GeneratedImageTagPolicy.js";
 import { generateChatReply } from "./chat.js";
+import { loadAiCredentials } from "./credentials.js";
 
 /**
  * Generates model responses for prepared chat context.
@@ -8,6 +9,7 @@ import { generateChatReply } from "./chat.js";
 export class ChatGenerator {
   constructor({
     configManager,
+    credentials = loadAiCredentials(),
     toolRegistry = null,
     toolContextFactory = null,
     responseParser = new AIResponseParser(),
@@ -16,6 +18,7 @@ export class ChatGenerator {
     createLanguageModelFn = undefined,
   }) {
     this.configManager = configManager;
+    this.credentials = credentials;
     this.toolRegistry = toolRegistry;
     this.toolContextFactory = toolContextFactory;
     this.responseParser = responseParser;
@@ -33,6 +36,7 @@ export class ChatGenerator {
   ) {
     return generateChatReply({
       configManager: this.configManager,
+      credentials: this.credentials,
       context,
       systemInstruction,
       platform,

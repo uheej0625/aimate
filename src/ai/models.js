@@ -5,26 +5,36 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createXai } from "@ai-sdk/xai";
 import { getAiSettings } from "./config.js";
+import { loadAiCredentials } from "./credentials.js";
 
-export function createLanguageModel(configManager, purpose = "chat") {
+export function createLanguageModel(
+  configManager,
+  purpose = "chat",
+  credentials = loadAiCredentials(),
+) {
   const settings = getAiSettings(configManager, purpose);
-  return createProvider(configManager, settings).language(settings.model);
+  return createProvider(configManager, settings, credentials).language(
+    settings.model,
+  );
 }
 
-export function createImageModel(configManager, purpose = "image") {
+export function createImageModel(
+  configManager,
+  purpose = "image",
+  credentials = loadAiCredentials(),
+) {
   const settings = getAiSettings(configManager, purpose);
-  return createProvider(configManager, settings).image(settings.model);
+  return createProvider(configManager, settings, credentials).image(
+    settings.model,
+  );
 }
 
-function createProvider(configManager, settings) {
+function createProvider(configManager, settings, credentials) {
   const provider = settings.provider ?? "gateway";
 
   if (provider === "gateway") {
     const gateway = createGateway({
-      apiKey:
-        configManager.get("secrets.aiGatewayApiKey") ||
-        process.env.AI_GATEWAY_API_KEY ||
-        process.env.VERCEL_OIDC_TOKEN,
+      apiKey: credentials.aiGatewayApiKey,
       baseURL: settings.baseURL,
     });
 
@@ -36,7 +46,7 @@ function createProvider(configManager, settings) {
 
   if (provider === "openai") {
     const openai = createOpenAI({
-      apiKey: configManager.get("secrets.openaiApiKey"),
+      apiKey: credentials.openaiApiKey,
       baseURL: settings.baseURL,
     });
 
@@ -48,7 +58,7 @@ function createProvider(configManager, settings) {
 
   if (provider === "google") {
     const google = createGoogleGenerativeAI({
-      apiKey: configManager.get("secrets.googleApiKey"),
+      apiKey: credentials.googleApiKey,
       baseURL: settings.baseURL,
     });
 
@@ -59,7 +69,9 @@ function createProvider(configManager, settings) {
   }
 
   if (provider === "vertex") {
-    const vertex = createVertex(buildVertexOptions(configManager, settings));
+    const vertex = createVertex(
+      buildVertexOptions(configManager, settings, credentials),
+    );
 
     return {
       language: (model) => vertex(model),
@@ -71,8 +83,7 @@ function createProvider(configManager, settings) {
     const compatible = createOpenAICompatible({
       name: settings.name ?? "openai-compatible",
       baseURL: settings.baseURL,
-      apiKey:
-        settings.apiKey ?? configManager.get("secrets.openaiCompatibleApiKey"),
+      apiKey: credentials.openaiCompatibleApiKey,
     });
 
     return {
@@ -83,7 +94,7 @@ function createProvider(configManager, settings) {
 
   if (provider === "xai") {
     const xai = createXai({
-      apiKey: configManager.get("secrets.xaiApiKey"),
+      apiKey: credentials.xaiApiKey,
       baseURL: settings.baseURL,
     });
 
@@ -97,12 +108,12 @@ function createProvider(configManager, settings) {
   throw new Error(`Unsupported AI provider: ${provider}`);
 }
 
-function buildVertexOptions(configManager, settings) {
-  const clientEmail = configManager.get("secrets.vertexClientEmail");
-  const privateKey = configManager.get("secrets.vertexPrivateKey");
+function buildVertexOptions(configManager, settings, credentials) {
+  const clientEmail = credentials.vertexClientEmail;
+  const privateKey = credentials.vertexPrivateKey;
   const options = {
-    project: configManager.get("secrets.vertexProjectId"),
-    location: configManager.get("secrets.vertexLocation") || "global",
+    project: configManager.get("ai.vertex.projectId"),
+    location: configManager.get("ai.vertex.location") || "global",
     baseURL: settings.baseURL,
   };
 

@@ -4,7 +4,7 @@ import fs from "fs/promises";
 import path from "path";
 import {
   snapshot,
-  compare,
+  compare as runCompare,
   evaluate,
   checkContract,
   usageSummary,
@@ -13,6 +13,14 @@ import {
 import { cases } from "../../scripts/characterPromptCases.js";
 import statusTool from "../../src/tools/definitions/setDiscordStatus.js";
 import photoTool from "../../src/tools/definitions/generatePhoto.js";
+
+import { loadAiCredentials } from "../../src/ai/credentials.js";
+const credentials = loadAiCredentials({
+  AI_GATEWAY_API_KEY: "fixture-secret-value",
+});
+function compare(options) {
+  return runCompare({ credentials, ...options });
+}
 
 function manager() {
   const config = {
@@ -26,7 +34,6 @@ function manager() {
         providerOptions: {},
       },
     },
-    secrets: { aiGatewayApiKey: "fixture-secret-value" },
     tools: { maxSteps: 5 },
   };
   return {

@@ -3,13 +3,19 @@ import { generateImage } from "ai";
 import { createLogger, elapsedMs } from "../core/logger.js";
 import { getAiSettings, getProviderOptions, stripEmpty } from "./config.js";
 import { createImageModel } from "./models.js";
+import { loadAiCredentials } from "./credentials.js";
 import { serializeMetadata } from "./metadata.js";
 
 const logger = createLogger("AiImages");
 
-export async function generateImageFile(configManager, prompt, options = {}) {
+export async function generateImageFile(
+  configManager,
+  prompt,
+  options = {},
+  credentials = loadAiCredentials(),
+) {
   const settings = getAiSettings(configManager, "image");
-  const imageModel = createImageModel(configManager, "image");
+  const imageModel = createImageModel(configManager, "image", credentials);
   const imagePaths = options.image
     ? Array.isArray(options.image)
       ? options.image

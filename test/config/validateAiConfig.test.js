@@ -1,12 +1,88 @@
 import test from "node:test";
 import assert from "node:assert";
-import { validateAiConfig } from "../../src/config/index.js";
+import { validateAiConfig as validateConfig } from "../../src/config/index.js";
+
+import { loadAiCredentials } from "../../src/ai/credentials.js";
+
+const emptyCredentials = loadAiCredentials({});
+const validCredentials = loadAiCredentials({
+  OPENAI_API_KEY: "openai-key",
+  GOOGLE_GENERATIVE_AI_API_KEY: "google-key",
+  AI_GATEWAY_API_KEY: "gateway-key",
+  XAI_API_KEY: "xai-key",
+});
+function validateAiConfig(manager, purposes, credentials = validCredentials) {
+  return validateConfig(manager, purposes, credentials);
+}
 
 function createConfigManager(config) {
   return {
     get: (key) => key.split(".").reduce((obj, part) => obj?.[part], config),
   };
 }
+
+test("Vertex uses general project settings and ADC when no explicit credentials are supplied", async () => {
+  const manager = createConfigManager({
+    ai: {
+      vertex: { projectId: "test-project", location: "global" },
+      chat: { provider: "vertex", model: "test-model", prompt: "minimal" },
+    },
+  });
+  assert.equal(
+    await validateAiConfig(manager, ["chat"], emptyCredentials),
+    true,
+  );
+  for (const env of [
+    { VERTEX_CLIENT_EMAIL: "test@example.invalid" },
+    { VERTEX_PRIVATE_KEY: "PRIVATE_SENTINEL" },
+  ]) {
+    await assert.rejects(
+      () => validateAiConfig(manager, ["chat"], loadAiCredentials(env)),
+      (error) => {
+        assert.match(error.message, /VERTEX_CLIENT_EMAIL.*VERTEX_PRIVATE_KEY/);
+        assert.doesNotMatch(
+          error.message,
+          /PRIVATE_SENTINEL|test@example.invalid/,
+        );
+        return true;
+      },
+    );
+  }
+  assert.equal(
+    await validateAiConfig(
+      manager,
+      ["chat"],
+      loadAiCredentials({
+        VERTEX_CLIENT_EMAIL: "test@example.invalid",
+        VERTEX_PRIVATE_KEY: "test-key",
+      }),
+    ),
+    true,
+  );
+});
+
+test("OpenAI-compatible rejects inline keys and requires environment credentials", async () => {
+  const manager = createConfigManager({
+    ai: {
+      chat: {
+        provider: "openaiCompatible",
+        model: "test-model",
+        prompt: "minimal",
+        baseURL: "https://example.invalid/v1",
+        apiKey: "PRIVATE_SENTINEL",
+      },
+    },
+  });
+  await assert.rejects(
+    () => validateAiConfig(manager, ["chat"], emptyCredentials),
+    (error) => {
+      assert.match(error.message, /ai\.chat\.apiKey/);
+      assert.match(error.message, /OPENAI_COMPATIBLE_API_KEY/);
+      assert.doesNotMatch(error.message, /PRIVATE_SENTINEL/);
+      return true;
+    },
+  );
+});
 
 test("validateAiConfig checks only active AI purposes", async () => {
   const configManager = createConfigManager({
@@ -19,18 +95,10 @@ test("validateAiConfig checks only active AI purposes", async () => {
       image: { provider: "openai", model: "gpt-image-1", prompt: "minimal" },
       summary: { provider: "google", model: "gemini-3-flash-preview" },
     },
-    secrets: {
-      vertexProjectId: "",
-      vertexLocation: "global",
-      vertexClientEmail: "",
-      vertexPrivateKey: "",
-      openaiApiKey: "",
-      googleApiKey: "",
-    },
   });
 
   await assert.rejects(
-    () => validateAiConfig(configManager),
+    () => validateAiConfig(configManager, undefined, emptyCredentials),
     (error) => {
       assert.match(error.message, /VERTEX_PROJECT_ID/);
       assert.match(error.message, /OPENAI_API_KEY/);
@@ -50,10 +118,6 @@ test("validateAiConfig accepts valid active provider config", async () => {
       },
       image: { provider: "openai", model: "gpt-image-1", prompt: "minimal" },
     },
-    secrets: {
-      googleApiKey: "google-key",
-      openaiApiKey: "openai-key",
-    },
   });
 
   assert.strictEqual(await validateAiConfig(configManager), true);
@@ -68,10 +132,6 @@ test("validateAiConfig accepts gateway provider config", async () => {
         prompt: "minimal",
       },
       image: { provider: "openai", model: "gpt-image-1", prompt: "minimal" },
-    },
-    secrets: {
-      aiGatewayApiKey: "gateway-key",
-      openaiApiKey: "openai-key",
     },
   });
 
@@ -88,12 +148,12 @@ test("validateAiConfig validates provider credentials", async () => {
       },
       image: { provider: "openai", model: "gpt-image-1", prompt: "minimal" },
     },
-    secrets: {
-      openaiApiKey: "",
-    },
   });
 
-  await assert.rejects(() => validateAiConfig(configManager), /OPENAI_API_KEY/);
+  await assert.rejects(
+    () => validateAiConfig(configManager, undefined, emptyCredentials),
+    /OPENAI_API_KEY/,
+  );
 });
 
 test("validateAiConfig rejects unknown providers", async () => {
@@ -105,9 +165,6 @@ test("validateAiConfig rejects unknown providers", async () => {
         prompt: "minimal",
       },
       image: { provider: "openai", model: "gpt-image-1", prompt: "minimal" },
-    },
-    secrets: {
-      openaiApiKey: "openai-key",
     },
   });
 
@@ -129,10 +186,12 @@ test("validateAiConfig validates direct xAI credentials and API mode", async () 
       },
       image: { provider: "openai", model: "gpt-image-1", prompt: "minimal" },
     },
-    secrets: { xaiApiKey: "", openaiApiKey: "openai-key" },
   });
 
-  await assert.rejects(() => validateAiConfig(configManager), /XAI_API_KEY/);
+  await assert.rejects(
+    () => validateAiConfig(configManager, undefined, emptyCredentials),
+    /XAI_API_KEY/,
+  );
 });
 
 test("validateAiConfig accepts xAI native search through Gateway", async () => {
@@ -146,7 +205,6 @@ test("validateAiConfig accepts xAI native search through Gateway", async () => {
       },
       image: { provider: "openai", model: "gpt-image-1", prompt: "minimal" },
     },
-    secrets: { aiGatewayApiKey: "gateway-key", openaiApiKey: "openai-key" },
   });
 
   assert.strictEqual(await validateAiConfig(configManager), true);
@@ -164,7 +222,6 @@ test("validateAiConfig rejects direct xAI native tools without Responses", async
       },
       image: { provider: "openai", model: "gpt-image-1", prompt: "minimal" },
     },
-    secrets: { xaiApiKey: "xai-key", openaiApiKey: "openai-key" },
   });
 
   await assert.rejects(
@@ -187,7 +244,6 @@ test("validateAiConfig requires a resolvable dialect for native tools", async ()
       },
       image: { provider: "openai", model: "gpt-image-1", prompt: "minimal" },
     },
-    secrets: { openaiApiKey: "openai-key" },
   });
 
   await assert.rejects(
@@ -207,7 +263,6 @@ test("validateAiConfig rejects unknown native tool names", async () => {
       },
       image: { provider: "openai", model: "gpt-image-1", prompt: "minimal" },
     },
-    secrets: { aiGatewayApiKey: "gateway-key", openaiApiKey: "openai-key" },
   });
 
   await assert.rejects(
@@ -222,7 +277,6 @@ test("validateAiConfig requires prompt packs for active purposes", async () => {
       chat: { provider: "openai", model: "gpt-5-mini" },
       image: { provider: "openai", model: "gpt-image-1" },
     },
-    secrets: { openaiApiKey: "openai-key" },
   });
 
   await assert.rejects(

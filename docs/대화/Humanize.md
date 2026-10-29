@@ -42,7 +42,7 @@ Humanize는 MessageSender를 사용하는 최종 messages와 오류 안내에 �
 
 ## 근거와 검증
 
-구현: `src/humanize/TypingPacer.js`, `src/messages/MessageSender.js`, `config/default.json`.
+구현: `src/humanize/TypingPacer.js`, `src/messages/MessageSender.js`, `config/default.yaml`.
 
 테스트: `test/humanize/TypingPacer.test.js`, `test/messages/MessageSender.test.js`, `test/integration/ChatPipeline.integration.test.js`. 계산식·태그 제거 후 지연 계산·설정 변경·비활성 상태의 타이핑과 타이머 생략·분할 전송·취소를 검증한다.
 

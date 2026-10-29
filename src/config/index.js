@@ -1,30 +1,24 @@
 /**
  * Configuration helpers.
  *
- * Loads config/default.json and applies environment variable overrides.
+ * Loads general settings from config/default.yaml. Credentials stay separate.
  *
- * Priority: Environment Variables > default.json
+ * Priority: Environment Variables > default.yaml
  */
 import ConfigManager from "./ConfigManager.js";
 import { ConfigurationError } from "./ConfigurationError.js";
 import path from "path";
 import { fileURLToPath } from "url";
 import { validateAiPurpose } from "../ai/config.js";
+import { loadAiCredentials } from "../ai/credentials.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const ACTIVE_AI_PURPOSES = ["chat", "image"];
 const ENV_OVERRIDES = [
-  ["GOOGLE_GENERATIVE_AI_API_KEY", "secrets.googleApiKey"],
-  ["OPENAI_API_KEY", "secrets.openaiApiKey"],
-  ["AI_GATEWAY_API_KEY", "secrets.aiGatewayApiKey"],
-  ["OPENAI_COMPATIBLE_API_KEY", "secrets.openaiCompatibleApiKey"],
-  ["XAI_API_KEY", "secrets.xaiApiKey"],
-  ["VERTEX_PROJECT_ID", "secrets.vertexProjectId"],
-  ["VERTEX_LOCATION", "secrets.vertexLocation"],
-  ["VERTEX_CLIENT_EMAIL", "secrets.vertexClientEmail"],
-  ["VERTEX_PRIVATE_KEY", "secrets.vertexPrivateKey"],
+  ["VERTEX_PROJECT_ID", "ai.vertex.projectId"],
+  ["VERTEX_LOCATION", "ai.vertex.location"],
 ];
 
 function isTestRuntime() {
@@ -37,7 +31,7 @@ function isTestRuntime() {
 }
 
 export function getDefaultConfigPath() {
-  return path.resolve(__dirname, "../../config/default.json");
+  return path.resolve(__dirname, "../../config/default.yaml");
 }
 
 export function applyEnvOverrides(manager, env = process.env) {
@@ -66,7 +60,11 @@ export function createConfigManager({
  * @param {string[]} purposes
  * @returns {Promise<boolean>}
  */
-export async function validateAiConfig(manager, purposes = ACTIVE_AI_PURPOSES) {
+export async function validateAiConfig(
+  manager,
+  purposes = ACTIVE_AI_PURPOSES,
+  credentials = loadAiCredentials(),
+) {
   if (!manager) {
     throw new Error("validateAiConfig requires a config manager.");
   }
@@ -75,7 +73,7 @@ export async function validateAiConfig(manager, purposes = ACTIVE_AI_PURPOSES) {
   const invalid = [];
 
   for (const purpose of purposes) {
-    const result = validateAiPurpose(manager, purpose);
+    const result = validateAiPurpose(manager, purpose, credentials);
     for (const field of result.missing) missing.add(field);
     invalid.push(...result.invalid);
   }
@@ -90,7 +88,7 @@ export async function validateAiConfig(manager, purposes = ACTIVE_AI_PURPOSES) {
     if (missing.size > 0) {
       messages.push(
         `Missing required configuration: ${[...missing].join(", ")}. ` +
-          "Please set them in your .env file or config/default.json.",
+          "Set general settings in config/default.yaml and credentials in the environment (.env for local development).",
       );
     }
 

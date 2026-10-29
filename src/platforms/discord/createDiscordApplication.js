@@ -4,11 +4,16 @@ import { loadEvents } from "./handlers/eventHandler.js";
 import { DiscordLogRepository } from "./logging/DiscordLogRepository.js";
 import { DiscordLogService } from "./logging/DiscordLogService.js";
 
-export async function createDiscordApplication({ configManager, client }) {
+export async function createDiscordApplication({
+  configManager,
+  client,
+  credentials,
+}) {
   const platformClients = new Map([["discord", client]]);
 
   const app = await createContainer({
     configManager,
+    credentials,
     platformClients,
   });
   const discordLogService = new DiscordLogService({

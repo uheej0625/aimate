@@ -57,7 +57,7 @@ export function stripEmpty(object) {
   );
 }
 
-export function validateAiPurpose(configManager, purpose) {
+export function validateAiPurpose(configManager, purpose, credentials) {
   const missing = [];
   const invalid = [];
   const settings = configManager.get(`ai.${purpose}`);
@@ -65,6 +65,12 @@ export function validateAiPurpose(configManager, purpose) {
   if (!settings) {
     invalid.push(`ai.${purpose} 설정이 없습니다.`);
     return { missing, invalid };
+  }
+
+  if (Object.hasOwn(settings, "apiKey")) {
+    invalid.push(
+      `ai.${purpose}.apiKey는 지원하지 않습니다. 인증 정보는 환경 변수로 설정하세요.`,
+    );
   }
 
   if (!settings.model) {
@@ -83,42 +89,41 @@ export function validateAiPurpose(configManager, purpose) {
   }
 
   if (provider === "gateway") {
-    const hasGatewayAuth =
-      configManager.get("secrets.aiGatewayApiKey") ||
-      process.env.AI_GATEWAY_API_KEY ||
-      process.env.VERCEL_OIDC_TOKEN;
+    const hasGatewayAuth = credentials.aiGatewayApiKey;
     if (!hasGatewayAuth)
       missing.push("AI_GATEWAY_API_KEY or VERCEL_OIDC_TOKEN");
   }
 
-  if (provider === "openai" && !configManager.get("secrets.openaiApiKey")) {
+  if (provider === "openai" && !credentials.openaiApiKey) {
     missing.push("OPENAI_API_KEY");
   }
 
-  if (provider === "google" && !configManager.get("secrets.googleApiKey")) {
+  if (provider === "google" && !credentials.googleApiKey) {
     missing.push("GOOGLE_GENERATIVE_AI_API_KEY");
   }
 
   if (provider === "vertex") {
-    if (!configManager.get("secrets.vertexProjectId")) {
-      missing.push("VERTEX_PROJECT_ID");
+    if (!configManager.get("ai.vertex.projectId")) {
+      missing.push("ai.vertex.projectId (or VERTEX_PROJECT_ID)");
     }
-    if (!configManager.get("secrets.vertexLocation")) {
-      missing.push("VERTEX_LOCATION");
+    if (
+      Boolean(credentials.vertexClientEmail) !==
+      Boolean(credentials.vertexPrivateKey)
+    ) {
+      invalid.push(
+        "VERTEX_CLIENT_EMAIL과 VERTEX_PRIVATE_KEY는 함께 설정해야 합니다.",
+      );
     }
   }
 
   if (provider === "openaiCompatible") {
     if (!settings.baseURL) missing.push(`ai.${purpose}.baseURL`);
-    if (
-      !settings.apiKey &&
-      !configManager.get("secrets.openaiCompatibleApiKey")
-    ) {
+    if (!credentials.openaiCompatibleApiKey) {
       missing.push("OPENAI_COMPATIBLE_API_KEY");
     }
   }
 
-  if (provider === "xai" && !configManager.get("secrets.xaiApiKey")) {
+  if (provider === "xai" && !credentials.xaiApiKey) {
     missing.push("XAI_API_KEY");
   }
 

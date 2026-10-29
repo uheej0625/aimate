@@ -1,0 +1,63 @@
+app:
+  name: AiMate
+  version: 1.0.0
+  environment: development
+  timezone: Asia/Seoul
+  language: ko-KR
+character: seoa
+ai:
+  vertex:
+    projectId: "" # VERTEX_PROJECT_ID 환경 변수로도 지정 가능
+    location: global
+  chat:
+    provider: vertex
+    model: gemini-3.8-flash
+    nativeTools:
+      webSearch: false
+      webScraping: false
+    prompt: default-v2
+    # null인 생성 옵션은 SDK에 전달하지 않는다.
+    temperature: null
+    maxOutputTokens: null
+    topP: null
+    topK: null
+    maxRetries: 3
+    providerOptions: {}
+  embedding:
+    provider: gateway
+    model: null
+  summary:
+    provider: gateway
+    model: openai/gpt-5-mini
+  image:
+    provider: gateway
+    model: openai/gpt-image-2
+    prompt: default-v2
+    includeTimeContext: true
+    maxRetries: 3
+    providerOptions: {}
+discord:
+  commandPrefix: "!"
+  botStatus: online
+  activityType: PLAYING
+  activityName: 채팅 중...
+conversation:
+  maxContextMessages: 20
+  maxHistoryDays: 30
+  bufferTimeout: 5000 # ms
+messages:
+  maxLength: 1900
+humanize:
+  enabled: true
+  typingDelayMin: 1000
+  typingDelayMax: 2000
+  typingDelayPerChar: 60
+logging:
+  level: info
+features:
+  enableSlashCommands: true
+  enableTextCommands: true
+  enableDM: true
+  enableChannelMention: true
+tools:
+  maxSteps: 5

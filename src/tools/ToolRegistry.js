@@ -28,7 +28,7 @@ const logger = createLogger("ToolRegistry");
  * 툴 필터링 조건 (AND):
  *   1. tool.enabled === true
  *   2. tool.platforms 에 현재 platform 포함 (또는 '*')
- *   3. tool.requires 의 모든 서비스에 대한 API Key가 config에 존재
+ *   3. tool.requires 의 기능이 설정되어 있음 (현재 'image'만 지원)
  */
 export class ToolRegistry {
   /**
@@ -46,7 +46,7 @@ export class ToolRegistry {
    * @param {string}   toolDef.name        - 툴 이름 (LLM에 노출되는 식별자)
    * @param {boolean}  toolDef.enabled     - false 이면 항상 비활성화
    * @param {string[]} toolDef.platforms   - '*' 또는 플랫폼 ID 배열 ('discord', 'telegram', 'cli', …)
-   * @param {string[]} toolDef.requires    - 필요한 서비스 키 배열 ('novelai', 'openai', …)
+   * @param {string[]} toolDef.requires    - 필요한 기능 배열 (현재 'image'만 지원)
    * @param {string}   toolDef.description - 모델에 노출되는 툴 설명
    * @param {Object}   toolDef.inputSchema - AI SDK inputSchema
    * @param {Function} toolDef.execute     - async (args, context) => result
@@ -136,16 +136,12 @@ export class ToolRegistry {
         tool.platforms.includes("*") || tool.platforms.includes(platform);
       if (!platformOk) return false;
 
-      // 3. 자격증명 체크
-      const credentialsOk = tool.requires.every((service) => {
-        if (service === "image") {
-          return !!this.configManager.get("ai.image.model");
-        }
-
-        const key = `secrets.${service}ApiKey`;
-        return this.configManager.has(key) && !!this.configManager.get(key);
-      });
-      if (!credentialsOk) return false;
+      // 인증 검증은 provider 경계에서 수행하며 도구에는 인증 값을 전달하지 않는다.
+      const capabilitiesOk = tool.requires.every(
+        (service) =>
+          service === "image" && !!this.configManager.get("ai.image.model"),
+      );
+      if (!capabilitiesOk) return false;
 
       return true;
     });

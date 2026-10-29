@@ -1,16 +1,17 @@
 import fs from "fs";
 import path from "path";
 import chokidar from "chokidar";
+import { parse } from "yaml";
 import { createLogger } from "../core/logger.js";
 
 const logger = createLogger("ConfigManager");
 
 /**
  * Configuration file manager with hot-reload support
- * Provides CRUD operations for JSON config files
+ * Reads YAML configuration; environment overrides stay in memory.
  */
 class ConfigManager {
-  constructor(configPath = "./config.json", { watch = true, onLoad } = {}) {
+  constructor(configPath = "./config.yaml", { watch = true, onLoad } = {}) {
     this.configPath = path.resolve(configPath);
     this.config = null;
     this.watcher = null;
@@ -31,7 +32,21 @@ class ConfigManager {
   load() {
     try {
       const data = fs.readFileSync(this.configPath, "utf8");
-      this.config = JSON.parse(data);
+      const config = parse(data, { prettyErrors: false });
+      if (!config || typeof config !== "object" || Array.isArray(config)) {
+        throw new Error("Configuration must be a YAML mapping.");
+      }
+      if (
+        Object.hasOwn(config, "secrets") ||
+        Object.values(config.ai ?? {}).some(
+          (settings) => settings && Object.hasOwn(settings, "apiKey"),
+        )
+      ) {
+        throw new Error(
+          "Credentials belong in the environment, not in YAML secrets or ai.<purpose>.apiKey.",
+        );
+      }
+      this.config = config;
       this.onLoad?.(this);
       return this.config;
     } catch (error) {
@@ -49,31 +64,6 @@ class ConfigManager {
   }
 
   /**
-   * Save current config to file
-   * @returns {boolean} Success status
-   */
-  save() {
-    try {
-      fs.writeFileSync(
-        this.configPath,
-        JSON.stringify(this.config, null, 2),
-        "utf8",
-      );
-      return true;
-    } catch (error) {
-      logger.error(
-        {
-          event: "config.save.failed",
-          configPath: this.configPath,
-          err: error,
-        },
-        "Configuration save failed",
-      );
-      return false;
-    }
-  }
-
-  /**
    * Get value by dot notation path
    * @param {string} key - Dot notation path (e.g., 'ai.chat.model')
    * @returns {*} Value at the path
@@ -81,32 +71,6 @@ class ConfigManager {
   get(key) {
     if (!key) return this.config;
     return key.split(".").reduce((obj, k) => obj?.[k], this.config);
-  }
-
-  /**
-   * Set value by dot notation path
-   * @param {string} key - Dot notation path (e.g., 'ai.chat.model')
-   * @param {*} value - Value to set
-   * @returns {boolean} Success status
-   */
-  set(key, value) {
-    try {
-      const keys = key.split(".");
-      const lastKey = keys.pop();
-      const target = keys.reduce((obj, k) => {
-        if (!(k in obj)) obj[k] = {};
-        return obj[k];
-      }, this.config);
-
-      target[lastKey] = value;
-      return this.save();
-    } catch (error) {
-      logger.error(
-        { event: "config.set.failed", key, err: error },
-        "Configuration update failed",
-      );
-      return false;
-    }
   }
 
   /**
@@ -130,31 +94,6 @@ class ConfigManager {
       logger.error(
         { event: "config.set.failed", key, err: error },
         "In-memory configuration update failed",
-      );
-      return false;
-    }
-  }
-
-  /**
-   * Delete value by dot notation path
-   * @param {string} key - Dot notation path (e.g., 'ai.chat.temperature')
-   * @returns {boolean} Success status
-   */
-  delete(key) {
-    try {
-      const keys = key.split(".");
-      const lastKey = keys.pop();
-      const target = keys.reduce((obj, k) => obj?.[k], this.config);
-
-      if (target && lastKey in target) {
-        delete target[lastKey];
-        return this.save();
-      }
-      return false;
-    } catch (error) {
-      logger.error(
-        { event: "config.delete.failed", key, err: error },
-        "Configuration delete failed",
       );
       return false;
     }
@@ -249,16 +188,6 @@ class ConfigManager {
    */
   getAll() {
     return { ...this.config };
-  }
-
-  /**
-   * Reset config to default or provided object
-   * @param {Object} defaultConfig - Default configuration
-   * @returns {boolean} Success status
-   */
-  reset(defaultConfig = {}) {
-    this.config = defaultConfig;
-    return this.save();
   }
 }
 

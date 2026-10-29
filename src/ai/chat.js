@@ -5,6 +5,7 @@ import { createLogger, elapsedMs } from "../core/logger.js";
 import { getAiSettings, getGenerationSettings } from "./config.js";
 import { composeDialectTools } from "./dialects.js";
 import { createLanguageModel } from "./models.js";
+import { loadAiCredentials } from "./credentials.js";
 import {
   serializeMetadata,
   toRequestMetadata,
@@ -15,6 +16,7 @@ const logger = createLogger("ChatAI");
 
 export async function generateChatReply({
   configManager,
+  credentials = loadAiCredentials(),
   context,
   systemInstruction,
   platform,
@@ -40,7 +42,7 @@ export async function generateChatReply({
   }
 
   const settings = getAiSettings(configManager, "chat");
-  const model = createLanguageModelFn(configManager, "chat");
+  const model = createLanguageModelFn(configManager, "chat", credentials);
   const messages = toModelMessages(context);
   const appTools = toolRegistry?.createToolSet(platform, toolContext) ?? {};
   const tools = composeDialectTools({ settings, appTools });

@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert";
 import { createConfigManager } from "../../../src/config/index.js";
 import { createDiscordApplication } from "../../../src/platforms/discord/createDiscordApplication.js";
+import { loadAiCredentials } from "../../../src/ai/credentials.js";
 
 test("createDiscordApplication registers commands and events without a service locator", async (t) => {
   const configManager = createConfigManager({
@@ -25,7 +26,11 @@ test("createDiscordApplication registers commands and events without a service l
     user: null,
   };
 
-  const app = await createDiscordApplication({ configManager, client });
+  const app = await createDiscordApplication({
+    configManager,
+    client,
+    credentials: loadAiCredentials({ AI_GATEWAY_API_KEY: "test-key" }),
+  });
   t.after(() => app.discordLogService.close());
 
   assert.strictEqual(client.commands.size, 6);

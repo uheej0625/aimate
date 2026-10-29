@@ -104,6 +104,7 @@ test("error serialization excludes provider payloads and redacts known secret fi
   logger.error({
     err: error,
     secrets: { apiKey: "PRIVATE_KEY" },
+    credentials: { vertexPrivateKey: "PRIVATE_KEY" },
     apiKey: "PRIVATE_KEY",
   });
   const row = records[0];

@@ -5,6 +5,7 @@ import { parseArgs } from "util";
 import { generateText, tool } from "ai";
 import { createConfigManager, validateAiConfig } from "../src/config/index.js";
 import { loadEnv } from "../src/config/env.js";
+import { loadAiCredentials } from "../src/ai/credentials.js";
 import { CharacterContextBuilder } from "../src/character/CharacterContextBuilder.js";
 import { PromptComposer } from "../src/chat/context/PromptComposer.js";
 import { SequenceBuilder } from "../src/chat/context/SequenceBuilder.js";
@@ -163,6 +164,7 @@ export async function evaluate({
   prepared,
   testCase,
   configManager,
+  credentials = loadAiCredentials(),
   generateTextFn = generateText,
   createLanguageModelFn,
 }) {
@@ -172,6 +174,7 @@ export async function evaluate({
   const completedSteps = [];
   const generator = new ChatGenerator({
     configManager,
+    credentials,
     createLanguageModelFn,
     toolRegistry: { createToolSet: () => appTools },
     generateTextFn: async (request) => {
@@ -315,6 +318,7 @@ export async function compare({
   dryRun = false,
   caseId,
   configManager,
+  credentials = loadAiCredentials(),
   promptDir = defaultPromptDir,
   generateTextFn,
   createLanguageModelFn,
@@ -338,7 +342,7 @@ export async function compare({
     getAll: () => structuredClone(config),
     get: (key) => key.split(".").reduce((value, part) => value?.[part], config),
   };
-  if (!dryRun) await validateAiConfig(frozenManager, ["chat"]);
+  if (!dryRun) await validateAiConfig(frozenManager, ["chat"], credentials);
   await newDirectory(out);
   await fs.cp(
     path.join(baseline, "prompts", baselinePromptName, "chat"),
@@ -351,7 +355,7 @@ export async function compare({
   await fs.cp(path.join(baseline, "character"), path.join(out, "character"), {
     recursive: true,
   });
-  const sanitize = createSanitizer(config);
+  const sanitize = createSanitizer({ config, credentials });
   const report = {
     character: snapshotInfo.character,
     referenceDate,
@@ -429,6 +433,7 @@ export async function compare({
               prepared,
               testCase,
               configManager: frozenManager,
+              credentials,
               generateTextFn,
               createLanguageModelFn,
             });

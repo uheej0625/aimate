@@ -3,6 +3,7 @@ import assert from "node:assert";
 import { createConfigManager } from "../../src/config/index.js";
 import { createContainer } from "../../src/core/container.js";
 import { AppEvents } from "../../src/core/EventBus.js";
+import { loadAiCredentials } from "../../src/ai/credentials.js";
 
 test("createContainer exposes only application entrypoint dependencies", async (t) => {
   const configManager = createConfigManager({
@@ -14,7 +15,10 @@ test("createContainer exposes only application entrypoint dependencies", async (
   });
   t.after(() => configManager.close());
 
-  const container = await createContainer({ configManager });
+  const container = await createContainer({
+    configManager,
+    credentials: loadAiCredentials({ AI_GATEWAY_API_KEY: "test-key" }),
+  });
 
   assert.deepStrictEqual(Object.keys(container).sort(), [
     "activateChannel",

@@ -1,5 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
+import { parse } from "yaml";
 
 if (process.platform === "win32") {
   try {
@@ -8,7 +9,7 @@ if (process.platform === "win32") {
   } catch (e) {}
 }
 
-import { input, checkbox, select } from "@inquirer/prompts";
+import { input, password, checkbox, select } from "@inquirer/prompts";
 import { fileURLToPath } from "url";
 import { getDiscordTokenEnvKey } from "../src/platforms/discord/credentials.js";
 
@@ -31,6 +32,7 @@ const locales = {
     discordToken: (envKey) => `Enter your ${envKey}:`,
     selectProviders: "Select AI providers you want to configure:",
     openaiKey: "Enter OPENAI_API_KEY:",
+    compatibleKey: "Enter OPENAI_COMPATIBLE_API_KEY:",
     xaiKey: "Enter XAI_API_KEY:",
     aiGatewayKey: "Enter AI_GATEWAY_API_KEY:",
     googleKey: "Enter GOOGLE_GENERATIVE_AI_API_KEY:",
@@ -48,6 +50,7 @@ const locales = {
     selectProviders:
       "설정할 AI 프로바이더를 선택하세요 (스페이스바 선택, 엔터 완료):",
     openaiKey: "OPENAI_API_KEY를 입력하세요:",
+    compatibleKey: "OPENAI_COMPATIBLE_API_KEY를 입력하세요:",
     xaiKey: "XAI_API_KEY를 입력하세요:",
     aiGatewayKey: "AI_GATEWAY_API_KEY를 입력하세요:",
     googleKey: "GOOGLE_GENERATIVE_AI_API_KEY를 입력하세요:",
@@ -71,13 +74,15 @@ async function main() {
   });
 
   const t = locales[lang];
-  const configPath = path.join(__dirname, "..", "config", "default.json");
-  const config = JSON.parse(await fs.readFile(configPath, "utf8"));
+  const configPath = path.join(__dirname, "..", "config", "default.yaml");
+  const config = parse(await fs.readFile(configPath, "utf8"), {
+    prettyErrors: false,
+  });
   const discordTokenEnvKey = getDiscordTokenEnvKey(config.character);
 
   console.log(`\n${t.title}\n`);
 
-  const discordToken = await input({
+  const discordToken = await password({
     message: t.discordToken(discordTokenEnvKey),
   });
 
@@ -85,6 +90,7 @@ async function main() {
     message: t.selectProviders,
     choices: [
       { name: "OpenAI", value: "openai" },
+      { name: "OpenAI-compatible", value: "openaiCompatible" },
       { name: "xAI", value: "xai" },
       { name: "Vercel AI Gateway", value: "aiGateway" },
       { name: "Google Generative AI", value: "google" },
@@ -102,19 +108,25 @@ async function main() {
   };
 
   if (providers.includes("openai")) {
-    envData.OPENAI_API_KEY = await input({ message: t.openaiKey });
+    envData.OPENAI_API_KEY = await password({ message: t.openaiKey });
+  }
+
+  if (providers.includes("openaiCompatible")) {
+    envData.OPENAI_COMPATIBLE_API_KEY = await password({
+      message: t.compatibleKey,
+    });
   }
 
   if (providers.includes("xai")) {
-    envData.XAI_API_KEY = await input({ message: t.xaiKey });
+    envData.XAI_API_KEY = await password({ message: t.xaiKey });
   }
 
   if (providers.includes("aiGateway")) {
-    envData.AI_GATEWAY_API_KEY = await input({ message: t.aiGatewayKey });
+    envData.AI_GATEWAY_API_KEY = await password({ message: t.aiGatewayKey });
   }
 
   if (providers.includes("google")) {
-    envData.GOOGLE_GENERATIVE_AI_API_KEY = await input({
+    envData.GOOGLE_GENERATIVE_AI_API_KEY = await password({
       message: t.googleKey,
     });
   }
@@ -123,7 +135,9 @@ async function main() {
     envData.VERTEX_PROJECT_ID = await input({ message: t.vertexProjectId });
     envData.VERTEX_LOCATION = await input({ message: t.vertexLocation });
     envData.VERTEX_CLIENT_EMAIL = await input({ message: t.vertexClientEmail });
-    envData.VERTEX_PRIVATE_KEY = await input({ message: t.vertexPrivateKey });
+    envData.VERTEX_PRIVATE_KEY = await password({
+      message: t.vertexPrivateKey,
+    });
   }
 
   // Generate .env content
@@ -138,6 +152,11 @@ async function main() {
   if (providers.includes("xai")) {
     envString += "# xAI\n";
     envString += `XAI_API_KEY=${envData.XAI_API_KEY}\n\n`;
+  }
+
+  if (providers.includes("openaiCompatible")) {
+    envString += "# OpenAI-compatible\n";
+    envString += `OPENAI_COMPATIBLE_API_KEY=${envData.OPENAI_COMPATIBLE_API_KEY}\n\n`;
   }
 
   if (providers.includes("aiGateway")) {
