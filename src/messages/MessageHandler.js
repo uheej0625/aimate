@@ -103,10 +103,7 @@ export class MessageHandler {
               // Lazy platform hydration stays inside the receive-order queue.
               const message = event.message ?? (await event.loadMessage());
               platformMessageId = message.platformMessageId;
-              if (
-                message.author.isBot ||
-                message.author.platformUserId === botId
-              ) {
+              if (message.author.platformUserId === botId) {
                 logger.debug(
                   {
                     event: "message.skipped",
