@@ -33,6 +33,7 @@ export function createMockChannel({
     platformChannelId: channelId,
     sendTyping: async () => onTyping?.(),
     send: async (payload) => {
+      const createdAt = new Date();
       const content =
         typeof payload === "string" ? payload : (payload?.content ?? "");
 
@@ -45,6 +46,7 @@ export function createMockChannel({
 
       return adaptMessageData({
         id: uuidv4(),
+        createdAt,
         content,
         channelId,
         guildId: null,

@@ -12,6 +12,7 @@
  * @param {string} raw.id
  * @param {string} raw.content
  * @param {string} raw.channelId
+ * @param {Date|null} [raw.createdAt] - Time the CLI message was sent.
  * @param {string|null} [raw.guildId]
  * @param {Object} raw.author
  * @param {string} raw.author.id
@@ -27,6 +28,7 @@ export function adaptMessageData(raw) {
     platformChannelId: raw.channelId,
     platformServerId: raw.guildId ?? null,
     content: raw.content,
+    sentAt: raw.createdAt ?? null,
     editedAt: raw.editedAt ?? null,
     author: {
       platformUserId: raw.author.id,

@@ -6,6 +6,7 @@
  * @property {string} platformMessageId
  * @property {string} platformChannelId
  * @property {string|null} platformServerId
+ * @property {Date|null} sentAt - Original platform send time; never the observation or storage time.
  * @property {Date|null} editedAt - Platform edit marker/version; not evidence of witnessing an edit.
  * @property {string} content
  * @property {NormalizedAuthor} author

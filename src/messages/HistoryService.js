@@ -42,7 +42,9 @@ export class HistoryService {
       );
     const imagePrompts =
       await this.messageRepository.findGenerationInputsByIds(generationIds);
-    const rendered = events.map((event) => this.render(event, imagePrompts));
+    const rendered = events.map((event) =>
+      this.render(event, imagePrompts, botId),
+    );
     // Context placement follows delivery; input handling still follows the cursor.
     const boundary =
       events.findLast(
@@ -78,7 +80,7 @@ export class HistoryService {
     );
   }
 
-  render(event, imagePrompts) {
+  render(event, imagePrompts, botId) {
     const body = this.historyMessageFormatter.renderContentForAI(
       {
         content: event.snapshotContent,
@@ -111,13 +113,20 @@ export class HistoryService {
       channelMessageNo: event.channelMessageNo,
       eventId: event.id,
       authorId: event.authorId,
-      authorPlatformId:
+      role:
         event.source !== "HISTORY" &&
-        (event.kind === "SENT" || event.kind === "READ")
-          ? event.authorPlatformId
-          : null,
+        (event.kind === "SENT" || event.kind === "READ") &&
+        event.authorPlatformId === botId
+          ? "assistant"
+          : "user",
+      authorPlatformId: event.authorPlatformId,
+      authorHandle: event.authorHandle,
+      authorDisplayName: event.authorDisplayName,
+      kind: event.kind,
+      source: event.source,
       content,
-      createdAt: event.observedAt,
+      sentAt: event.sentAt,
+      observedAt: event.observedAt,
     };
   }
 }

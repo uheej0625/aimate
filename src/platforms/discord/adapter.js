@@ -18,6 +18,7 @@ export function adaptMessageData(discordMessage) {
     platformChannelId: discordMessage.channelId,
     platformServerId: discordMessage.guildId ?? null,
     content: discordMessage.content,
+    sentAt: discordMessage.createdAt ?? null,
     editedAt: discordMessage.editedAt ?? null,
     author: {
       platformUserId: discordMessage.author.id,

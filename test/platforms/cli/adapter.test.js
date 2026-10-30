@@ -17,6 +17,7 @@ test("CLI adapter matches the platform-neutral message contract", () => {
     channelId: "channel-1",
     guildId: null,
     content: "hello",
+    createdAt: new Date("2026-10-30T10:00:00Z"),
     editedAt: null,
     author: {
       id: "user-1",
@@ -36,6 +37,7 @@ test("CLI adapter matches the platform-neutral message contract", () => {
     platformChannelId: "channel-1",
     platformServerId: null,
     content: "hello",
+    sentAt: raw.createdAt,
     editedAt: null,
     author: {
       platformUserId: "user-1",
@@ -65,4 +67,5 @@ test("CLI message data does not retain CLI runtime objects", () => {
   assert.equal("client" in message, false);
   assert.equal("channel" in message, false);
   assert.equal(message.author.isBot, false);
+  assert.equal(message.sentAt, null);
 });

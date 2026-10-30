@@ -9,12 +9,14 @@ export class ToolExecutionContextFactory {
     imageGenerator = null,
     generationRepository = null,
     messageActionService = null,
+    participantService = null,
     platformClients = new Map(),
   }) {
     this.configManager = configManager;
     this.imageGenerator = imageGenerator;
     this.generationRepository = generationRepository;
     this.messageActionService = messageActionService;
+    this.participantService = participantService;
     this.platformClients = platformClients;
     this.characterId = getRequiredCharacterId(configManager);
   }
@@ -27,6 +29,7 @@ export class ToolExecutionContextFactory {
     channelPort,
     generationId,
     delivery,
+    participantResolver,
   }) {
     return {
       platform,
@@ -36,6 +39,8 @@ export class ToolExecutionContextFactory {
       imageGenerator: this.imageGenerator,
       generationRepository: this.generationRepository,
       messageActionService: this.messageActionService,
+      participantService: this.participantService,
+      participantResolver,
       channelPort,
       generationId,
       delivery,

@@ -17,6 +17,7 @@ test("Discord adapter returns a platform-neutral incoming message", () => {
     platformChannelId: "channel-1",
     platformServerId: "server-1",
     content: "hello",
+    sentAt: raw.createdAt,
     editedAt: null,
     author: {
       platformUserId: "user-1",
@@ -63,6 +64,7 @@ test("Discord channel port sends and normalizes the returned message", async () 
     platformChannelId: "channel-1",
     platformServerId: "server-1",
     content: "reply",
+    sentAt: new Date("2026-10-30T10:00:00Z"),
     editedAt: null,
     author: {
       platformUserId: "bot-1",
@@ -110,6 +112,7 @@ function createDiscordMessage(overrides = {}) {
     channelId: "channel-1",
     guildId: "server-1",
     content: "hello",
+    createdAt: new Date("2026-10-30T10:00:00Z"),
     editedAt: null,
     author: {
       id: "user-1",

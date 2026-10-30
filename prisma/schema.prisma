@@ -104,6 +104,7 @@ model Message {
 
   deletedAt DateTime?
   editedAt  DateTime?
+  sentAt    DateTime? // Original platform send time; unknown when unavailable.
   isBot     Boolean   @default(false)
 
   createdAt DateTime @default(now())

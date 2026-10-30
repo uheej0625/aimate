@@ -9,11 +9,7 @@ export class ChatContextPreparer {
    * @param {import('../../config/ConfigManager.js').default} configManager
    * @param {import('./SequenceBuilder.js').SequenceBuilder} sequenceBuilder
    */
-  constructor(
-    historyService,
-    configManager,
-    sequenceBuilder,
-  ) {
+  constructor(historyService, configManager, sequenceBuilder) {
     this.historyService = historyService;
     this.configManager = configManager;
     this.sequenceBuilder = sequenceBuilder;
@@ -46,19 +42,18 @@ export class ChatContextPreparer {
 
     const promptName = getRequiredChatPromptName(this.configManager);
     const sequenceDef = await this.sequenceBuilder.loadSequence(promptName);
-    const { systemInstruction, context } = await this.sequenceBuilder.build(
-      sequenceDef,
-      {
+    const { systemInstruction, context, participantResolver } =
+      await this.sequenceBuilder.build(sequenceDef, {
         historyMessages,
         pendingMessages,
         botId,
         channelRecord,
         promptName,
         referenceDate,
-      },
-    );
+      });
 
     return {
+      participantResolver,
       context,
       systemInstruction,
       messageIds,

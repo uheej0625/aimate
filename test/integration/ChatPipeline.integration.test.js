@@ -83,6 +83,15 @@ const { ToolRegistry } = await import("../../src/tools/ToolRegistry.js");
 const { ToolExecutionContextFactory } = await import(
   "../../src/tools/ToolExecutionContextFactory.js"
 );
+const { ParticipantService } = await import(
+  "../../src/chat/context/ParticipantService.js"
+);
+const listMembersTool = (
+  await import("../../src/tools/definitions/listMembers.js")
+).default;
+const getMemberStatusTool = (
+  await import("../../src/tools/definitions/getMemberStatus.js")
+).default;
 const { MessageActionService } = await import(
   "../../src/tools/MessageActionService.js"
 );
@@ -409,6 +418,76 @@ test("Discord logs read existing records and API response text without changing 
   assert.equal(disabledRecord.logEnabled, false);
 });
 
+test("platform send time survives late reads, edits, deletion and replay snapshots", async () => {
+  let request;
+  const h = createHarness({
+    generateTextFn: async (value) => {
+      request = value;
+      return fakeTextResult("");
+    },
+  });
+  const sentAt = new Date("2026-09-23T15:02:00Z");
+  const observedAt = new Date("2026-09-25T03:00:00Z");
+  const original = createUserMessage(h, {
+    id: randomUUID(),
+    content: "original",
+    createdAt: sentAt,
+  });
+  const saved = await h.messageService.saveMessage(original, null, [], {
+    observedAt,
+  });
+  const channelId = saved.channel.id;
+  assert.deepEqual(saved.message.sentAt, sentAt);
+  assert.notEqual(saved.message.createdAt.getTime(), sentAt.getTime());
+
+  await h.messageService.updateMessage({
+    ...original,
+    content: "read later",
+    editedAt: new Date("2026-09-26T00:00:00Z"),
+  });
+  await h.historyService.fetchHistoryData(channelId, h.botId);
+  await h.messageService.updateMessage(
+    {
+      ...original,
+      content: "observed edit",
+      editedAt: new Date("2026-09-27T00:00:00Z"),
+    },
+    { observed: true, observedAt: new Date("2026-09-27T01:00:00Z") },
+  );
+  await h.messageService.deleteMessages(
+    "cli",
+    [original.platformMessageId],
+    channelId,
+    { observed: true, observedAt: new Date("2026-09-28T00:00:00Z") },
+  );
+
+  await h.executeChat();
+  const records = request.messages.filter((m) => /(?:^|\n)#1 /.test(m.content));
+  assert.equal(records.length, 4);
+  assert.ok(records.every((m) => m.content.includes("[00:02]")));
+  assert.match(records[0].content, /2026년 9월 24일/);
+  assert.match(records[1].content, /과거 내역/);
+  assert.match(records[2].content, /수정 목격/);
+  assert.match(records[3].content, /삭제 목격/);
+  const generation = await prisma.generation.findFirst({ where: { channelId } });
+  assert.equal(generation.status, "COMPLETED");
+  const snapshot = JSON.parse(generation.input).eventSnapshot;
+  assert.ok(snapshot.events.every((e) => e.sentAt === sentAt.toISOString()));
+  assert.equal(snapshot.events[0].observedAt, observedAt.toISOString());
+  assert.deepEqual(
+    snapshot.events.map((e) => [e.kind, e.source]),
+    [["READ", "LIVE"], ["READ", "HISTORY"], ["EDIT", "LIVE"], ["DELETE", "LIVE"]],
+  );
+  const replayed = await h.historyService.fetchHistoryData(
+    channelId,
+    h.botId,
+    generation.id,
+  );
+  assert.ok(
+    replayed.pendingMessages.every((m) => m.sentAt === sentAt.toISOString()),
+  );
+});
+
 test("chat pipeline persists history and multiple model-free replies", async () => {
   const modelRequests = [];
   const responses = [
@@ -675,8 +754,7 @@ test("undeliverable image-only output still fails instead of becoming silence", 
     await prisma.conversationState.count({ where: { channelId: channel.id } }),
     0,
   );
-  assert.equal(h.sentMessages.length, 1);
-  assert.match(h.sentMessages[0], /답변 생성 중 오류/);
+  assert.equal(h.sentMessages.length, 0);
 });
 
 for (const content of ["", " \n\t"]) {
@@ -1003,7 +1081,7 @@ test("soft deletion preserves references and hides messages from current queries
   }
 });
 
-test("failed input stays pending after a fallback and joins new input on recovery", async () => {
+test("failed input stays pending without character speech and joins new input on recovery", async () => {
   const modelRequests = [];
   const harness = createHarness({
     generateTextFn: async (request) => {
@@ -1036,8 +1114,19 @@ test("failed input stays pending after a fallback and joins new input on recover
 
   assert.strictEqual(generation.status, "FAILED");
   assert.strictEqual(generation.output, null);
-  assert.strictEqual(harness.sentMessages.length, 1);
-  assert.match(harness.sentMessages[0], /답변 생성 중 오류/);
+  assert.strictEqual(harness.sentMessages.length, 0);
+  assert.equal(
+    await prisma.message.count({
+      where: { generationId: generation.id, isBot: true },
+    }),
+    0,
+  );
+  assert.equal(
+    await prisma.event.count({
+      where: { generationId: generation.id, kind: "SENT" },
+    }),
+    0,
+  );
   assert.strictEqual(
     await prisma.conversationState.count({ where: { channelId: channel.id } }),
     0,
@@ -1418,9 +1507,116 @@ for (const original of ["", "x".repeat(4000)]) {
   });
 }
 
+test("observed identities and raw mentions survive storage while model and member tools share names", async () => {
+  const participants = [
+    {
+      id: "111111111111111111",
+      handle: "alice",
+      displayName: "global A",
+      nickname: "하늘",
+      status: "online",
+      activities: ["Minecraft"],
+    },
+    {
+      id: "222222222222222222",
+      handle: "bob",
+      displayName: "global B",
+      nickname: "하늘",
+      status: "unknown",
+      activities: [],
+    },
+  ];
+  let lookupId;
+  const h = createHarness({
+    participantSource: {
+      getProfiles: async (_channel, ids) =>
+        participants.filter((p) => ids.includes(p.id)),
+      listMembers: async () => ({ profiles: participants, source: "test" }),
+      getStatus: async (_channel, id) => {
+        lookupId = id;
+        return participants.find((p) => p.id === id);
+      },
+    },
+    generateTextFn: async (request) => {
+      const observations = request.messages.filter((m) =>
+        /#\d+ /.test(m.content),
+      );
+      assert.equal(observations.length, 2);
+      assert.ok(observations.every((m) => m.role === "user"));
+      assert.match(
+        observations[0].content,
+        /하늘 \(@alice\)\n#1 hello @하늘 \(@bob\)$/,
+      );
+      assert.match(observations[1].content, /하늘 \(@bob\)\n#2 hi$/);
+      const status = await request.tools.get_member_status.execute(
+        { user: "alice" },
+        { toolCallId: "status" },
+      );
+      assert.equal(status.name, "하늘 (@alice)");
+      assert.equal(status.status, "online");
+      const ambiguous = await request.tools.get_member_status.execute(
+        { user: "하늘" },
+        { toolCallId: "ambiguous" },
+      );
+      assert.equal(ambiguous.error, "ambiguous");
+      const list = await request.tools.list_members.execute(
+        {},
+        { toolCallId: "list" },
+      );
+      assert.equal(list.complete, false);
+      assert.deepEqual(
+        list.members.map((p) => p.username),
+        ["alice", "bob"],
+      );
+      assert.doesNotMatch(
+        JSON.stringify([list, status, ambiguous]),
+        /111111111111111111|222222222222222222/,
+      );
+      return fakeTextResult("## messages\nhello");
+    },
+  });
+  for (const [index, participant] of participants.entries()) {
+    const input = createUserMessage(h, {
+      id: randomUUID(),
+      content: index ? "hi" : "hello <@222222222222222222>",
+    });
+    input.platformServerId = "test-server";
+    input.author = {
+      platformUserId: participant.id,
+      handle: participant.handle,
+      displayName: participant.displayName,
+      isBot: false,
+    };
+    await h.messageService.saveMessage(input);
+  }
+  await h.executeChat();
+  assert.equal(lookupId, participants[0].id);
+  assert.deepEqual(h.sentMessages, ["hello"]);
+  const original = await prisma.message.findFirst({
+    where: {
+      platform: "cli",
+      channel: { platformId: h.channel.platformChannelId },
+      isBot: false,
+    },
+    orderBy: { id: "asc" },
+  });
+  assert.equal(original.content, "hello <@222222222222222222>");
+  const generation = await prisma.generation.findFirst({
+    where: { channelId: original.channelId },
+    orderBy: { id: "desc" },
+  });
+  assert.equal(generation.status, "COMPLETED");
+  const snapshots = JSON.parse(generation.input).eventSnapshot.events;
+  assert.deepEqual(
+    snapshots.map((e) => e.authorHandle),
+    ["alice", "bob"],
+  );
+});
+
 function createHarness({
   generateTextFn,
   messageTools = false,
+  participantSource = null,
   humanize = { enabled: true },
   messages = { maxLength: 1900 },
 }) {
@@ -1501,6 +1697,9 @@ function createHarness({
   );
   const sequenceBuilder = new SequenceBuilder(promptComposer, {
     promptsRoot: "test/fixtures/prompts",
+    participantService: new ParticipantService(
+      participantSource ? new Map([["cli", participantSource]]) : new Map(),
+    ),
   });
   const chatContextPreparer = new ChatContextPreparer(
     historyService,
@@ -1515,6 +1714,11 @@ function createHarness({
     actionRepository,
   });
   const toolRegistry = new ToolRegistry(configManager);
+  if (participantSource)
+    toolRegistry.registerAll([
+      { ...listMembersTool, platforms: ["cli"] },
+      { ...getMemberStatusTool, platforms: ["cli"] },
+    ]);
   // Exercise the real definitions on the test channel without exposing them in the CLI app.
   if (messageTools)
     toolRegistry.registerAll([
@@ -1530,6 +1734,9 @@ function createHarness({
       configManager,
       generationRepository,
       messageActionService,
+      participantService: new ParticipantService(
+        participantSource ? new Map([["cli", participantSource]]) : new Map(),
+      ),
     }),
   });
   const messageSender = new MessageSender(
@@ -1543,7 +1750,6 @@ function createHarness({
   );
   const failureHandler = new ChatGenerationFailureHandler(
     generationLifecycle,
-    messageSender,
     eventBus,
   );
   const chatFlow = new ChatFlow({
@@ -1618,10 +1824,11 @@ function createHarness({
   };
 }
 
-function createUserMessage(harness, { id, content }) {
+function createUserMessage(harness, { id, content, createdAt = new Date() }) {
   return adaptMessageData({
     id,
     content,
+    createdAt,
     channelId: harness.channel.platformChannelId,
     guildId: null,
     author: {
@@ -1655,10 +1862,8 @@ function hasObservation(messages, role, content) {
     (entry) =>
       entry.role === role &&
       entry.content
-        .replace(
-          /^\[\d{4}년 \d{1,2}월 \d{1,2}일 [일월화수목금토]요일 (?:AM|PM) \d{1,2}:\d{2}\]\n/,
-          "",
-        )
+        .replace(/^--- [^\n]+ ---\n/, "")
+        .replace(/^\[\d{2}:\d{2}\](?: [^\n]*)?\n/, "")
         .replace(/^#\d+ /, "") === content,
   );
 }

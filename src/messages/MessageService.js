@@ -110,6 +110,7 @@ export class MessageService {
             attachments.length > 0 ? JSON.stringify(attachments) : null,
           generationId,
           editedAt: message.editedAt ?? null,
+          sentAt: message.sentAt ?? null,
           isBot: message.author.isBot,
         },
         observation,

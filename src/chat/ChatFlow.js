@@ -187,7 +187,13 @@ export class ChatFlow {
           prepared.systemInstruction,
           channelPort.platform,
           channelRecord,
-          { abortSignal, channelPort, generationId: generation.id, delivery },
+          {
+            abortSignal,
+            channelPort,
+            generationId: generation.id,
+            delivery,
+            participantResolver: prepared.participantResolver,
+          },
         );
         if (!isCurrent()) return await cancel("aborted_during_generation");
         nextStage("record_output");

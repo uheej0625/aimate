@@ -62,7 +62,6 @@ test("ChatFlow tests", async (t) => {
     eventBus = new EventBus(),
     failureHandler = new ChatGenerationFailureHandler(
       generationLifecycle,
-      messageSender,
       eventBus,
     ),
     generationAbortRegistry = new ChatGenerationAbortRegistry(),
@@ -319,36 +318,39 @@ test("ChatFlow tests", async (t) => {
     },
   );
 
-  await t.test("execute should report rate-limit errors without retrying", async () => {
-    const eventBus = new EventBus();
-    let fallbackMessageSent = false;
+  await t.test(
+    "execute should report rate-limit errors without retrying",
+    async () => {
+      const eventBus = new EventBus();
+      let fallbackMessageSent = false;
 
-    const chatGenerator = {
-      ...baseChatGenerator,
-      generate: async () => {
-        const error = new Error("overloaded");
-        error.status = 429;
-        throw error;
-      },
-    };
+      const chatGenerator = {
+        ...baseChatGenerator,
+        generate: async () => {
+          const error = new Error("overloaded");
+          error.status = 429;
+          throw error;
+        },
+      };
 
-    const messageSender = {
-      send: async () => {
-        fallbackMessageSent = true;
-        return true;
-      },
-    };
+      const messageSender = {
+        send: async () => {
+          fallbackMessageSent = true;
+          return true;
+        },
+      };
 
-    const chatFlow = createChatFlow({
-      chatGenerator,
-      messageSender,
-      eventBus,
-    });
+      const chatFlow = createChatFlow({
+        chatGenerator,
+        messageSender,
+        eventBus,
+      });
 
-    await chatFlow.execute(createRequest());
+      await chatFlow.execute(createRequest());
 
-    assert.strictEqual(fallbackMessageSent, true);
-  });
+      assert.strictEqual(fallbackMessageSent, false);
+    },
+  );
 });
 
 function createRequest() {

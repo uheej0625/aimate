@@ -145,8 +145,11 @@ function toSnapshot({ message, ...event }) {
   return {
     ...event,
     channelMessageNo: message?.channelMessageNo ?? null,
+    sentAt: message?.sentAt ?? null,
     authorId: message?.authorId ?? null,
     authorPlatformId: message?.author?.platformId ?? null,
+    authorHandle: message?.author?.handle ?? null,
+    authorDisplayName: message?.author?.displayName ?? null,
     isBot: message?.isBot ?? false,
   };
 }

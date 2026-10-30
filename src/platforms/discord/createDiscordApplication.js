@@ -3,6 +3,7 @@ import { loadCommands } from "./handlers/commandHandler.js";
 import { loadEvents } from "./handlers/eventHandler.js";
 import { DiscordLogRepository } from "./logging/DiscordLogRepository.js";
 import { DiscordLogService } from "./logging/DiscordLogService.js";
+import { DiscordParticipantSource } from "./DiscordParticipantSource.js";
 
 export async function createDiscordApplication({
   configManager,
@@ -15,6 +16,9 @@ export async function createDiscordApplication({
     configManager,
     credentials,
     platformClients,
+    participantSources: new Map([
+      ["discord", new DiscordParticipantSource(client)],
+    ]),
   });
   const discordLogService = new DiscordLogService({
     client,

@@ -37,6 +37,7 @@ export class MessageRepository {
       attachmentsJson,
       generationId,
       editedAt = null,
+      sentAt = null,
       isBot = false,
     } = messageData;
     const where = {
@@ -59,6 +60,7 @@ export class MessageRepository {
         authorId,
         isBot,
         ...(generationId !== null ? { generationId } : {}),
+        sentAt,
       },
       create: {
         platform,
@@ -71,6 +73,7 @@ export class MessageRepository {
         attachmentsJson,
         generationId,
         editedAt,
+        sentAt,
         isBot,
       },
     });

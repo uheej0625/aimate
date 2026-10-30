@@ -80,7 +80,6 @@ export class MessageSender {
       run = (operation) => operation(),
       isCurrent = () => true,
       onDelivered = () => {},
-      allowFailure = false,
     } = {},
   ) {
     if (!isCurrent()) {
@@ -126,8 +125,7 @@ export class MessageSender {
       if (generationId) {
         const generation =
           await this.generationRepository.findById(generationId);
-        const allowed = allowFailure ? ["FAILED"] : ["GENERATED"];
-        if (!generation || !allowed.includes(generation.status)) {
+        if (!generation || generation.status !== "GENERATED") {
           logger.debug(
             {
               event: "message.send.skipped",

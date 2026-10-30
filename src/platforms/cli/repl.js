@@ -101,6 +101,7 @@ export async function startRepl({
       const channel = makeChannelObject(channelId);
       const message = {
         id: uuidv4(),
+        createdAt: new Date(),
         content,
         channelId,
         guildId: null,
@@ -117,7 +118,7 @@ export async function startRepl({
         id: message.id,
         role: "user",
         content,
-        createdAt: new Date(),
+        createdAt: message.createdAt,
       });
       tui.setBusy(channelId, true);
       try {

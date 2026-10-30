@@ -17,9 +17,10 @@ function event(id, kind, content, extra = {}) {
     previousContent: null,
     authorPlatformId: kind === "SENT" ? "bot" : "user",
     isBot: kind === "SENT",
-    observedAt: new Date(
+    sentAt: new Date(
       `2026-09-24T10:00:${String(id).padStart(2, "0")}.123Z`,
     ),
+    observedAt: new Date("2026-11-01T00:00:00Z"),
     ...extra,
   };
 }
@@ -94,7 +95,7 @@ test("all observations retain roles, order and timestamps across response bounda
   assert.equal(first.context.length, 32);
   assert.deepEqual(first.context[1], {
     role: "user",
-    content: "[2026년 9월 24일 목요일 PM 7:00]\nmessage 1",
+    content: "--- 2026년 9월 24일 ---\n[19:00]\nmessage 1",
   });
   assert.equal(first.context[2].content, "message 2");
   assert.equal(first.context[26].role, "assistant");
@@ -159,66 +160,63 @@ test("fixed message references retain numbers across edits, deletion and late hi
     numbered.map((message) => message.content.match(/#(\d+) /)[1]),
     ["11", "11", "11", "12", "13"],
   );
-  assert.match(numbered[1].content, /^#11 \[수정 목격\]/);
-  assert.match(numbered[2].content, /^#11 \[삭제 목격\]/);
+  assert.match(numbered[1].content, /(?:^|\n)#11 \[수정 목격\]/);
+  assert.match(numbered[2].content, /(?:^|\n)#11 \[삭제 목격\]/);
   assert.equal(numbered.at(-1).role, "assistant");
 });
 
-test("time markers use five-minute gaps between events and survive delivery", async () => {
+test("send-time headers preserve target timestamps across edits and delivery", async () => {
   const h = await harness();
   const date = new Date("2026-09-24T13:40:00Z");
   const events = [
-    event(1, "READ", "first", { observedAt: "2026-09-24T10:00:00Z" }),
-    event(2, "SENT", "reply", { observedAt: "2026-09-24T10:04:59.999Z" }),
-    event(3, "READ", "original", { observedAt: "2026-09-24T10:09:59.998Z" }),
+    event(1, "READ", "first", { sentAt: "2026-09-24T10:00:00Z" }),
+    event(2, "SENT", "reply", { sentAt: "2026-09-24T10:04:59.999Z" }),
+    event(3, "READ", "original", { sentAt: "2026-09-24T10:09:59.998Z" }),
     event(4, "EDIT", "edited", {
       messageId: 3,
       previousContent: "original",
-      observedAt: "2026-09-24T10:09:59.999Z",
+      sentAt: "2026-09-24T10:09:59.998Z",
     }),
     event(5, "DELETE", "edited", {
       messageId: 3,
-      observedAt: "2026-09-24T10:14:59.999Z",
+      sentAt: "2026-09-24T10:09:59.998Z",
     }),
     event(6, "READ", "old bot message", {
       source: "HISTORY",
       authorPlatformId: "bot",
       isBot: true,
-      observedAt: "2026-09-24T10:15:00Z",
+      sentAt: "2026-09-24T10:15:00Z",
     }),
-    event(7, "READ", "back", { observedAt: "2026-09-24T11:00:00Z" }),
+    event(7, "READ", "back", { sentAt: "2026-09-24T11:00:00Z" }),
   ];
   const first = await h.compose(events, date);
   assert.equal(
     first.context[1].content,
-    "[2026년 9월 24일 목요일 PM 7:00]\nfirst",
+    "--- 2026년 9월 24일 ---\n[19:00]\nfirst",
   );
   assert.equal(first.context[2].content, "reply");
   assert.match(first.context[3].content, /## Current Time/);
-  assert.equal(first.context[4].content, "original");
+  assert.equal(first.context[4].content, "[19:09]\noriginal");
   assert.equal(
     first.context[5].content,
-    '[수정 목격]\n이전에 읽은 내용: "original"\n현재 내용: "edited"',
+    '[19:09]\n[수정 목격]\n이전에 읽은 내용: "original"\n현재 내용: "edited"',
   );
   assert.equal(
     first.context[6].content,
-    '[2026년 9월 24일 목요일 PM 7:14]\n[삭제 목격]\n이전에 읽은 내용: "edited"\n삭제 실행자와 이유는 알 수 없음.',
+    '[19:09]\n[삭제 목격]\n이전에 읽은 내용: "edited"\n삭제 실행자와 이유는 알 수 없음.',
   );
   assert.deepEqual(first.context[7], {
     role: "user",
-    content: "[현재 과거 내역에서 읽은 메시지]\nold bot message",
+    content: "[19:15]\n[현재 과거 내역에서 읽은 메시지]\nold bot message",
   });
-  assert.equal(
-    first.context[8].content,
-    "[2026년 9월 24일 목요일 PM 8:00]\nback",
-  );
+  assert.equal(first.context[8].content, "[20:00]\nback");
 
   events.push(
     event(8, "SENT", "welcome back", {
-      observedAt: "2026-09-24T11:00:01Z",
+      sentAt: "2026-09-24T11:00:01Z",
     }),
   );
-  events.push(event(9, "READ", "next", { observedAt: "2026-09-24T11:00:02Z" }));
+  events.push(event(9, "READ", "next", { sentAt: "2026-09-24T11:00:02Z" }));
   const next = await h.compose(events, new Date("2026-09-24T13:41:00Z"), 8);
   assert.deepEqual(next.context.slice(1, 8), [
     ...first.context.slice(1, 3),
@@ -226,17 +224,17 @@ test("time markers use five-minute gaps between events and survive delivery", as
   ]);
   assert.equal(next.context[8].content, "welcome back");
   assert.match(next.context[9].content, /## Current Time/);
-  assert.equal(next.context[10].content, "next");
+  assert.equal(next.context[10].content, "[20:00]\nnext");
 });
 
-test("missing observation times are not inferred", async () => {
+test("missing send times are not inferred from known observation times", async () => {
   const h = await harness();
   const result = await h.compose(
     [
-      event(1, "READ", "unknown", { observedAt: null }),
-      event(2, "READ", "known", { observedAt: "2026-09-24T10:00:00Z" }),
-      event(3, "READ", "unknown again", { observedAt: null }),
-      event(4, "READ", "known again", { observedAt: "2026-09-24T10:00:01Z" }),
+      event(1, "READ", "unknown", { sentAt: null }),
+      event(2, "READ", "known", { sentAt: "2026-09-24T10:00:00Z" }),
+      event(3, "READ", "unknown again", { sentAt: null }),
+      event(4, "READ", "known again", { sentAt: "2026-09-24T10:00:01Z" }),
     ],
     new Date("2026-09-24T13:40:00Z"),
   );
@@ -244,45 +242,45 @@ test("missing observation times are not inferred", async () => {
     result.context.slice(2).map((item) => item.content),
     [
       "unknown",
-      "[2026년 9월 24일 목요일 PM 7:00]\nknown",
+      "--- 2026년 9월 24일 ---\n[19:00]\nknown",
       "unknown again",
-      "[2026년 9월 24일 목요일 PM 7:00]\nknown again",
+      "[19:00]\nknown again",
     ],
   );
 });
 
-test("observation times follow the character timezone and app language", async (t) => {
+test("send times follow the character timezone and app language", async (t) => {
   const cases = [
     {
       timezone: "Asia/Seoul",
       date: "2026-09-29T00:00:00Z",
-      expected: "2026년 9월 29일 화요일 AM 9:00",
+      expected: "--- 2026년 9월 29일 ---\n[09:00]",
     },
     {
       timezone: "UTC",
       date: "2026-09-29T00:00:00Z",
-      expected: "2026년 9월 29일 화요일 AM 12:00",
+      expected: "--- 2026년 9월 29일 ---\n[00:00]",
     },
     {
       timezone: "America/New_York",
       date: "2026-09-29T00:00:00Z",
-      expected: "2026년 9월 28일 월요일 PM 8:00",
+      expected: "--- 2026년 9월 28일 ---\n[20:00]",
     },
     {
       timezone: "America/New_York",
       date: "2026-01-29T00:00:00Z",
-      expected: "2026년 1월 28일 수요일 PM 7:00",
+      expected: "--- 2026년 1월 28일 ---\n[19:00]",
     },
     {
       timezone: "Asia/Kathmandu",
       date: "2026-09-29T00:00:00Z",
-      expected: "2026년 9월 29일 화요일 AM 5:45",
+      expected: "--- 2026년 9월 29일 ---\n[05:45]",
     },
     {
       timezone: "America/New_York",
       language: "en-US",
       date: "2026-09-29T00:00:00Z",
-      expected: "Monday, September 28, 2026 at 8:00 PM",
+      expected: "--- September 28, 2026 ---\n[20:00]",
     },
   ];
   for (const { timezone, language = "ko-KR", date, expected } of cases) {
@@ -293,27 +291,27 @@ test("observation times follow the character timezone and app language", async (
         language,
       });
       const result = await h.compose(
-        [event(1, "READ", "hello", { observedAt: date })],
+        [event(1, "READ", "hello", { sentAt: date })],
         new Date("2026-09-30T00:00:00Z"),
       );
-      assert.equal(result.context.at(-1).content, `[${expected}]\nhello`);
+      assert.equal(result.context.at(-1).content, `${expected}\nhello`);
     });
   }
 });
 
-test("character timezone overrides the app timezone for observations and current time", async () => {
+test("character timezone overrides the app timezone for send times and current time", async () => {
   const h = await harness({
     timezone: "UTC",
     characterTimezone: "America/New_York",
   });
   const result = await h.compose(
-    [event(1, "READ", "hello", { observedAt: "2026-09-29T00:00:00Z" })],
+    [event(1, "READ", "hello", { sentAt: "2026-09-29T00:00:00Z" })],
     new Date("2026-09-29T00:00:00Z"),
   );
 
   assert.equal(
     result.context.at(-1).content,
-    "[2026년 9월 28일 월요일 PM 8:00]\nhello",
+    "--- 2026년 9월 28일 ---\n[20:00]\nhello",
   );
   assert.match(
     result.context.find((item) => item.content.includes("## Current Time"))

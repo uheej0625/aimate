@@ -60,14 +60,20 @@ test("observation annotations omit message IDs without changing quoted content",
     }),
     event(2, "READ", "edited", { editedAt: new Date() }),
     event(3, "READ", "past", { source: "HISTORY" }),
-    event(4, "READ", "edited past", { source: "HISTORY", editedAt: new Date() }),
+    event(4, "READ", "edited past", {
+      source: "HISTORY",
+      editedAt: new Date(),
+    }),
   ]).fetchHistoryData("channel", "bot");
-  assert.deepEqual(result.pendingMessages.map((item) => item.content), [
-    '[삭제 목격; 일괄 삭제 batch-1]\n이전에 읽은 내용: "메시지 #110"\n삭제 실행자와 이유는 알 수 없음.',
-    "[수정됨 표시 있음]\nedited",
-    "[현재 과거 내역에서 읽은 메시지]\npast",
-    "[현재 과거 내역에서 읽은 메시지; 수정됨 표시 있음, 편집 시점은 목격하지 않음]\nedited past",
-  ]);
+  assert.deepEqual(
+    result.pendingMessages.map((item) => item.content),
+    [
+      '[삭제 목격; 일괄 삭제 batch-1]\n이전에 읽은 내용: "메시지 #110"\n삭제 실행자와 이유는 알 수 없음.',
+      "[수정됨 표시 있음]\nedited",
+      "[현재 과거 내역에서 읽은 메시지]\npast",
+      "[현재 과거 내역에서 읽은 메시지; 수정됨 표시 있음, 편집 시점은 목격하지 않음]\nedited past",
+    ],
+  );
 });
 
 test("context uses the last delivered chunk while input uses the completion cursor", async () => {
@@ -124,13 +130,25 @@ test("historical bot reads and edits are observations, not new bot speech", asyn
     event(1, "SENT", "sent", { isBot: true, authorPlatformId: "bot" }),
     event(2, "EDIT", "changed", { isBot: true, authorPlatformId: "bot" }),
     event(3, "READ", "old bot message", {
-      source: "HISTORY", isBot: true, authorPlatformId: "bot",
+      source: "HISTORY",
+      isBot: true,
+      authorPlatformId: "bot",
     }),
     event(4, "DELETE", null),
   ]).fetchHistoryData("channel", "bot");
-  assert.deepEqual(result.historyMessages.map((item) => item.eventId), [1]);
-  assert.deepEqual(result.pendingMessages.map((item) => item.eventId), [2, 3, 4]);
-  assert.ok(result.pendingMessages.every((item) => item.authorPlatformId === null));
+  assert.deepEqual(
+    result.historyMessages.map((item) => item.eventId),
+    [1],
+  );
+  assert.deepEqual(
+    result.pendingMessages.map((item) => item.eventId),
+    [2, 3, 4],
+  );
+  assert.ok(result.pendingMessages.every((item) => item.role === "user"));
+  assert.deepEqual(
+    result.pendingMessages.map((item) => item.authorPlatformId),
+    ["bot", "bot", "user"],
+  );
 });
 
 test("the latest delivered chunk closes history even without later observations", async () => {
@@ -140,7 +158,10 @@ test("the latest delivered chunk closes history even without later observations"
     event(3, "READ", "interleaved input"),
     event(4, "SENT", "second chunk", { isBot: true, authorPlatformId: "bot" }),
   ]).fetchHistoryData("channel", "bot");
-  assert.deepEqual(result.historyMessages.map((item) => item.eventId), [1, 2, 3, 4]);
+  assert.deepEqual(
+    result.historyMessages.map((item) => item.eventId),
+    [1, 2, 3, 4],
+  );
   assert.deepEqual(result.pendingMessages, []);
   assert.deepEqual(result.eventSnapshot.inputEventIds, [1, 3]);
 });
@@ -152,16 +173,28 @@ test("replay merges by event ID without collapsing edits with identical content"
     event(3, "EDIT", "same"),
     event(4, "DELETE", "same"),
   ];
-  const history = new HistoryService({
-    snapshot: async () => ({
-      events,
-      fromExclusive: 3,
-      replay: { events: events.slice(0, 3), inputEventIds: [2, 3] },
-    }),
-  }, { findGenerationInputsByIds: async () => new Map() });
+  const history = new HistoryService(
+    {
+      snapshot: async () => ({
+        events,
+        fromExclusive: 3,
+        replay: { events: events.slice(0, 3), inputEventIds: [2, 3] },
+      }),
+    },
+    { findGenerationInputsByIds: async () => new Map() },
+  );
   const result = await history.fetchHistoryData("channel", "bot", 10);
-  assert.deepEqual(result.eventSnapshot.events.map((item) => item.id), [1, 2, 3, 4]);
-  assert.deepEqual(result.historyMessages.map((item) => item.eventId), [1]);
-  assert.deepEqual(result.pendingMessages.map((item) => item.eventId), [2, 3, 4]);
+  assert.deepEqual(
+    result.eventSnapshot.events.map((item) => item.id),
+    [1, 2, 3, 4],
+  );
+  assert.deepEqual(
+    result.historyMessages.map((item) => item.eventId),
+    [1],
+  );
+  assert.deepEqual(
+    result.pendingMessages.map((item) => item.eventId),
+    [2, 3, 4],
+  );
   assert.deepEqual(result.eventSnapshot.inputEventIds.sort(), [2, 3, 4]);
 });

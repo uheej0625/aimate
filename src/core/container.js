@@ -38,6 +38,7 @@ import { StoredMessageService } from "../application/StoredMessageService.js";
 import { GetGenerationInfo } from "../application/GetGenerationInfo.js";
 import { RerollConversation } from "../application/RerollConversation.js";
 import { ChannelCatalog } from "../application/ChannelCatalog.js";
+import { ParticipantService } from "../chat/context/ParticipantService.js";
 
 /**
  * Application composition root.
@@ -47,6 +48,7 @@ export async function createContainer({
   configManager,
   credentials = loadAiCredentials(),
   platformClients = new Map(),
+  participantSources = new Map(),
 }) {
   if (!configManager) {
     throw new Error("createContainer requires a configManager.");
@@ -93,12 +95,14 @@ export async function createContainer({
   await toolRegistry.loadFromDirectory();
 
   const imageGenerator = new ImageGenerator(configManager, { credentials });
+  const participantService = new ParticipantService(participantSources);
   const toolContextFactory = new ToolExecutionContextFactory({
     configManager,
     imageGenerator,
     generationRepository,
     platformClients,
     messageActionService,
+    participantService,
   });
 
   // Services (business logic layer)
@@ -111,7 +115,9 @@ export async function createContainer({
     configManager,
     characterContextBuilder,
   );
-  const sequenceBuilder = new SequenceBuilder(promptComposer);
+  const sequenceBuilder = new SequenceBuilder(promptComposer, {
+    participantService,
+  });
   const responseParser = new AIResponseParser();
   const generatedImageTagPolicy = new GeneratedImageTagPolicy();
   const chatContextPreparer = new ChatContextPreparer(
@@ -146,7 +152,6 @@ export async function createContainer({
   );
   const failureHandler = new ChatGenerationFailureHandler(
     generationLifecycle,
-    messageSender,
     eventBus,
   );
   const chatFlow = new ChatFlow({

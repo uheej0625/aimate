@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert";
 const observedAt = new Date("2026-09-20T00:00:00Z");
+const sentAt = new Date("2026-09-19T23:00:00Z");
 
 import { MessageService } from "../../src/messages/MessageService.js";
 
@@ -53,6 +54,7 @@ function normalizedMessage(overrides = {}) {
       isBot: false,
     },
     content: "Hello",
+    sentAt,
     ...overrides,
   };
 }
@@ -80,6 +82,7 @@ test("MessageService saves a message and records its observed state", async () =
   assert.strictEqual(result.platformAccount.id, "account-123");
   assert.strictEqual(result.changed, true);
   assert.strictEqual(savedData.generationId, "generation-1");
+  assert.strictEqual(savedData.sentAt, sentAt);
   assert.deepStrictEqual(events, [
     {
       characterId: "fixture",
