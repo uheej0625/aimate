@@ -43,6 +43,7 @@
  * @typedef {Object} MessageEvent
  * @property {"CREATE"|"UPDATE"|"DELETE"} kind
  * @property {NormalizedMessage} [message] - CREATE/UPDATE snapshot
+ * @property {string} [platformMessageId] - CREATE/UPDATE identity, available before partial hydration
  * @property {() => Promise<NormalizedMessage>} [loadMessage] - Partial platform payload
  * @property {string[]} [platformMessageIds] - DELETE batch
  * @property {ChannelPort} channel

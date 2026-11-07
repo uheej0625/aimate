@@ -4,6 +4,10 @@ import { loadEvents } from "./handlers/eventHandler.js";
 import { DiscordLogRepository } from "./logging/DiscordLogRepository.js";
 import { DiscordLogService } from "./logging/DiscordLogService.js";
 import { DiscordParticipantSource } from "./DiscordParticipantSource.js";
+import { PolicyRepository } from "../../repositories/PolicyRepository.js";
+import { ChannelRepository } from "../../repositories/ChannelRepository.js";
+import { PolicyType } from "../../policies/Policy.js";
+import { DiscordPolicyService } from "./policy/DiscordPolicyService.js";
 
 export async function createDiscordApplication({
   configManager,
@@ -11,15 +15,27 @@ export async function createDiscordApplication({
   credentials,
 }) {
   const platformClients = new Map([["discord", client]]);
+  const discordPolicyService = new DiscordPolicyService({
+    client,
+    repository: new PolicyRepository(),
+    channelRepository: new ChannelRepository(),
+  });
 
   const app = await createContainer({
     configManager,
     credentials,
     platformClients,
+    conversationPolicy: {
+      isEnabled: (channel) =>
+        discordPolicyService.isAllowed(channel, PolicyType.CONVERSATION),
+    },
     participantSources: new Map([
       ["discord", new DiscordParticipantSource(client)],
     ]),
   });
+  discordPolicyService.start(() =>
+    app.messageHandler.stopDisabledConversations(),
+  );
   const discordLogService = new DiscordLogService({
     client,
     repository: new DiscordLogRepository(),
@@ -42,12 +58,12 @@ export async function createDiscordApplication({
   });
   await loadCommands(client, {
     discordLogService,
-    activateChannel: app.activateChannel,
+    discordPolicyService,
     storedMessageService: app.storedMessageService,
     getGenerationInfo: app.getGenerationInfo,
     rerollConversation: app.rerollConversation,
     messageHandler: app.messageHandler,
   });
 
-  return { ...app, discordLogService };
+  return { ...app, discordLogService, discordPolicyService };
 }

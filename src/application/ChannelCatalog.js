@@ -24,11 +24,10 @@ export class ChannelCatalog {
     );
   }
 
-  async create({ platform, platformChannelId, scope = "channel" }) {
+  async create({ platform, platformChannelId }) {
     const channel = await this.channelRepository.upsert({
       platform,
       platformId: platformChannelId,
-      scope,
     });
 
     return toChannel(channel, []);

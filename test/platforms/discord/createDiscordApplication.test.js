@@ -31,9 +31,19 @@ test("createDiscordApplication registers commands and events without a service l
     client,
     credentials: loadAiCredentials({ AI_GATEWAY_API_KEY: "test-key" }),
   });
-  t.after(() => app.discordLogService.close());
+  t.after(async () => {
+    await app.discordPolicyService.close();
+    await app.discordLogService.close();
+  });
 
   assert.strictEqual(client.commands.size, 6);
+  assert.equal(client.commands.has("정책"), true);
+  assert.equal(client.commands.has("활성화"), false);
+  assert.strictEqual(
+    app.messageHandler.conversationPolicy,
+    app.chatFlow.conversationPolicy,
+  );
+  assert.strictEqual(typeof app.discordPolicyService.isAllowed, "function");
   assert.strictEqual(eventHandlers.size, 5);
   assert.strictEqual(onceHandlers.size, 1);
   assert.strictEqual("services" in client, false);

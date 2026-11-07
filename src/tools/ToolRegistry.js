@@ -180,6 +180,17 @@ export class ToolRegistry {
                   "Application tool started",
                 );
                 try {
+                  abortSignal?.throwIfAborted();
+                  if (
+                    context?.delivery?.canDeliver &&
+                    !(await context.delivery.canDeliver())
+                  ) {
+                    throw new DOMException(
+                      "Conversation is disabled in this channel.",
+                      "AbortError",
+                    );
+                  }
+                  abortSignal?.throwIfAborted();
                   const result = await toolDef.execute(input ?? {}, {
                     ...context,
                     toolCallId: options.toolCallId,

@@ -33,7 +33,6 @@ import { ToolRegistry } from "../tools/ToolRegistry.js";
 import { ToolExecutionContextFactory } from "../tools/ToolExecutionContextFactory.js";
 import { MessageActionService } from "../tools/MessageActionService.js";
 import { MessageActionRepository } from "../repositories/MessageActionRepository.js";
-import { ActivateChannel } from "../application/ActivateChannel.js";
 import { StoredMessageService } from "../application/StoredMessageService.js";
 import { GetGenerationInfo } from "../application/GetGenerationInfo.js";
 import { RerollConversation } from "../application/RerollConversation.js";
@@ -49,6 +48,7 @@ export async function createContainer({
   credentials = loadAiCredentials(),
   platformClients = new Map(),
   participantSources = new Map(),
+  conversationPolicy = null,
 }) {
   if (!configManager) {
     throw new Error("createContainer requires a configManager.");
@@ -164,12 +164,9 @@ export async function createContainer({
     eventBus,
     generationAbortRegistry,
     conversationSession,
+    conversationPolicy,
   });
 
-  const activateChannel = new ActivateChannel(
-    channelRepository,
-    serverRepository,
-  );
   const getGenerationInfo = new GetGenerationInfo(messageRepository);
   const rerollConversation = new RerollConversation(
     messageRepository,
@@ -196,6 +193,7 @@ export async function createContainer({
     channelRepository,
     generationAbortRegistry,
     conversationSession,
+    conversationPolicy,
   );
 
   const storedMessageService = new StoredMessageService(messageHandler);
@@ -206,7 +204,6 @@ export async function createContainer({
   );
 
   return {
-    activateChannel,
     storedMessageService,
     getGenerationInfo,
     rerollConversation,

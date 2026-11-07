@@ -11,6 +11,7 @@ export class MessageHandler {
     channelRepository,
     generationAbortRegistry,
     conversationSession,
+    conversationPolicy = null,
   ) {
     Object.assign(this, {
       messageService,
@@ -19,7 +20,30 @@ export class MessageHandler {
       channelRepository,
       generationAbortRegistry,
       conversationSession,
+      conversationPolicy,
     });
+  }
+
+  async stopDisabledConversations() {
+    const session = this.conversationSession;
+    for (const key of [...session.states.keys()]) {
+      if (!session.isWatching(key)) continue;
+      const [platform, platformChannelId] = JSON.parse(key);
+      const channel = { platform, platformChannelId };
+      await session.run(key, async () => {
+        if (await this.conversationPolicy.isEnabled(channel)) return;
+        this.conversationBuffer.clear(channel);
+        session.stop(key);
+        const record = await this.channelRepository.findByPlatformId(
+          platform,
+          platformChannelId,
+        );
+        if (record) {
+          this.generationAbortRegistry.abortChannel(record.id);
+          await this.generationLifecycle.cancelActiveForChannel(record.id);
+        }
+      });
+    }
   }
 
   handle(event) {
@@ -42,7 +66,8 @@ export class MessageHandler {
     const observedAt = new Date();
     const startedAt = performance.now();
     let channelId;
-    let platformMessageId = event.message?.platformMessageId;
+    let platformMessageId =
+      event.message?.platformMessageId ?? event.platformMessageId;
     logger.debug(
       {
         event: "message.received",
@@ -56,128 +81,147 @@ export class MessageHandler {
         "Message event dequeued",
       );
       try {
-        const observed = session.isWatching(key, receivedAt);
-        const channelRecord = await this.channelRepository.findByPlatformId(
+        let channelRecord = await this.channelRepository.findByPlatformId(
           channel.platform,
           channel.platformChannelId,
         );
-        if (!channelRecord) {
+        if (!channelRecord && !this.conversationPolicy) {
           logger.debug(
             { event: "message.skipped", reason: "unregistered_channel" },
             "Message event skipped",
           );
           return { changed: false };
         }
-        if (channelRecord.logEnabled) {
+        if (channelRecord?.logEnabled) {
           logger.debug(
             { event: "message.skipped", reason: "log_channel" },
             "Message event skipped",
           );
           return { changed: false };
         }
-        channelId = channelRecord.id;
-        return await withLogContext(
-          { channelId: channelRecord.id },
-          async () => {
-            let changed = false;
-            let shouldRespond = false;
-            let deletedCount = 0;
-            if (kind === "DELETE") {
-              const result = await this.messageService.deleteMessages(
-                channel.platform,
-                event.platformMessageIds,
-                channelRecord.id,
-                { observed, observedAt },
-              );
-              deletedCount = result.deletedCount;
-              changed = deletedCount > 0;
-              shouldRespond =
-                observed &&
-                result.deletedMessages.some(
-                  (message) =>
-                    message.authorId &&
-                    !message.isBot &&
-                    message.author?.platformId !== botId,
-                );
-            } else if (kind === "CREATE" || kind === "UPDATE") {
-              // Lazy platform hydration stays inside the receive-order queue.
-              const message = event.message ?? (await event.loadMessage());
-              platformMessageId = message.platformMessageId;
-              if (message.author.platformUserId === botId) {
-                logger.debug(
-                  {
-                    event: "message.skipped",
-                    reason: "bot_author",
-                    platformMessageId: message.platformMessageId,
-                  },
-                  "Message event skipped",
-                );
-                return { changed: false };
-              }
-              if (kind === "CREATE") {
-                ({ changed } = await this.messageService.saveMessage(
-                  message,
-                  null,
-                  [],
-                  { observedAt },
-                ));
-                shouldRespond = changed;
-              } else {
-                ({ changed } = await this.messageService.updateMessage(
-                  message,
-                  {
-                    observed,
-                    observedAt,
-                  },
-                ));
-                shouldRespond = observed && changed;
-              }
-            } else {
-              throw new Error(`Unsupported message event: ${kind}`);
-            }
-            if (shouldRespond) {
-              const turnId = session.begin(key, receivedAt);
-              logger.debug(
-                { event: "conversation.turn.started", turnId },
-                "Conversation turn started",
-              );
-              this.generationAbortRegistry.abortChannel(channelRecord.id);
-              try {
-                await this.generationLifecycle.cancelActiveForChannel(
-                  channelRecord.id,
-                );
-                await this.conversationBuffer.add({
-                  channelPort: channel,
-                  internalChannelId: channelRecord.id,
-                  botId,
-                  turnId,
-                });
-              } catch (error) {
-                session.settle(key, turnId);
-                throw error;
-              }
-            }
-            logger.debug(
-              {
-                event: "message.processed",
-                changed,
-                deletedCount,
-                refreshed: shouldRespond,
-                observed,
-                reason: shouldRespond
-                  ? "response_scheduled"
-                  : !changed
-                    ? "unchanged"
-                    : !observed
-                      ? "outside_observation"
-                      : "no_response_required",
-                durationMs: elapsedMs(startedAt),
-              },
-              "Message event processed",
+        const enabled = this.conversationPolicy
+          ? await this.conversationPolicy.isEnabled(channel)
+          : true;
+        if (!enabled && kind === "CREATE") return { changed: false };
+        if (!channelRecord && kind !== "CREATE") return { changed: false };
+        if (
+          !enabled &&
+          kind === "UPDATE" &&
+          !(await this.messageService.hasStoredMessage(
+            channel.platform,
+            platformMessageId,
+          ))
+        ) {
+          return { changed: false };
+        }
+        const observed = enabled && session.isWatching(key, receivedAt);
+        channelId = channelRecord?.id;
+        return await withLogContext({ channelId }, async () => {
+          let changed = false;
+          let shouldRespond = false;
+          let deletedCount = 0;
+          if (kind === "DELETE") {
+            const result = await this.messageService.deleteMessages(
+              channel.platform,
+              event.platformMessageIds,
+              channelRecord.id,
+              { observed, observedAt },
             );
-            return { changed, deletedCount, refreshed: shouldRespond };
-          },
-        );
+            deletedCount = result.deletedCount;
+            changed = deletedCount > 0;
+            shouldRespond =
+              observed &&
+              result.deletedMessages.some(
+                (message) =>
+                  message.authorId &&
+                  !message.isBot &&
+                  message.author?.platformId !== botId,
+              );
+          } else if (kind === "CREATE" || kind === "UPDATE") {
+            // Lazy platform hydration stays inside the receive-order queue.
+            const message = event.message ?? (await event.loadMessage());
+            platformMessageId = message.platformMessageId;
+            if (message.author.platformUserId === botId) {
+              logger.debug(
+                {
+                  event: "message.skipped",
+                  reason: "bot_author",
+                  platformMessageId: message.platformMessageId,
+                },
+                "Message event skipped",
+              );
+              return { changed: false };
+            }
+            if (kind === "CREATE") {
+              const result = await this.messageService.saveMessage(
+                message,
+                null,
+                [],
+                { observedAt },
+              );
+              changed = result.changed;
+              channelRecord ??= result.channel;
+              shouldRespond = changed;
+            } else {
+              ({ changed } = await this.messageService.updateMessage(message, {
+                observed,
+                observedAt,
+                storedOnly: !enabled,
+              }));
+              shouldRespond = observed && changed;
+            }
+          } else {
+            throw new Error(`Unsupported message event: ${kind}`);
+          }
+          if (
+            shouldRespond &&
+            this.conversationPolicy &&
+            !(await this.conversationPolicy.isEnabled(channel))
+          ) {
+            shouldRespond = false;
+          }
+          if (shouldRespond) {
+            const turnId = session.begin(key, receivedAt);
+            logger.debug(
+              { event: "conversation.turn.started", turnId },
+              "Conversation turn started",
+            );
+            this.generationAbortRegistry.abortChannel(channelRecord.id);
+            try {
+              await this.generationLifecycle.cancelActiveForChannel(
+                channelRecord.id,
+              );
+              await this.conversationBuffer.add({
+                channelPort: channel,
+                internalChannelId: channelRecord.id,
+                botId,
+                turnId,
+              });
+            } catch (error) {
+              session.settle(key, turnId);
+              throw error;
+            }
+          }
+          logger.debug(
+            {
+              event: "message.processed",
+              changed,
+              deletedCount,
+              refreshed: shouldRespond,
+              observed,
+              reason: shouldRespond
+                ? "response_scheduled"
+                : !changed
+                  ? "unchanged"
+                  : !observed
+                    ? "outside_observation"
+                    : "no_response_required",
+              durationMs: elapsedMs(startedAt),
+            },
+            "Message event processed",
+          );
+          return { changed, deletedCount, refreshed: shouldRespond };
+        });
       } catch (error) {
         logger.error(
           {

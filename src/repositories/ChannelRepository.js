@@ -14,7 +14,7 @@ export class ChannelRepository {
    * @returns {Promise<Object>} The channel record
    */
   async upsert(channelData) {
-    const { platform, platformId, serverId, scope } = channelData;
+    const { platform, platformId, serverId } = channelData;
 
     return await prisma.channel.upsert({
       where: {
@@ -25,13 +25,11 @@ export class ChannelRepository {
       },
       update: {
         serverId: serverId || undefined,
-        scope: scope ?? undefined,
       },
       create: {
         platform,
         platformId,
         serverId,
-        scope: scope ?? null,
       },
     });
   }

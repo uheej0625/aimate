@@ -40,6 +40,7 @@ const main = async () => {
       generationAbortRegistry: app.generationAbortRegistry,
       generationRepository: app.generationRepository,
       discordLogService: app.discordLogService,
+      discordPolicyService: app.discordPolicyService,
       configManager,
       client,
       disconnectDatabase: () => prisma.$disconnect(),

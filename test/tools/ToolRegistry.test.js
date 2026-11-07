@@ -6,6 +6,37 @@ import reply from "../../src/tools/definitions/reply.js";
 import react from "../../src/tools/definitions/react.js";
 import { captureLogs } from "../helpers/logs.js";
 
+test("tools do not start after conversation access expires or generation is aborted", async () => {
+  const registry = new ToolRegistry({ has: () => false });
+  registry.register({
+    name: "side_effect",
+    description: "fixture",
+    inputSchema: jsonSchema({ type: "object" }),
+    execute: () => assert.fail("Cancelled tools must not run"),
+  });
+  const expired = registry.createToolSet("discord", {
+    delivery: { canDeliver: async () => false },
+  });
+  assert.match((await expired.side_effect.execute({})).error, /disabled/);
+  const controller = new AbortController();
+  controller.abort();
+  const aborted = registry.createToolSet("discord", {
+    abortSignal: controller.signal,
+  });
+  assert.match((await aborted.side_effect.execute({})).error, /abort/i);
+  const duringCheck = new AbortController();
+  const interrupted = registry.createToolSet("discord", {
+    abortSignal: duringCheck.signal,
+    delivery: {
+      canDeliver: async () => {
+        duringCheck.abort();
+        return true;
+      },
+    },
+  });
+  assert.match((await interrupted.side_effect.execute({})).error, /abort/i);
+});
+
 test("ToolRegistry creates AI SDK toolsets with runtime context", async () => {
   let received = null;
   const registry = new ToolRegistry({

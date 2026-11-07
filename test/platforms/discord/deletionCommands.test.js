@@ -69,8 +69,28 @@ test("reroll preserves failed platform deletions and passes the original generat
           return { deletedCount: 1 };
         },
       },
+      discordPolicyService: { isAllowed: async () => true },
     },
   );
   assert.deepEqual(received.platformMessageIds, ["ok"]);
   assert.equal(received.generationId, 7);
+});
+
+test("reroll in a disabled channel leaves existing messages intact", async () => {
+  let reply;
+  await reroll.execute(
+    {
+      ...interaction({ id: "channel" }),
+      editReply: async (value) => {
+        reply = value;
+      },
+    },
+    {
+      discordPolicyService: { isAllowed: async () => false },
+      rerollConversation: {
+        prepare: () => assert.fail("Must not prepare or delete"),
+      },
+    },
+  );
+  assert.match(reply.content, /비활성화/);
 });

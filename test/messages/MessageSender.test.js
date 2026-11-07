@@ -97,6 +97,38 @@ function createHarness(config) {
   return { sender, channel, sent, saved, pacing, typing: () => typing };
 }
 
+test("delivery policy is checked for every chunk and prevents sending after temporary activation expires", async () => {
+  const h = createHarness({
+    "humanize.enabled": false,
+    "messages.maxLength": 32,
+  });
+  let checks = 0;
+  assert.equal(
+    await h.sender.send(h.channel, "a".repeat(64), 1, {
+      canDeliver: async () => ++checks === 1,
+    }),
+    false,
+  );
+  assert.deepEqual(h.sent, ["a".repeat(32)]);
+  assert.deepEqual(h.saved, ["a".repeat(32)]);
+});
+
+test("delivery rechecks access after the final generation lookup", async () => {
+  const h = createHarness({ "humanize.enabled": false });
+  let enabled = true;
+  h.sender.generationRepository.findById = async () => {
+    enabled = false;
+    return { status: "GENERATED" };
+  };
+  assert.equal(
+    await h.sender.send(h.channel, "late output", 1, {
+      canDeliver: async () => enabled,
+    }),
+    false,
+  );
+  assert.deepEqual(h.sent, []);
+});
+
 test("delivery logs distinguish storage retry, permanent storage failure and transport failure", async (t) => {
   const records = captureLogs(t);
   const h = createHarness({ "humanize.enabled": false });

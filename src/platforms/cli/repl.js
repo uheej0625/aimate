@@ -66,7 +66,6 @@ export async function startRepl({
       await channelCatalog.create({
         platform: "cli",
         platformChannelId: uuidv4(),
-        scope: "channel",
       }),
     ];
   }
@@ -80,7 +79,6 @@ export async function startRepl({
         const channel = await channelCatalog.create({
           platform: "cli",
           platformChannelId: id,
-          scope: "channel",
         });
         makeChannelObject(id);
         tui.addChannel({

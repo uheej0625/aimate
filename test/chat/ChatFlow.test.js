@@ -86,7 +86,7 @@ test("ChatFlow tests", async (t) => {
       let startedWith = null;
       const latestChannelRecord = {
         ...baseChannelRecord,
-        scope: "server",
+        lastMessageNo: 42,
       };
       const channelRepository = {
         findById: async (internalChannelId) => {

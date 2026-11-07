@@ -79,6 +79,7 @@ export class MessageSender {
     {
       run = (operation) => operation(),
       isCurrent = () => true,
+      canDeliver = async () => true,
       onDelivered = () => {},
     } = {},
   ) {
@@ -143,6 +144,7 @@ export class MessageSender {
       const sendOptions = {};
       if (cleanText) sendOptions.content = cleanText;
       if (files.length > 0) sendOptions.files = files;
+      if (!(await canDeliver())) return null;
       logger.debug(
         {
           event: "message.send.started",

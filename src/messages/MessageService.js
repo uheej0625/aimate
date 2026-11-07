@@ -124,9 +124,18 @@ export class MessageService {
     };
   }
 
+  async hasStoredMessage(platform, platformMessageId) {
+    if (!platformMessageId) return false;
+    const message = await this.messageRepository.findByPlatformId(
+      platform,
+      platformMessageId,
+    );
+    return !!message && !message.deletedAt;
+  }
+
   async updateMessage(
     message,
-    { observed = false, observedAt = new Date() } = {},
+    { observed = false, observedAt = new Date(), storedOnly = false } = {},
   ) {
     const result = await this.messageRepository.transaction(async (tx) => {
       const existing =
@@ -164,7 +173,7 @@ export class MessageService {
       }
       return { message: updated, changed };
     });
-    if (result.message !== null) return result;
+    if (result.message !== null || storedOnly) return result;
     // A complete update can be the first time this application sees a message.
     return await this.saveMessage(message, null, [], {
       observed,

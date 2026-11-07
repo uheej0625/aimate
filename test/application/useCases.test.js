@@ -1,49 +1,10 @@
 import test from "node:test";
 import assert from "node:assert";
-import { ActivateChannel } from "../../src/application/ActivateChannel.js";
 import { StoredMessageService } from "../../src/application/StoredMessageService.js";
 import { GetGenerationInfo } from "../../src/application/GetGenerationInfo.js";
 import { RerollConversation } from "../../src/application/RerollConversation.js";
 import { ConversationSession } from "../../src/chat/ConversationSession.js";
 import { ChannelCatalog } from "../../src/application/ChannelCatalog.js";
-
-test("ActivateChannel resolves a server and activates its channel", async () => {
-  const serverCalls = [];
-  const channelCalls = [];
-  const useCase = new ActivateChannel(
-    {
-      upsert: async (data) => {
-        channelCalls.push(data);
-        return { id: "channel" };
-      },
-    },
-    {
-      upsert: async (data) => {
-        serverCalls.push(data);
-        return { id: "server" };
-      },
-    },
-  );
-
-  await useCase.execute({
-    platform: "discord",
-    platformChannelId: "channel-1",
-    platformServerId: "server-1",
-    scope: "channel",
-  });
-
-  assert.deepStrictEqual(serverCalls, [
-    { platform: "discord", platformId: "server-1" },
-  ]);
-  assert.deepStrictEqual(channelCalls, [
-    {
-      platform: "discord",
-      platformId: "channel-1",
-      serverId: "server",
-      scope: "channel",
-    },
-  ]);
-});
 
 test("StoredMessageService uses the common event handler for confirmed deletions", async () => {
   const calls = [];

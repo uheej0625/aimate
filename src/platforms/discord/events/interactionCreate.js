@@ -1,4 +1,4 @@
-import { Events } from "discord.js";
+import { Events, MessageFlags } from "discord.js";
 import {
   createLogger,
   elapsedMs,
@@ -38,14 +38,19 @@ export default {
           ? { execute: () => discordLogService.showOriginal(interaction) }
           : client.commands.get(interaction.commandName);
 
-        if (!command) {
-          logger.error({ event: "command.not_found" }, "Command not found");
-          return;
-        }
-
         const startedAt = performance.now();
-        logger.info({ event: "command.started" }, "Command started");
         try {
+          if (!command) {
+            logger.error({ event: "command.not_found" }, "Command not found");
+            await interaction.reply({
+              content:
+                "현재 실행 중인 봇에서 지원하지 않는 명령어예요. 관리자에게 Discord 명령어 재등록을 요청해 주세요.",
+              flags: MessageFlags.Ephemeral,
+            });
+            return;
+          }
+
+          logger.info({ event: "command.started" }, "Command started");
           await command.execute(interaction);
           logger.info(
             { event: "command.completed", durationMs: elapsedMs(startedAt) },

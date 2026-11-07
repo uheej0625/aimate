@@ -88,6 +88,21 @@ function harness() {
     saved: () => saved,
   };
 }
+
+test("reply and reaction recheck conversation access before dispatch", async () => {
+  for (const action of ["reply", "react"]) {
+    const h = harness();
+    h.context.delivery.canDeliver = async () => false;
+    await assert.rejects(
+      h.service[action](
+        { targetMessageNo: 11, text: "hello", emoji: "👍" },
+        h.context,
+      ),
+      /disabled/,
+    );
+    assert.equal(h.dispatched(), 0);
+  }
+});
 const input = { targetMessageNo: 11, text: "reply" };
 
 test("message actions reject invalid numbers, missing/deleted targets and mismatched channels", async () => {

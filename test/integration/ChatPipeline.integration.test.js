@@ -469,14 +469,21 @@ test("platform send time survives late reads, edits, deletion and replay snapsho
   assert.match(records[1].content, /과거 내역/);
   assert.match(records[2].content, /수정 목격/);
   assert.match(records[3].content, /삭제 목격/);
-  const generation = await prisma.generation.findFirst({ where: { channelId } });
+  const generation = await prisma.generation.findFirst({
+    where: { channelId },
+  });
   assert.equal(generation.status, "COMPLETED");
   const snapshot = JSON.parse(generation.input).eventSnapshot;
   assert.ok(snapshot.events.every((e) => e.sentAt === sentAt.toISOString()));
   assert.equal(snapshot.events[0].observedAt, observedAt.toISOString());
   assert.deepEqual(
     snapshot.events.map((e) => [e.kind, e.source]),
-    [["READ", "LIVE"], ["READ", "HISTORY"], ["EDIT", "LIVE"], ["DELETE", "LIVE"]],
+    [
+      ["READ", "LIVE"],
+      ["READ", "HISTORY"],
+      ["EDIT", "LIVE"],
+      ["DELETE", "LIVE"],
+    ],
   );
   const replayed = await h.historyService.fetchHistoryData(
     channelId,
@@ -1610,6 +1617,389 @@ test("observed identities and raw mentions survive storage while model and membe
   assert.deepEqual(
     snapshots.map((e) => e.authorHandle),
     ["alice", "bob"],
+  );
+});
+
+test("typed policies persist bases, replace temporary overrides and expire after restart", async () => {
+  const { PolicyRepository } = await import(
+    "../../src/repositories/PolicyRepository.js"
+  );
+  const { resolvePolicy } = await import("../../src/policies/Policy.js");
+  const repository = new PolicyRepository();
+  const platformServerId = randomUUID();
+  const context = {
+    platform: "discord",
+    platformServerId,
+    type: "conversation",
+  };
+  const request = {
+    ...context,
+    scope: "server",
+    targetId: platformServerId,
+    updatedBy: "admin",
+  };
+  const chain = [{ scope: request.scope, targetId: request.targetId }];
+  await repository.set({ ...request, effect: "allow" });
+  await repository.set({
+    ...request,
+    effect: "deny",
+    expiresAt: new Date("2026-11-02T01:00:00Z"),
+  });
+  let [saved] = await repository.list(context);
+  assert.equal(saved.effect, "allow");
+  assert.equal(saved.temporaryEffect, "deny");
+  assert.equal(saved.updatedBy, "admin");
+  await repository.set({
+    ...request,
+    effect: "allow",
+    expiresAt: new Date("2026-11-02T03:00:00Z"),
+  });
+  [saved] = await repository.list(context);
+  assert.equal(saved.expiresAt.toISOString(), "2026-11-02T03:00:00.000Z");
+  assert.equal((await repository.list(context)).length, 1);
+  const status = resolvePolicy({
+    policies: await new PolicyRepository().list(context),
+    type: context.type,
+    chain,
+    now: new Date("2026-11-02T03:00:00Z"),
+  });
+  assert.equal(status.allowed, true);
+  assert.equal(status.source.temporary, false);
+  assert.deepEqual(
+    await repository.list({ ...context, platformServerId: randomUUID() }),
+    [],
+  );
+  await repository.set({ ...request, effect: "deny" });
+  [saved] = await repository.list(context);
+  assert.equal(saved.effect, "deny");
+  assert.equal(saved.temporaryEffect, null);
+  assert.equal(saved.expiresAt, null);
+  await repository.remove(request);
+  assert.deepEqual(await repository.list(context), []);
+});
+
+test("policies isolate types and platforms and support serverless contexts", async () => {
+  const { PolicyRepository } = await import(
+    "../../src/repositories/PolicyRepository.js"
+  );
+  const repository = new PolicyRepository();
+  const targetId = randomUUID();
+  const platformServerId = randomUUID();
+  const subject = {
+    type: "conversation",
+    scope: "channel",
+    targetId,
+    updatedBy: "operator",
+  };
+  const discordContext = {
+    platform: "discord",
+    platformServerId,
+    type: "conversation",
+  };
+  const profileContext = { ...discordContext, type: "profile.view" };
+  await repository.set({ ...subject, ...discordContext, effect: "allow" });
+  await repository.set({ ...subject, ...profileContext, effect: "deny" });
+  await repository.set({ ...subject, platform: "cli", effect: "deny" });
+  await repository.set({ ...subject, platform: "other", effect: "allow" });
+  const cliContext = { platform: "cli", type: "conversation" };
+  const [cli] = await repository.list(cliContext);
+  assert.equal(cli.effect, "deny");
+  assert.equal(cli.platformServerId, null);
+  const [discord] = await repository.list(discordContext);
+  assert.equal(discord.effect, "allow");
+  const [profile] = await repository.list(profileContext);
+  assert.equal(profile.effect, "deny");
+  assert.deepEqual(
+    await repository.list({ platform: "discord", type: "conversation" }),
+    [],
+  );
+  await repository.remove({ ...subject, platform: "cli" });
+  assert.deepEqual(await repository.list(cliContext), []);
+  assert.equal((await repository.list(discordContext)).length, 1);
+  assert.equal(
+    (await repository.list({ platform: "other", type: "conversation" })).length,
+    1,
+  );
+  await repository.remove({ ...subject, platform: "discord" });
+  assert.deepEqual(await repository.list(discordContext), []);
+  assert.equal(
+    (await repository.list(profileContext)).length,
+    1,
+    "Inheritance removes only the selected policy type",
+  );
+  await assert.rejects(
+    repository.remove({ scope: "channel", targetId }),
+    /requires platform/,
+  );
+  await assert.rejects(
+    repository.remove({ platform: "discord", scope: "channel", targetId }),
+    /type/,
+  );
+  await assert.rejects(repository.list({}), /Platform and policy type/);
+  await assert.rejects(repository.list({ platform: "discord" }), /policy type/);
+  await assert.rejects(
+    repository.set({ ...subject, platform: "cli", effect: "unknown" }),
+    /must be allow or deny/,
+  );
+});
+
+async function discordConversationHarness(options = {}) {
+  const { ChannelType } = await import("discord.js");
+  const { PolicyRepository } = await import(
+    "../../src/repositories/PolicyRepository.js"
+  );
+  const { DiscordPolicyService } = await import(
+    "../../src/platforms/discord/policy/DiscordPolicyService.js"
+  );
+  const h = createHarness({
+    humanize: { enabled: false },
+    generateTextFn: async () => fakeTextResult("## messages\nreply"),
+    ...options,
+  });
+  const guildId = randomUUID();
+  const rawChannel = {
+    id: h.channel.platformChannelId,
+    guildId,
+    type: ChannelType.GuildText,
+    parentId: randomUUID(),
+  };
+  const originalSend = h.channel.send;
+  h.channel.platform = "discord";
+  h.channel.send = async (payload) => ({
+    ...(await originalSend(payload)),
+    platform: "discord",
+    platformServerId: guildId,
+  });
+  let time = new Date("2026-11-02T00:00:00Z");
+  const service = new DiscordPolicyService({
+    client: {
+      channels: {
+        cache: new Map([[rawChannel.id, rawChannel]]),
+        fetch: async () => rawChannel,
+      },
+    },
+    repository: new PolicyRepository(),
+    channelRepository: new ChannelRepository(),
+    now: () => time,
+  });
+  const conversationPolicy = {
+    isEnabled: (channel) => service.isAllowed(channel, "conversation"),
+  };
+  h.messageHandler.conversationPolicy = conversationPolicy;
+  h.chatFlow.conversationPolicy = conversationPolicy;
+  h.messageHandler.conversationBuffer.clear = () => {
+    h.bufferedRequests.length = 0;
+  };
+  service.reconcile = () => h.messageHandler.stopDisabledConversations();
+  return {
+    ...h,
+    service,
+    rawChannel,
+    guildId,
+    setPolicyTime: (value) => {
+      time = new Date(value);
+    },
+    configure: (state, hours = null) =>
+      service.configure({
+        guildId,
+        type: "conversation",
+        scope: "server",
+        channel: null,
+        state,
+        hours,
+        updatedBy: "admin",
+      }),
+    message: (content) => ({
+      ...createUserMessage(h, { id: randomUUID(), content }),
+      platform: "discord",
+      platformServerId: guildId,
+    }),
+  };
+}
+
+test("Discord policy registers inherited channels, ignores disabled input and preserves only stored edits/deletions", async () => {
+  const h = await discordConversationHarness();
+  const ignored = h.message("never stored");
+  await h.receive("CREATE", { message: ignored });
+  assert.equal(
+    await h.messageRepository.findByPlatformId(
+      "discord",
+      ignored.platformMessageId,
+    ),
+    null,
+  );
+  assert.equal(
+    await prisma.channel.count({
+      where: { platformId: h.channel.platformChannelId },
+    }),
+    0,
+  );
+  await h.configure("allow");
+  const original = h.message("accepted");
+  await h.receive("CREATE", { message: original });
+  const stored = await h.messageRepository.findByPlatformId(
+    "discord",
+    original.platformMessageId,
+  );
+  assert.ok(stored.channelId);
+  assert.equal(h.bufferedRequests.length, 1);
+  await h.configure("deny");
+  assert.equal(h.bufferedRequests.length, 0);
+  const off = h.message("off input");
+  await h.receive("CREATE", { message: off });
+  await h.receive("UPDATE", {
+    platformMessageId: "unknown",
+    loadMessage: () => assert.fail("Unknown disabled edits must not fetch"),
+  });
+  await h.receive("UPDATE", {
+    message: { ...original, content: "edited while off", editedAt: new Date() },
+  });
+  assert.equal(
+    (
+      await h.messageRepository.findByPlatformId(
+        "discord",
+        original.platformMessageId,
+      )
+    ).content,
+    "edited while off",
+  );
+  assert.equal(
+    await prisma.event.count({
+      where: { channelId: stored.channelId, kind: "EDIT" },
+    }),
+    0,
+  );
+  await h.receive("DELETE", {
+    platformMessageIds: [original.platformMessageId],
+  });
+  assert.ok(
+    (await prisma.message.findUnique({ where: { id: stored.id } })).deletedAt,
+  );
+  await h.configure("allow");
+  await h.receive("CREATE", { message: h.message("new input") });
+  await h.flush();
+  assert.deepEqual(h.sentMessages, ["reply"]);
+  assert.equal(
+    await h.messageRepository.findByPlatformId(
+      "discord",
+      off.platformMessageId,
+    ),
+    null,
+  );
+  const generation = await prisma.generation.findFirst({
+    where: { channelId: stored.channelId },
+    orderBy: { createdAt: "desc" },
+  });
+  assert.equal(generation.status, "COMPLETED");
+  assert.doesNotMatch(generation.input, /off input|never stored/);
+});
+
+test("Discord disable aborts an in-flight model and never delivers its late result", async () => {
+  let started;
+  const modelStarted = new Promise((resolve) => {
+    started = resolve;
+  });
+  let finish;
+  let signal;
+  const h = await discordConversationHarness({
+    generateTextFn: async (request) => {
+      signal = request.abortSignal;
+      started();
+      return new Promise((resolve) => {
+        finish = () => resolve(fakeTextResult("## messages\nlate result"));
+      });
+    },
+  });
+  await h.configure("allow");
+  await h.receive("CREATE", { message: h.message("start generation") });
+  const execution = h.flush();
+  await modelStarted;
+  await h.configure("deny");
+  assert.equal(signal.aborted, true);
+  finish();
+  await execution;
+  assert.deepEqual(h.sentMessages, []);
+  const record = await prisma.channel.findUnique({
+    where: {
+      platform_platformId: {
+        platform: "discord",
+        platformId: h.channel.platformChannelId,
+      },
+    },
+  });
+  const generation = await prisma.generation.findFirst({
+    where: { channelId: record.id },
+  });
+  assert.equal(generation.status, "CANCELLED");
+  assert.equal(
+    h.conversationSession.isWatching(h.conversationSession.key(h.channel)),
+    false,
+  );
+});
+
+test("Discord expiry cancels a silent result without advancing completed state", async () => {
+  const h = await discordConversationHarness({
+    generateTextFn: async () => {
+      h.setPolicyTime("2026-11-02T01:00:00Z");
+      return fakeTextResult("## messages\n");
+    },
+  });
+  await h.configure("allow", 1);
+  await h.receive("CREATE", { message: h.message("accepted before expiry") });
+  await h.flush();
+  const record = await prisma.channel.findUnique({
+    where: {
+      platform_platformId: {
+        platform: "discord",
+        platformId: h.channel.platformChannelId,
+      },
+    },
+  });
+  const generation = await prisma.generation.findFirst({
+    where: { channelId: record.id },
+  });
+  assert.equal(generation.status, "CANCELLED");
+  assert.equal(
+    await prisma.conversationState.count({ where: { channelId: record.id } }),
+    0,
+  );
+  assert.deepEqual(h.sentMessages, []);
+});
+
+test("expired Discord activation stops buffered work and the runtime timer reconciles without new input", async (t) => {
+  const h = await discordConversationHarness({
+    generateTextFn: () => assert.fail("Expired buffer must not generate"),
+  });
+  await h.configure("allow", 1);
+  await h.receive("CREATE", { message: h.message("waiting") });
+  assert.equal(h.bufferedRequests.length, 1);
+  const pending = h.bufferedRequests[0];
+  h.setPolicyTime("2026-11-02T01:00:00Z");
+  await h.chatFlow.execute(pending);
+  assert.deepEqual(h.sentMessages, []);
+  // Exercise the timer against a fresh live turn, with the persisted deadline already elapsed.
+  h.conversationSession.begin(h.conversationSession.key(h.channel));
+  let reconciled;
+  const stopped = new Promise((resolve, reject) => {
+    const timeout = setTimeout(
+      () => reject(new Error("Reconciliation timer did not run")),
+      5000,
+    );
+    reconciled = () => {
+      clearTimeout(timeout);
+      resolve();
+    };
+  });
+  h.service.start(async () => {
+    await h.messageHandler.stopDisabledConversations();
+    reconciled();
+  });
+  t.after(() => h.service.close());
+  await stopped;
+  assert.equal(h.bufferedRequests.length, 0);
+  assert.equal(
+    h.conversationSession.isWatching(h.conversationSession.key(h.channel)),
+    false,
   );
 });
 

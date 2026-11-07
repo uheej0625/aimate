@@ -15,6 +15,7 @@ export class ChatFlow {
     eventBus,
     generationAbortRegistry,
     conversationSession,
+    conversationPolicy = null,
   }) {
     Object.assign(this, {
       chatContextPreparer,
@@ -26,6 +27,7 @@ export class ChatFlow {
       eventBus,
       generationAbortRegistry,
       conversationSession,
+      conversationPolicy,
     });
   }
 
@@ -111,6 +113,11 @@ export class ChatFlow {
     const delivery = {
       run,
       isCurrent,
+      canDeliver: async () =>
+        isCurrent() &&
+        (!this.conversationPolicy ||
+          (await this.conversationPolicy.isEnabled(channelPort))) &&
+        isCurrent(),
       onDelivered: () => {
         deliveredAt = session.now();
         sentAt = new Date();
@@ -120,6 +127,13 @@ export class ChatFlow {
     try {
       const started = await run(async () => {
         if (turnId && !isCurrent()) return false;
+        if (
+          this.conversationPolicy &&
+          !(await this.conversationPolicy.isEnabled(channelPort))
+        ) {
+          session.stop(key);
+          return false;
+        }
         turnId ??= session.begin(key);
         channelRecord =
           await this.channelRepository.findById(internalChannelId);
@@ -168,6 +182,7 @@ export class ChatFlow {
         if (!prepared) return await cancel("cancelled_before_input_record");
         if (
           !isCurrent() ||
+          !(await delivery.canDeliver()) ||
           !(await this.generationLifecycle.canGenerate(generation.id))
         ) {
           return await cancel("status_changed");
@@ -198,7 +213,7 @@ export class ChatFlow {
         if (!isCurrent()) return await cancel("aborted_during_generation");
         nextStage("record_output");
         const accepted = await run(async () => {
-          if (!isCurrent()) return false;
+          if (!(await delivery.canDeliver())) return false;
           return (
             await this.generationLifecycle.recordGeneratedOutput(
               generation.id,
@@ -228,7 +243,7 @@ export class ChatFlow {
           );
         nextStage("complete");
         const completed = await run(async () => {
-          if (!isCurrent()) return false;
+          if (!(await delivery.canDeliver())) return false;
           const result = await this.generationLifecycle.complete(
             generation.id,
             sentAt,

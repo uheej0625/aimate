@@ -1,6 +1,7 @@
 import { ApplicationCommandType, MessageFlags } from "discord.js";
 import { createLogger } from "../../../core/logger.js";
 import { adaptChannel } from "../adapter.js";
+import { PolicyType } from "../../../policies/Policy.js";
 
 const logger = createLogger("Discord:Reroll");
 
@@ -13,8 +14,19 @@ export default {
    * 해당 Generation에 속한 봇의 메시지를 모두 삭제하고 재생성합니다.
    * @param {import("discord.js").MessageContextMenuCommandInteraction} interaction
    */
-  async execute(interaction, { rerollConversation }) {
+  async execute(interaction, { rerollConversation, discordPolicyService }) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    if (
+      !(await discordPolicyService.isAllowed(
+        adaptChannel(interaction.channel),
+        PolicyType.CONVERSATION,
+      ))
+    ) {
+      await interaction.editReply({
+        content: "대화가 비활성화된 채널에서는 재생성할 수 없어요.",
+      });
+      return;
+    }
 
     const plan = await rerollConversation.prepare({
       platform: "discord",

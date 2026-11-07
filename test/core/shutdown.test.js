@@ -30,6 +30,9 @@ test("registerShutdown uses injected dependencies in shutdown order", async () =
         },
       },
       discordLogService: { close: async () => calls.push("logs") },
+      discordPolicyService: {
+        close: async () => calls.push("conversation-policy"),
+      },
       client: { destroy: () => calls.push("platform") },
       disconnectDatabase: async () => calls.push("disconnect"),
     });
@@ -40,6 +43,7 @@ test("registerShutdown uses injected dependencies in shutdown order", async () =
     assert.equal(signal.aborted, true);
     assert.deepEqual(calls, [
       "buffers",
+      "conversation-policy",
       "abort",
       "cancel",
       "logs",

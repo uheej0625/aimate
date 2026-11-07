@@ -15,7 +15,7 @@ ai:
     nativeTools:
       webSearch: false
       webScraping: false
-    prompt: default-v2
+    prompt: default
     # null인 생성 옵션은 SDK에 전달하지 않는다.
     temperature: null
     maxOutputTokens: null
@@ -32,7 +32,7 @@ ai:
   image:
     provider: gateway
     model: openai/gpt-image-2
-    prompt: default-v2
+    prompt: default
     includeTimeContext: true
     maxRetries: 3
     providerOptions: {}

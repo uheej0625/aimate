@@ -18,6 +18,7 @@ export function registerShutdown({
   generationAbortRegistry = null,
   generationRepository = null,
   discordLogService = null,
+  discordPolicyService = null,
   configManager = null,
   client = null,
   disconnectDatabase = null,
@@ -36,6 +37,7 @@ export function registerShutdown({
 
     // 1. 대기 중인 모든 타이머 정리
     conversationBuffer.clearAll();
+    await discordPolicyService?.close();
     logger.debug(
       { event: "app.shutdown.buffers_cleared" },
       "Conversation buffers cleared",

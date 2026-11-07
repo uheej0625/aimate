@@ -58,7 +58,6 @@ model Channel {
   platform   String
   platformId String
 
-  scope         String? // "global" | "server" | "channel"
   lastMessageNo Int     @default(0)
   logEnabled    Boolean @default(false)
 
@@ -74,6 +73,23 @@ model Channel {
   updatedAt DateTime @updatedAt
 
   @@unique([platform, platformId])
+}
+
+// Typed access policy for a platform scope; adapters supply the scope hierarchy.
+model Policy {
+  platform         String
+  platformServerId String?
+  type             String
+  scope            String
+  targetId         String
+  effect           String? // allow, deny; null inherits
+  temporaryEffect  String?
+  expiresAt        DateTime?
+  updatedBy        String
+  updatedAt        DateTime @updatedAt
+
+  @@id([platform, type, scope, targetId])
+  @@index([platform, platformServerId, type])
 }
 
 model Message {

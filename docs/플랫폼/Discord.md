@@ -8,7 +8,9 @@ client는 Guilds·GuildMessages·MessageContent·GuildMembers·GuildPresences·D
 
 messageCreate·messageUpdate·messageDelete·messageDeleteBulk를 CREATE·UPDATE·DELETE 계약으로 전달한다. 부분 메시지 fetch는 loadMessage로 지연한다. 삭제는 ID 목록을 사용한다.
 
-`/활성화`는 현재 채널을 등록하고 선택한 global/server/channel scope를 저장한다. **현재 수신 조건은 해당 Channel record가 존재하고 logEnabled가 false인 것**이다. 로그 채널의 생성·수정·삭제 이벤트는 MessageHandler에서 본문 조회·저장·응답 예약 전에 건너뛴다. scope에 따라 서버 전체로 활성화를 확장하는 로직이나 멘션·DM·features 설정별 응답 필터는 현재 MessageHandler에 없다. 등록되지 않은 DM도 자동 활성화되지 않는다.
+`/정책 설정 유형:대화`은 서버·카테고리·채널의 활성화·비활성화·상속과 선택적 기간을 설정한다. `채널 → 카테고리 → 서버 → 기본 비활성화` 순서로 판정하고 스레드는 부모 채널을 따른다. `/정책 상태 유형:대화`에서 적용 근거·만료·개별 설정을 조회한다. 사용법과 저장·취소 계약은 [Discord 정책](Discord%20정책.md)을 참고한다.
+
+활성 채널은 첫 CREATE 저장 시 자동 등록한다. 비활성 채널의 새 입력은 저장하지 않고 기존 기록의 수정·삭제만 반영한다. 로그 전용 채널의 생성·수정·삭제 이벤트는 MessageHandler에서 본문 조회·저장·응답 예약 전에 건너뛴다. Channel 행이 존재한다는 이유만으로 대화가 활성화되지 않는다. DM·멘션 전용 응답·features별 필터는 제공하지 않는다.
 
 ## 봇 프레즌스
 
@@ -38,7 +40,8 @@ DiscordParticipantSource는 Discord 객체를 공통 계층에 전달하지 않�
 
 | 종류 | 표시 이름 | 동작 |
 | --- | --- | --- |
-| 슬래시 | `활성화` | 현재 채널 등록 |
+| 슬래시 | `정책 설정` | 서버 관리자가 유형·범위·허용/거부·상속·기간 설정 |
+| 슬래시 | `정책 상태` | 선택 유형의 적용 근거·만료 후 상태·서버 개별 정책 조회 |
 | 슬래시 | `로그 채널` | 서버 관리자가 생성 로그 수신을 채널별 활성화/비활성화 |
 | 메시지 메뉴 | `이 메세지만 삭제` | 플랫폼 삭제 성공 후 공통 삭제 정책 반영 |
 | 메시지 메뉴 | `이 이후 메세지 삭제` | 대상 포함 후속 메시지 삭제, 확인된 ID만 반영 |
@@ -59,6 +62,8 @@ loadCommands는 data와 execute가 있는 모듈을 client.commands에 등록한
 
 명령 표시 이름을 바꾸면 로컬 모듈뿐 아니라 Discord 등록 목록도 갱신해야 한다. 로컬 로딩과 외부 deploy는 서로 다른 작업이다.
 
+Discord에 남은 명령이 로컬에 없으면 `command.not_found`를 기록하고 실행자에게만 명령어 재등록 안내를 응답한다. 예를 들어 `/대화`는 현재 명령이 아니며 대화 활성화는 `/정책 설정 유형:대화 상태:허용`을 사용한다. `npm run deploy`로 기존 명령을 등록했던 범위의 목록을 교체한다. `DISCORD_GUILD_ID`가 있으면 해당 길드 목록만, 없으면 전역 목록만 갱신하므로 다른 범위에 남은 명령은 정리되지 않는다. 배포 후 실행 중인 봇도 같은 코드로 재시작한다.
+
 ## 삭제 명령의 실제 경계
 
 ‘이 메세지만 삭제’는 먼저 targetMessage.delete를 기다린다. 실패하면 DB 삭제 서비스를 호출하지 않는다. 성공하면 ChannelPort와 botId를 붙여 공통 DELETE 경로로 보낸다.
@@ -72,5 +77,7 @@ Discord 삭제 이벤트가 명령의 DB 반영보다 먼저 처리되면 명령
 구현: `src/platforms/discord/DiscordParticipantSource.js`, `src/tools/definitions/listMembers.js`, `src/tools/definitions/getMemberStatus.js`, `src/platforms/discord/client.js`, `src/platforms/discord/adapter.js`, `src/platforms/discord/events/`, `src/platforms/discord/commands/`, `src/platforms/discord/deploy.js`, `src/tools/definitions/setDiscordStatus.js`, `src/tools/definitions/setDiscordActivity.js`.
 
 테스트: `test/platforms/discord/participants.test.js`, `test/chat/context/Participants.test.js`, `test/integration/ChatPipeline.integration.test.js`, `test/platforms/discord/adapter.test.js`, `test/platforms/discord/deletionCommands.test.js`, `test/platforms/discord/createDiscordApplication.test.js`, `test/platforms/discord/presence.test.js`(기본 활동 없음·ready 덮어쓰기 방지), `test/tools/discordPresence.test.js`(실제 discord.js Gateway 패킷·상태/활동 독립 변경·5가지 활동·삭제·스트리밍 거부·등록/플랫폼 필터).
+
+미등록 slash·메시지 메뉴 명령의 비공개 안내 응답과 `command.not_found` 기록: `test/platforms/discord/interactionCreate.test.js`.
 
 [홈](../홈.md) · [플랫폼 독립 계약](../구조/플랫폼%20독립%20계약.md) · [생성과 전송 및 재생성](../대화/생성과%20전송%20및%20재생성.md)

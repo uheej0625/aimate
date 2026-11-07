@@ -10,6 +10,7 @@ function harness(overrides = {}) {
   const requests = [];
   const channel = { platform: "discord", platformChannelId: "channel" };
   const service = {
+    hasStoredMessage: async () => true,
     saveMessage: async () => ({ changed: true }),
     updateMessage: async (_message, options) => {
       calls.push(["update", options.observed]);
@@ -29,7 +30,10 @@ function harness(overrides = {}) {
   const handler = new MessageHandler(
     service,
     { cancelActiveForChannel: async () => calls.push("cancel") },
-    { add: (request) => requests.push(request) },
+    {
+      add: (request) => requests.push(request),
+      clear: () => calls.push("clear"),
+    },
     { findByPlatformId: async () => ({ id: "internal" }) },
     { abortChannel: () => calls.push("abort") },
     session,
@@ -63,6 +67,49 @@ function harness(overrides = {}) {
       }),
   };
 }
+
+test("disabled channels ignore new and unknown partial messages but maintain existing edits and deletes without observing", async () => {
+  const h = harness({
+    saveMessage: () => assert.fail("Disabled input must not be stored"),
+  });
+  h.handler.conversationPolicy = { isEnabled: async () => false };
+  h.session.begin(h.key);
+  assert.deepEqual(
+    await h.handle("CREATE", {
+      message: undefined,
+      loadMessage: () => assert.fail("Must not hydrate"),
+    }),
+    { changed: false },
+  );
+  await h.handle("UPDATE");
+  await h.handle("DELETE");
+  assert.deepEqual(h.calls, [
+    ["update", false],
+    ["delete", false],
+  ]);
+  assert.equal(h.requests.length, 0);
+  h.handler.messageService.hasStoredMessage = async () => false;
+  assert.deepEqual(
+    await h.handle("UPDATE", {
+      message: undefined,
+      platformMessageId: "unknown",
+      loadMessage: () => assert.fail("Must not hydrate unknown edits"),
+    }),
+    { changed: false },
+  );
+});
+
+test("disabling clears buffered work, invalidates the turn and aborts active generation", async () => {
+  const h = harness();
+  await h.handle("CREATE");
+  const turn = h.requests[0].turnId;
+  h.handler.conversationPolicy = { isEnabled: async () => false };
+  h.calls.length = 0;
+  await h.handler.stopDisabledConversations();
+  assert.deepEqual(h.calls, ["clear", "abort", "cancel"]);
+  assert.equal(h.session.isCurrent(h.key, turn), false);
+  assert.equal(h.session.isWatching(h.key), false);
+});
 
 test("new input starts watching and cancels active generation before buffering", async () => {
   const h = harness();

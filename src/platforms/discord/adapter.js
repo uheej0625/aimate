@@ -73,6 +73,7 @@ export function adaptChannel(discordChannel) {
 export function adaptIncomingMessage(discordMessage, kind = "CREATE") {
   return {
     kind,
+    platformMessageId: discordMessage.id,
     ...(discordMessage.partial
       ? {
           loadMessage: async () =>

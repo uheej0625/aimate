@@ -121,6 +121,9 @@ export class MessageActionService {
             `Message #${targetMessageNo} has not been observed by this generation.`,
           );
         if (!isCurrent()) throw new Error("The chat generation was cancelled.");
+        if (delivery?.canDeliver && !(await delivery.canDeliver())) {
+          throw new Error("Conversation is disabled in this channel.");
+        }
         return {
           ...claim,
           // Start the external operation while owning the turn, release its queue immediately.
