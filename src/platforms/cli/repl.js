@@ -1,13 +1,13 @@
 import { v4 as uuidv4 } from "uuid";
-import { CLI_BOT_ID, CLI_USER_ID } from "./constants.js";
+import { CLI_USER_ID } from "./constants.js";
 import { adaptIncomingMessage } from "./adapter.js";
 import { createMockChannel } from "./mocks.js";
 import { ChatTui } from "./tui.js";
 
-function toViewMessage(record) {
+function toViewMessage(record, botId) {
   return {
     id: record.id,
-    role: record.authorPlatformId === CLI_BOT_ID ? "assistant" : "user",
+    role: record.authorPlatformId === botId ? "assistant" : "user",
     content: record.content,
     createdAt: record.createdAt,
   };
@@ -49,7 +49,9 @@ export async function startRepl({
   };
 
   const toViewChannel = (record) => {
-    const messages = record.messages.map(toViewMessage);
+    const messages = record.messages.map((message) =>
+      toViewMessage(message, mockClient.user.id),
+    );
     makeChannelObject(record.id);
     return {
       id: record.id,

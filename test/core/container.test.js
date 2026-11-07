@@ -1,12 +1,12 @@
 import test from "node:test";
 import assert from "node:assert";
-import { createConfigManager } from "../../src/config/index.js";
+import { createCharacterConfigManager } from "../../src/config/index.js";
 import { createContainer } from "../../src/core/container.js";
 import { AppEvents } from "../../src/core/EventBus.js";
 import { loadAiCredentials } from "../../src/ai/credentials.js";
 
 test("createContainer exposes only application entrypoint dependencies", async (t) => {
-  const configManager = createConfigManager({
+  const configManager = createCharacterConfigManager({
     env: {
       AI_GATEWAY_API_KEY: "test-key",
       VERTEX_PROJECT_ID: "test-project",

@@ -1,4 +1,5 @@
 import { createLogger } from "../core/logger.js";
+import { getRequiredCharacterId } from "../character/config.js";
 
 const logger = createLogger("BotAccountService");
 
@@ -8,12 +9,12 @@ const logger = createLogger("BotAccountService");
  */
 export class BotAccountService {
   /**
-   * @param {import('../repositories/UserRepository.js').UserRepository} userRepository
    * @param {import('../repositories/PlatformAccountRepository.js').PlatformAccountRepository} platformAccountRepository
+   * @param {import('../config/ConfigManager.js').default} configManager
    */
-  constructor(userRepository, platformAccountRepository) {
-    this.userRepository = userRepository;
+  constructor(platformAccountRepository, configManager) {
     this.platformAccountRepository = platformAccountRepository;
+    this.characterId = getRequiredCharacterId(configManager);
   }
 
   /**
@@ -32,29 +33,21 @@ export class BotAccountService {
     handle = "DiscordMate_Bot",
     displayName = "DiscordMate Bot",
   }) {
-    let existing = await this.platformAccountRepository.findByPlatformId(
-      platform,
-      platformId,
-    );
-
-    const created = !existing;
-
-    const userId = existing
-      ? existing.userId
-      : (await this.userRepository.create()).id;
-
-    const account = await this.platformAccountRepository.upsert({
-      platform,
-      platformId,
-      userId,
-      handle,
-      displayName,
-    });
+    const { account, created } =
+      await this.platformAccountRepository.initCharacterAccount({
+        characterId: this.characterId,
+        platform,
+        platformId,
+        handle,
+        displayName,
+      });
 
     logger.info(
       {
         event: "bot_account.initialized",
+        characterId: this.characterId,
         platform,
+        platformUserId: platformId,
         accountId: account.id,
         created,
       },

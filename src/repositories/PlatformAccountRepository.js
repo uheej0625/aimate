@@ -1,10 +1,52 @@
 import { prisma } from "../database/client.js";
+import { ConfigurationError } from "../config/ConfigurationError.js";
 
 /**
  * Repository for PlatformAccount database operations.
  * Handles platform-specific user accounts (Discord, etc.)
  */
 export class PlatformAccountRepository {
+  /** Claim only unregistered accounts; existing external identities are never merged. */
+  async initCharacterAccount({
+    characterId,
+    platform,
+    platformId,
+    handle,
+    displayName,
+  }) {
+    return await prisma.$transaction(async (tx) => {
+      const where = { platform_platformId: { platform, platformId } };
+      const existing = await tx.platformAccount.findUnique({
+        where,
+        include: { user: true },
+      });
+      if (existing && existing.user.characterId !== characterId) {
+        throw new ConfigurationError(
+          `Account ownership conflict: ${platform}/${platformId} cannot belong to character ${characterId}.`,
+        );
+      }
+      const user = await tx.user.upsert({
+        where: { characterId },
+        create: { characterId },
+        update: {},
+      });
+      const connected = await tx.platformAccount.findFirst({
+        where: { userId: user.id, platform },
+      });
+      if (connected && connected.platformId !== platformId) {
+        throw new ConfigurationError(
+          `Character ${characterId} supports one account per platform: ${platform}.`,
+        );
+      }
+      const account = await tx.platformAccount.upsert({
+        where,
+        create: { platform, platformId, userId: user.id, handle, displayName },
+        update: { handle, displayName },
+      });
+      return { account, created: !existing };
+    });
+  }
+
   /**
    * Ensure a platform account exists (create or update).
    * @param {Object} accountData - Platform account data

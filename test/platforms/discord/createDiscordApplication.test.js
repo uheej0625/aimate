@@ -1,11 +1,11 @@
 import test from "node:test";
 import assert from "node:assert";
-import { createConfigManager } from "../../../src/config/index.js";
+import { createCharacterConfigManager } from "../../../src/config/index.js";
 import { createDiscordApplication } from "../../../src/platforms/discord/createDiscordApplication.js";
 import { loadAiCredentials } from "../../../src/ai/credentials.js";
 
 test("createDiscordApplication registers commands and events without a service locator", async (t) => {
-  const configManager = createConfigManager({
+  const configManager = createCharacterConfigManager({
     env: {
       AI_GATEWAY_API_KEY: "test-key",
       VERTEX_PROJECT_ID: "test-project",
@@ -64,6 +64,42 @@ test("createDiscordApplication registers commands and events without a service l
       channel: { id: "conversation" },
       client: { user: { id: "bot" } },
     };
+    eventHandlers.get("messageCreate")(message);
+    await new Promise(setImmediate);
+    assert.strictEqual(
+      refreshed,
+      0,
+      "Input is blocked until account ownership is established",
+    );
+    client.user = { id: "bot", username: "bot" };
+    app.botAccountService.initBotAccount = async () => {
+      throw new Error("Account ownership conflict");
+    };
+    await assert.rejects(app.initializeAccount(), /Account ownership conflict/);
+    eventHandlers.get("messageCreate")(message);
+    let interactionHandled = false;
+    eventHandlers.get("interactionCreate")({
+      isChatInputCommand() {
+        interactionHandled = true;
+        return false;
+      },
+    });
+    await new Promise(setImmediate);
+    assert.strictEqual(
+      refreshed,
+      0,
+      "Failed ownership validation must keep input blocked",
+    );
+    assert.strictEqual(
+      interactionHandled,
+      false,
+      "Commands are also blocked before account initialization",
+    );
+    app.botAccountService.initBotAccount = async (account) => {
+      assert.strictEqual(account.platform, "discord");
+      assert.strictEqual(account.platformId, "bot");
+    };
+    await app.initializeAccount();
     eventHandlers.get("messageCreate")(message);
     await new Promise(setImmediate);
     assert.strictEqual(

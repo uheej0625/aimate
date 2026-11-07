@@ -2,6 +2,8 @@
 
 `npm run cli`는 영속 채널을 가진 터미널 UI를 연다. 플랫폼 client만 모의 객체이며 저장·컨텍스트·도구·AI 생성은 같은 container를 사용한다.
 
+선택한 캐릭터의 connections.cli가 필요하다. 모의 봇 계정 ID는 `cli-bot-<characterId>`이며 같은 캐릭터의 Discord 계정과 하나의 User를 공유한다. 저장 기록의 assistant 표시는 현재 모의 client의 사용자 ID로 판정한다. CLI 채널 목록·관찰·생성의 캐릭터별 접근 범위 분리는 후속 단계다.
+
 ## 채널과 화면
 
 ChannelCatalog가 CLI 채널과 활성 Message를 읽는다. 기본 조회는 채널마다 최근 100개이며 모델 컨텍스트의 범위와 다르다. 채널이 없으면 UUID로 새 채널을 만든다.

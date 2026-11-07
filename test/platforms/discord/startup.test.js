@@ -31,6 +31,7 @@ async function runStartup(
   await mkdir(path.join(directory, "config"));
   const config = {
     character: "startup-test",
+    characters: [{ id: "startup-test", connections: { discord: {} } }],
     ai: {
       chat: { provider: "openai", model: "test-model", prompt: "minimal" },
       image: { provider: "openai", model: "test-image", prompt: "minimal" },
@@ -111,6 +112,13 @@ test("Discord startup exits with 78 for an invalid character ID", async (t) => {
     config.character = "../invalid";
   });
   assertFailure(result, 78, /Invalid character ID/);
+});
+
+test("Discord startup exits with 78 when the selected character has no Discord connection", async (t) => {
+  const result = await runStartup(t, (config) => {
+    config.characters[0].connections = { cli: {} };
+  });
+  assertFailure(result, 78, /no Discord connection/);
 });
 
 test("Discord startup exits with 78 for a missing character config", async (t) => {

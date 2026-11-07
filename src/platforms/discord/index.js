@@ -1,14 +1,11 @@
 import { fixWindowsEncoding } from "../../utils/system.js";
 import { loadEnv } from "../../config/env.js";
-import { createConfigManager } from "../../config/index.js";
+import { createCharacterConfigManager } from "../../config/index.js";
 import { ConfigurationError } from "../../config/ConfigurationError.js";
 import { configureLogger } from "../../core/logger.js";
 
 fixWindowsEncoding();
 loadEnv();
-
-const configManager = createConfigManager();
-configureLogger(configManager);
 
 const { default: client } = await import("./client.js");
 const { getRequiredDiscordToken } = await import("./credentials.js");
@@ -23,6 +20,13 @@ const logger = createLogger("App");
 
 const main = async () => {
   try {
+    const configManager = createCharacterConfigManager();
+    configureLogger(configManager);
+    if (!configManager.get("connections.discord")) {
+      throw new ConfigurationError(
+        "The selected character has no Discord connection.",
+      );
+    }
     logger.info(
       {
         event: "app.starting",
@@ -48,6 +52,7 @@ const main = async () => {
 
     // Login
     await client.login(getRequiredDiscordToken(configManager));
+    await app.initializeAccount();
   } catch (error) {
     const exitCode = error instanceof ConfigurationError ? 78 : 1;
     logger.fatal(

@@ -1,18 +1,19 @@
 import { fixWindowsEncoding } from "../../utils/system.js";
 import { loadEnv } from "../../config/env.js";
-import { createConfigManager } from "../../config/index.js";
+import { createCharacterConfigManager } from "../../config/index.js";
+import { ConfigurationError } from "../../config/ConfigurationError.js";
 import { configureLogger } from "../../core/logger.js";
 
 fixWindowsEncoding();
 loadEnv();
 
-const configManager = createConfigManager();
+const configManager = createCharacterConfigManager();
 configureLogger(configManager);
 
 const { createContainer } = await import("../../core/container.js");
 const { registerShutdown } = await import("../../core/shutdown.js");
 const { prisma } = await import("../../database/client.js");
-const { CLI_BOT_ID } = await import("./constants.js");
+const { getCliBotId } = await import("./constants.js");
 const { createMockClient } = await import("./mocks.js");
 const { startRepl } = await import("./repl.js");
 const { createLogger } = await import("../../core/logger.js");
@@ -22,7 +23,13 @@ const logger = createLogger("CLI");
 (async () => {
   logger.info({ event: "app.starting", platform: "cli" }, "Starting CLI");
 
-  const mockClient = createMockClient({ botId: CLI_BOT_ID });
+  if (!configManager.get("connections.cli")) {
+    throw new ConfigurationError(
+      "The selected character has no CLI connection.",
+    );
+  }
+  const botId = getCliBotId(configManager.get("character"));
+  const mockClient = createMockClient({ botId });
   const platformClients = new Map([["cli", mockClient]]);
   const container = await createContainer({ configManager, platformClients });
   const {
@@ -49,7 +56,7 @@ const logger = createLogger("CLI");
   try {
     await botAccountService.initBotAccount({
       platform: "cli",
-      platformId: CLI_BOT_ID,
+      platformId: botId,
     });
   } catch (error) {
     logger.fatal(

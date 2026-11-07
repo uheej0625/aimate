@@ -31,15 +31,25 @@ class ConfigManager {
    */
   load() {
     try {
+      this.loadError = null;
       const data = fs.readFileSync(this.configPath, "utf8");
       const config = parse(data, { prettyErrors: false });
       if (!config || typeof config !== "object" || Array.isArray(config)) {
         throw new Error("Configuration must be a YAML mapping.");
       }
       if (
-        Object.hasOwn(config, "secrets") ||
-        Object.values(config.ai ?? {}).some(
-          (settings) => settings && Object.hasOwn(settings, "apiKey"),
+        [
+          config,
+          ...(Array.isArray(config.characters)
+            ? config.characters.map((entry) => entry?.settings)
+            : []),
+        ].some(
+          (settings) =>
+            settings &&
+            (Object.hasOwn(settings, "secrets") ||
+              Object.values(settings.ai ?? {}).some(
+                (purpose) => purpose && Object.hasOwn(purpose, "apiKey"),
+              )),
         )
       ) {
         throw new Error(
@@ -50,6 +60,7 @@ class ConfigManager {
       this.onLoad?.(this);
       return this.config;
     } catch (error) {
+      this.loadError = error;
       logger.error(
         {
           event: "config.load.failed",

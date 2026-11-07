@@ -14,6 +14,7 @@ export async function createDiscordApplication({
   client,
   credentials,
 }) {
+  let accountReady = false;
   const platformClients = new Map([["discord", client]]);
   const discordPolicyService = new DiscordPolicyService({
     client,
@@ -46,6 +47,7 @@ export async function createDiscordApplication({
   discordLogService.start();
 
   await loadEvents(client, {
+    isAccountReady: () => accountReady,
     discordLogService,
     messageHandler: {
       async handle(event) {
@@ -54,7 +56,6 @@ export async function createDiscordApplication({
         return result;
       },
     },
-    botAccountService: app.botAccountService,
   });
   await loadCommands(client, {
     discordLogService,
@@ -65,5 +66,19 @@ export async function createDiscordApplication({
     messageHandler: app.messageHandler,
   });
 
-  return { ...app, discordLogService, discordPolicyService };
+  return {
+    ...app,
+    discordLogService,
+    discordPolicyService,
+    async initializeAccount() {
+      const result = await app.botAccountService.initBotAccount({
+        platform: "discord",
+        platformId: client.user.id,
+        handle: client.user.username,
+        displayName: client.user.globalName,
+      });
+      accountReady = true;
+      return result;
+    },
+  };
 }

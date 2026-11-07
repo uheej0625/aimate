@@ -11,6 +11,11 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { validateAiPurpose } from "../ai/config.js";
 import { loadAiCredentials } from "../ai/credentials.js";
+import { getRequiredCharacterId } from "../character/config.js";
+import {
+  getCharacterDefinitions,
+  mergeCharacterSettings,
+} from "./characters.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -53,6 +58,45 @@ export function createConfigManager({
     watch,
     onLoad: (manager) => applyEnvOverrides(manager, env),
   });
+}
+
+/** A separate settings tree and watcher per character; identity/connections require restart. */
+export function createCharacterConfigManager({
+  characterId,
+  configPath = getDefaultConfigPath(),
+  env = process.env,
+  watch = !isTestRuntime(),
+} = {}) {
+  let selectedId = characterId;
+  let connections;
+  const manager = new ConfigManager(configPath, {
+    watch,
+    onLoad: (current) => {
+      selectedId = getRequiredCharacterId(
+        selectedId === undefined ? current : { get: () => selectedId },
+      );
+      const definition = getCharacterDefinitions(current).find(
+        ({ id }) => id === selectedId,
+      );
+      if (!definition)
+        throw new ConfigurationError(
+          `Character is not configured: ${selectedId}`,
+        );
+      connections ??= definition.connections;
+      const { character, characters, ...defaults } = current.getAll();
+      current.config = {
+        ...mergeCharacterSettings(defaults, definition.settings),
+        character: selectedId,
+        connections: structuredClone(connections),
+      };
+      applyEnvOverrides(current, env);
+    },
+  });
+  if (manager.loadError) {
+    manager.close();
+    throw new ConfigurationError(manager.loadError.message);
+  }
+  return manager;
 }
 
 /**

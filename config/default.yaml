@@ -4,7 +4,13 @@ app:
   environment: development
   timezone: Asia/Seoul
   language: ko-KR
-character: seoa
+character: seoa # 현재 단일 실행 대상. 변경 후 재시작.
+characters:
+  - id: seoa
+    connections:
+      discord: {}
+      cli: {}
+    settings: {} # ai/conversation/messages/humanize/features/tools의 캐릭터별 덮어쓰기
 ai:
   vertex:
     projectId: "" # VERTEX_PROJECT_ID 환경 변수로도 지정 가능

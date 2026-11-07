@@ -24,6 +24,12 @@ export async function loadEvents(client, dependencies = {}) {
     const eventModule = event.default || event;
     const context = { client, ...dependencies };
     const execute = (...args) => {
+      if (
+        eventModule.name !== "clientReady" &&
+        dependencies.isAccountReady &&
+        !dependencies.isAccountReady()
+      )
+        return;
       const item = args[0];
       withLogContext(
         {

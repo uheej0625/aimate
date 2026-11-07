@@ -1,12 +1,12 @@
 import { fixWindowsEncoding } from "../../utils/system.js";
 import { loadEnv } from "../../config/env.js";
-import { createConfigManager } from "../../config/index.js";
+import { createCharacterConfigManager } from "../../config/index.js";
 import { configureLogger } from "../../core/logger.js";
 
 fixWindowsEncoding();
 loadEnv();
 
-const configManager = createConfigManager({ watch: false });
+const configManager = createCharacterConfigManager({ watch: false });
 configureLogger(configManager);
 
 const { REST, Routes } = await import("discord.js");

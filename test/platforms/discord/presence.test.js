@@ -18,32 +18,20 @@ test("Discord starts online without any activity", () => {
   assert.deepEqual(client.presence.activities, []);
 });
 
-for (const fails of [false, true]) {
-  test(`ready does not overwrite AI presence when account initialization ${fails ? "fails" : "succeeds"}`, async () => {
-    let initialized = false;
-    let changed = false;
-    const bot = {
-      user: {
-        id: "123",
-        username: "bot",
-        globalName: "Bot",
-        setPresence() {
-          changed = true;
-        },
+test("ready does not overwrite AI presence or initialize accounts", async () => {
+  let changed = false;
+  const bot = {
+    user: {
+      id: "123",
+      username: "bot",
+      globalName: "Bot",
+      setPresence() {
+        changed = true;
       },
-      guilds: { cache: new Map() },
-      users: { cache: new Map() },
-    };
-    await ready.execute(bot, {
-      botAccountService: {
-        async initBotAccount(account) {
-          initialized = true;
-          assert.equal(account.platformId, "123");
-          if (fails) throw new Error("account unavailable");
-        },
-      },
-    });
-    assert.equal(initialized, true);
-    assert.equal(changed, false);
-  });
-}
+    },
+    guilds: { cache: new Map() },
+    users: { cache: new Map() },
+  };
+  await ready.execute(bot);
+  assert.equal(changed, false);
+});

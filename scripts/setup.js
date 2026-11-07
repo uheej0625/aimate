@@ -12,6 +12,7 @@ if (process.platform === "win32") {
 import { input, password, checkbox, select } from "@inquirer/prompts";
 import { fileURLToPath } from "url";
 import { getDiscordTokenEnvKey } from "../src/platforms/discord/credentials.js";
+import { getCharacterDefinitions } from "../src/config/characters.js";
 
 const [major, minor] = process.versions.node.split(".").map(Number);
 if (major < 20 || (major === 20 && minor < 12)) {
@@ -78,13 +79,18 @@ async function main() {
   const config = parse(await fs.readFile(configPath, "utf8"), {
     prettyErrors: false,
   });
-  const discordTokenEnvKey = getDiscordTokenEnvKey(config.character);
+  const discordTokenEnvKeys = getCharacterDefinitions({
+    get: (key) => config[key],
+  })
+    .filter(({ connections }) => connections.discord)
+    .map(({ id }) => getDiscordTokenEnvKey(id));
 
   console.log(`\n${t.title}\n`);
 
-  const discordToken = await password({
-    message: t.discordToken(discordTokenEnvKey),
-  });
+  const envData = {};
+  for (const envKey of discordTokenEnvKeys) {
+    envData[envKey] = await password({ message: t.discordToken(envKey) });
+  }
 
   const providers = await checkbox({
     message: t.selectProviders,
@@ -102,10 +108,6 @@ async function main() {
         ? "최소 하나의 프로바이더를 선택해주세요."
         : "Please select at least one provider."),
   });
-
-  const envData = {
-    [discordTokenEnvKey]: discordToken,
-  };
 
   if (providers.includes("openai")) {
     envData.OPENAI_API_KEY = await password({ message: t.openaiKey });
@@ -142,7 +144,10 @@ async function main() {
 
   // Generate .env content
   let envString = "# Discord Bot\n";
-  envString += `${discordTokenEnvKey}=${envData[discordTokenEnvKey]}\n\n`;
+  for (const envKey of discordTokenEnvKeys) {
+    envString += `${envKey}=${envData[envKey]}\n`;
+  }
+  envString += "\n";
 
   if (providers.includes("openai")) {
     envString += "# OpenAI\n";

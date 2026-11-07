@@ -199,8 +199,8 @@ export async function createContainer({
   const storedMessageService = new StoredMessageService(messageHandler);
 
   const botAccountService = new BotAccountService(
-    userRepository,
     platformAccountRepository,
+    configManager,
   );
 
   return {

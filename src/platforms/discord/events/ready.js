@@ -10,7 +10,7 @@ const logger = createLogger("Discord:Ready");
 export default {
   name: Events.ClientReady,
   once: true,
-  async execute(client, { botAccountService }) {
+  async execute(client) {
     logger.info(
       {
         event: "platform.ready",
@@ -20,20 +20,5 @@ export default {
       },
       "Bot is online and ready",
     );
-
-    // Initialize bot's platform account
-    try {
-      await botAccountService.initBotAccount({
-        platform: "discord",
-        platformId: client.user.id,
-        handle: client.user.username,
-        displayName: client.user.globalName,
-      });
-    } catch (error) {
-      logger.error(
-        { event: "bot_account.init.failed", err: error },
-        "Failed to initialize bot platform account",
-      );
-    }
   },
 };

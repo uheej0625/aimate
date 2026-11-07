@@ -8,9 +8,10 @@ datasource db {
 }
 
 model User {
-  id       String            @id @default(uuid())
-  accounts PlatformAccount[]
-  memories Memory[]
+  id          String            @id @default(uuid())
+  characterId String?           @unique
+  accounts    PlatformAccount[]
+  memories    Memory[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
