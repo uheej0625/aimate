@@ -54,6 +54,7 @@ try {
     const settings = createCharacterConfigManager({
       characterId: id,
       watch: false,
+      source: configManager,
     });
     try {
       const rest = new REST({ version: "10" }).setToken(

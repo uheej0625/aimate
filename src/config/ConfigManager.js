@@ -11,16 +11,22 @@ const logger = createLogger("ConfigManager");
  * Reads YAML configuration; environment overrides stay in memory.
  */
 class ConfigManager {
-  constructor(configPath = "./config.yaml", { watch = true, onLoad } = {}) {
-    this.configPath = path.resolve(configPath);
+  constructor(
+    configPath = "./config.yaml",
+    { watch = true, onLoad, source } = {},
+  ) {
+    this.configPath = source?.configPath ?? path.resolve(configPath);
     this.config = null;
     this.watcher = null;
     this.changeCallbacks = [];
     this.watch = watch;
     this.onLoad = onLoad;
+    this.source = source;
 
     this.load();
-    if (this.watch) {
+    if (source) {
+      this.unsubscribe = source.onChange(() => this.load());
+    } else if (this.watch) {
       this.setupWatcher();
     }
   }
@@ -30,10 +36,14 @@ class ConfigManager {
    * @returns {Object|null} Loaded configuration
    */
   load() {
+    const previous = this.config;
     try {
       this.loadError = null;
-      const data = fs.readFileSync(this.configPath, "utf8");
-      const config = parse(data, { prettyErrors: false });
+      const config = this.source
+        ? structuredClone(this.source.getAll())
+        : parse(fs.readFileSync(this.configPath, "utf8"), {
+            prettyErrors: false,
+          });
       if (!config || typeof config !== "object" || Array.isArray(config)) {
         throw new Error("Configuration must be a YAML mapping.");
       }
@@ -58,6 +68,7 @@ class ConfigManager {
       }
       this.config = config;
       this.onLoad?.(this);
+      if (previous) this.notifyChange(previous, this.config);
       return this.config;
     } catch (error) {
       this.loadError = error;
@@ -69,7 +80,7 @@ class ConfigManager {
         },
         "Configuration load failed",
       );
-      this.config = {};
+      this.config = previous ?? {};
       return null;
     }
   }
@@ -124,21 +135,17 @@ class ConfigManager {
    * Setup file watcher for hot-reload
    */
   setupWatcher() {
-    let debounceTimer = null;
-
     this.watcher = chokidar.watch(this.configPath, {
       persistent: true,
       ignoreInitial: true,
     });
 
     this.watcher.on("change", () => {
-      clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
-        const oldConfig = { ...this.config };
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = setTimeout(() => {
         const newConfig = this.load();
 
         if (newConfig) {
-          this.notifyChange(oldConfig, newConfig);
           logger.info(
             { event: "config.reloaded", configPath: this.configPath },
             "Configuration reloaded",
@@ -162,6 +169,11 @@ class ConfigManager {
   onChange(callback) {
     if (typeof callback === "function") {
       this.changeCallbacks.push(callback);
+      return () => {
+        this.changeCallbacks = this.changeCallbacks.filter(
+          (item) => item !== callback,
+        );
+      };
     }
   }
 
@@ -187,9 +199,12 @@ class ConfigManager {
    * Stop watching config file
    */
   close() {
+    clearTimeout(this.debounceTimer);
+    this.unsubscribe?.();
     if (this.watcher) {
-      this.watcher.close();
+      const closing = this.watcher.close();
       this.watcher = null;
+      return closing;
     }
   }
 

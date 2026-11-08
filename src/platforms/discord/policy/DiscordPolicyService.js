@@ -49,9 +49,13 @@ export class DiscordPolicyService {
     this.timer.unref();
   }
 
-  async close() {
+  stop() {
     clearInterval(this.timer);
     this.timer = null;
+  }
+
+  async close() {
+    this.stop();
     await this.refreshing;
   }
 

@@ -33,7 +33,7 @@ function fixture(t, { failAll = false } = {}) {
         isEnabled(channel) {
           return connection.state === "active" && channel.platform === platform;
         },
-        async stop() {
+        stopInput() {
           calls.push(`${id}:${platform}:stop`);
           connection.state = "stopped";
         },
@@ -70,7 +70,7 @@ test("one runtime owns two connections, prepares identities before input, and is
   await f.host.start();
   assert.equal(f.built.length, 2);
   assert.equal(f.host.failures.length, 1);
-  assert.equal(f.built[0].platformClients.size, 2);
+  assert.equal(f.built[0].connections.size, 2);
   const firstActive = f.calls.findIndex((value) => value.endsWith(":active"));
   assert.equal(
     f.calls.slice(firstActive).some((value) => value.endsWith(":prepared")),
@@ -80,11 +80,13 @@ test("one runtime owns two connections, prepares identities before input, and is
   const bEntry = f.host.characters.get(b.id);
   assert.equal(bEntry.connections[0].app, bEntry.connections[1].app);
   assert.equal(
-    await f.built[0].conversationPolicy.isEnabled({ platform: "discord" }),
+    await f.built[0].connections
+      .get("discord")
+      .isEnabled({ platform: "discord" }),
     false,
   );
   assert.equal(
-    await f.built[0].conversationPolicy.isEnabled({ platform: "test" }),
+    await f.built[0].connections.get("test").isEnabled({ platform: "test" }),
     true,
   );
   await f.host.closeCharacter(a.id);
@@ -121,6 +123,31 @@ test("duplicate runtime IDs fail before any resources are built", async () => {
 
 test("draining uncooperative work has a bounded deadline", async () => {
   await drain([new Promise(() => {})], 5);
+});
+
+test("shutdown starts every character's cancellation before waiting for slow work", async (t) => {
+  const f = fixture(t);
+  await f.host.start();
+  const [a, b] = f.definitions;
+  let release;
+  const slow = new Promise((resolve) => {
+    release = resolve;
+  });
+  f.host.characters.get(a.id).app.close = () => {
+    f.calls.push("a:abort");
+    return slow;
+  };
+  f.host.characters.get(b.id).app.close = async () => f.calls.push("b:abort");
+  const closing = f.host.close();
+  try {
+    await new Promise(setImmediate);
+    assert.ok(f.calls.includes("a:abort"));
+    assert.ok(f.calls.includes("b:abort"));
+    assert.equal(f.calls.includes("database"), false);
+  } finally {
+    release();
+    await closing;
+  }
 });
 
 test("a second host cannot create another active runtime for the same character", async (t) => {

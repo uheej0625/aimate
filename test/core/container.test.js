@@ -4,6 +4,10 @@ import { createCharacterConfigManager } from "../../src/config/index.js";
 import { createContainer } from "../../src/core/container.js";
 import { AppEvents } from "../../src/core/EventBus.js";
 import { loadAiCredentials } from "../../src/ai/credentials.js";
+import { createHost } from "../../src/core/host.js";
+import { createDiscordConnection } from "../../src/platforms/discord/createDiscordApplication.js";
+import { DiscordPolicyService } from "../../src/platforms/discord/policy/DiscordPolicyService.js";
+import { DiscordLogService } from "../../src/platforms/discord/logging/DiscordLogService.js";
 
 test("createContainer exposes only application entrypoint dependencies", async (t) => {
   const configManager = createCharacterConfigManager({
@@ -72,4 +76,70 @@ test("character close aborts owned requests, blocks new work and drains before c
   await closing;
   assert.equal(cancelled, true);
   assert.equal(app.close(), closing);
+});
+
+test("host, runtime and Discord connection abort before waiting for an in-flight policy refresh", async (t) => {
+  const configManager = createCharacterConfigManager({
+    env: { VERTEX_PROJECT_ID: "test-project" },
+    watch: false,
+  });
+  t.after(() => configManager.close());
+  let releasePolicy;
+  const policyWork = new Promise((resolve) => {
+    releasePolicy = resolve;
+  });
+  t.mock.method(DiscordPolicyService.prototype, "start", function (reconcile) {
+    this.refreshing = reconcile();
+  });
+  // Platform IO is fake; host orchestration, runtime abort and policy shutdown are real.
+  t.mock.method(DiscordLogService.prototype, "start", () => {});
+  const calls = [];
+  const client = {
+    commands: new Map(),
+    on() {},
+    once() {},
+    user: { id: "bot", username: "fixture" },
+    login: async () => {},
+    destroy: async () => calls.push("transport"),
+  };
+  const { getDiscordTokenEnvKey } = await import(
+    "../../src/platforms/discord/credentials.js"
+  );
+  const id = configManager.get("character");
+  const connection = createDiscordConnection({
+    configManager,
+    client,
+    env: { [getDiscordTokenEnvKey(id)]: "test-token" },
+  });
+  let app;
+  const host = createHost({
+    definitions: [{ id }],
+    createCharacter: async () => ({ configManager, connections: [connection] }),
+    buildRuntime: async (options) => {
+      app = await createContainer({
+        ...options,
+        credentials: loadAiCredentials({ AI_GATEWAY_API_KEY: "test-key" }),
+      });
+      app.botAccountService.initBotAccount = async () => {};
+      app.messageHandler.stopDisabledConversations = () => policyWork;
+      app.generationRepository.cancelInProgress = async () =>
+        calls.push("cancel");
+      return app;
+    },
+    disconnectDatabase: async () => calls.push("database"),
+  });
+  await host.start();
+  const signal = app.generationAbortRegistry.register("channel", 99);
+  const closing = host.close();
+  try {
+    assert.equal(connection.isReady(), false);
+    assert.equal(signal.aborted, true);
+    await new Promise(setImmediate);
+    assert.deepEqual(calls, ["cancel"]);
+    assert.deepEqual(await app.messageHandler.handle({}), { changed: false });
+  } finally {
+    releasePolicy();
+    await closing;
+  }
+  assert.deepEqual(calls, ["cancel", "transport", "database"]);
 });

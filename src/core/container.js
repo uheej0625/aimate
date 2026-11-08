@@ -49,9 +49,6 @@ import { PolicyRepository } from "../repositories/PolicyRepository.js";
 export async function createContainer({
   configManager,
   credentials = loadAiCredentials(),
-  platformClients = new Map(),
-  participantSources = new Map(),
-  conversationPolicy = null,
   connections = new Map(),
 }) {
   if (!configManager) {
@@ -61,6 +58,18 @@ export async function createContainer({
   await validateAiConfig(configManager, undefined, credentials);
   const characterId = getRequiredCharacterId(configManager);
   const pendingWork = new Set();
+  const conversationPolicy = {
+    isEnabled: (channel) =>
+      connections.get(channel.platform)?.isEnabled(channel) ?? false,
+  };
+  const participantSources = new Map(
+    [...connections]
+      .filter(([, connection]) => connection.participantSource)
+      .map(([platform, connection]) => [
+        platform,
+        connection.participantSource,
+      ]),
+  );
 
   const characterContextBuilder = new CharacterContextBuilder({
     configManager,
@@ -106,7 +115,6 @@ export async function createContainer({
     configManager,
     imageGenerator,
     generationRepository,
-    platformClients,
     messageActionService,
     participantService,
     connections,

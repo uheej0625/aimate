@@ -65,4 +65,20 @@
  * @property {number} [rerollGenerationId] - Original fixed input to replay
  */
 
+/**
+ * A character-owned connection; the runtime derives clients, participants and policy from it.
+ * @typedef {Object} PlatformConnection
+ * @property {string} platform
+ * @property {Object} client
+ * @property {string} state
+ * @property {Object} [participantSource]
+ * @property {(channel: ChannelPort) => boolean|Promise<boolean>} isEnabled
+ * @property {(tool: Object, context: Object) => boolean} canUseTool
+ * @property {(runtime: Object) => Promise<void>} attach
+ * @property {() => Promise<void>} prepare
+ * @property {() => Promise<void>} activate
+ * @property {() => void} stopInput - Synchronously close input gates and stop timers. Never wait for work here.
+ * @property {() => Promise<void>} close - Drain platform work with a deadline, then release transport resources.
+ */
+
 export {};

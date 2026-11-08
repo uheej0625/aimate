@@ -99,8 +99,9 @@ discord:
   assert.equal(fs.readFileSync(configPath, "utf8"), source);
 });
 
-test("invalid YAML and non-mapping roots fail to load", async (t) => {
+test("invalid reloads preserve the last valid settings", async (t) => {
   const { manager, configPath } = createFixture(t);
+  const previous = manager.getAll();
   const records = captureLogs(t);
   const invalidSources = [
     "ai: [",
@@ -115,7 +116,7 @@ test("invalid YAML and non-mapping roots fail to load", async (t) => {
   for (const source of invalidSources) {
     fs.writeFileSync(configPath, source, "utf8");
     assert.equal(manager.load(), null);
-    assert.deepEqual(manager.get(), {});
+    assert.deepEqual(manager.get(), previous);
   }
   assert.equal(records.length, invalidSources.length);
   assert.ok(records.every((record) => record.event === "config.load.failed"));

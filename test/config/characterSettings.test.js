@@ -5,7 +5,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { stringify } from "yaml";
-import { createCharacterConfigManager } from "../../src/config/index.js";
+import {
+  createCharacterConfigManager,
+  createConfigManager,
+} from "../../src/config/index.js";
 import { getCharacterDefinitions } from "../../src/config/characters.js";
 import { getRequiredDiscordToken } from "../../src/platforms/discord/credentials.js";
 
@@ -109,6 +112,58 @@ test("environment overrides remain separate from per-character settings and Disc
   );
 });
 
+test("an invalid character reload preserves its settings without blocking another character", (t) => {
+  const f = fixture(t);
+  const alice = f.create();
+  const bob = f.create({ characterId: "bob" });
+  const previous = alice.getAll();
+  f.config.characters[0].settings.typo = true;
+  f.config.characters[1].settings.humanize.enabled = true;
+  f.write();
+  assert.equal(alice.load(), null);
+  assert.deepEqual(alice.getAll(), previous);
+  assert.ok(bob.load());
+  assert.equal(bob.get("character"), "bob");
+  assert.equal(bob.get("humanize.enabled"), true);
+  f.config.characters.shift();
+  f.write();
+  assert.equal(alice.load(), null);
+  assert.deepEqual(alice.getAll(), previous);
+  assert.ok(bob.load());
+});
+
+test("one source reload updates isolated character views and closing a view unsubscribes it", (t) => {
+  const f = fixture(t);
+  const source = createConfigManager({
+    configPath: f.configPath,
+    env: {},
+    watch: false,
+  });
+  t.after(() => source.close());
+  const alice = f.create({ source });
+  const bob = f.create({ source, characterId: "bob" });
+  const changes = [];
+  bob.onChange((next) => changes.push(next));
+  assert.equal(alice.watcher, null);
+  assert.equal(bob.watcher, null);
+  const previousAlice = alice.getAll();
+  f.config.characters[0].settings.typo = true;
+  f.config.characters[1].settings.humanize.enabled = true;
+  f.write();
+  source.load();
+  assert.deepEqual(alice.getAll(), previousAlice);
+  assert.equal(bob.get("humanize.enabled"), true);
+  assert.equal(changes.length, 1);
+  assert.equal(changes[0].characters, undefined);
+  assert.equal(source.get("characters")[0].id, "alice");
+  bob.close();
+  f.config.characters[1].settings.humanize.enabled = false;
+  f.write();
+  source.load();
+  assert.equal(changes.length, 1);
+  assert.equal(bob.get("humanize.enabled"), true);
+});
+
 test("character list rejects duplicate IDs, unsupported connections, invalid IDs and misplaced settings", (t) => {
   const f = fixture(t);
   const validate = () =>
@@ -145,8 +200,15 @@ test(
   { timeout: 10000 },
   async (t) => {
     const f = fixture(t);
-    const alice = f.create({ watch: true });
-    await once(alice.watcher, "ready");
+    const source = createConfigManager({
+      configPath: f.configPath,
+      env: {},
+      watch: true,
+    });
+    t.after(() => source.close());
+    const alice = f.create({ source, watch: true });
+    assert.equal(alice.watcher, null);
+    await once(source.watcher, "ready");
     const changed = new Promise((resolve) =>
       alice.onChange((next, previous) => resolve({ next, previous })),
     );
@@ -156,6 +218,6 @@ test(
     assert.equal(previous.ai.chat.model, "alice-model");
     assert.equal(next.ai.chat.model, "updated-model");
     assert.equal(next.characters, undefined);
-    await alice.watcher.close();
+    await source.close();
   },
 );

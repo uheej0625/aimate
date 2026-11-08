@@ -60,24 +60,36 @@ export function createConfigManager({
   });
 }
 
-/** A separate settings tree and watcher per character; identity/connections require restart. */
+/** Isolated settings derived from the host's shared source; identity/connections require restart. */
 export function createCharacterConfigManager({
   characterId,
   configPath = getDefaultConfigPath(),
   env = process.env,
   watch = !isTestRuntime(),
+  source,
 } = {}) {
   let selectedId = characterId;
   let connections;
   const manager = new ConfigManager(configPath, {
     watch,
+    source,
     onLoad: (current) => {
       selectedId = getRequiredCharacterId(
         selectedId === undefined ? current : { get: () => selectedId },
       );
-      const definition = getCharacterDefinitions(current).find(
-        ({ id }) => id === selectedId,
-      );
+      const definitions = current.get("characters");
+      // Startup validates the whole list. Reload only the running identity so
+      // another character's invalid settings cannot disable this runtime.
+      const candidates =
+        connections && Array.isArray(definitions)
+          ? definitions.filter(
+              (entry) =>
+                typeof entry?.id === "string" && entry.id.trim() === selectedId,
+            )
+          : definitions;
+      const definition = getCharacterDefinitions({
+        get: () => candidates,
+      }).find(({ id }) => id === selectedId);
       if (!definition)
         throw new ConfigurationError(
           `Character is not configured: ${selectedId}`,

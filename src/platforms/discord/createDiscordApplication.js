@@ -9,6 +9,7 @@ import { PolicyType } from "../../policies/Policy.js";
 import { DiscordPolicyService } from "./policy/DiscordPolicyService.js";
 import { getRequiredDiscordToken } from "./credentials.js";
 import { createDiscordClient } from "./client.js";
+import { drain } from "../../core/drain.js";
 
 export function createDiscordConnection({
   configManager,
@@ -21,7 +22,7 @@ export function createDiscordConnection({
     repository: new PolicyRepository(characterId),
     channelRepository: new ChannelRepository(),
   });
-  let app, logs;
+  let app, logs, closing;
   const connection = {
     platform: "discord",
     client,
@@ -82,15 +83,23 @@ export function createDiscordConnection({
       policy.start(() => app.messageHandler.stopDisabledConversations());
       logs.start();
     },
-    async stop() {
+    stopInput() {
+      if (connection.state === "closed") return;
       connection.state = "stopped";
-      await policy.close();
+      policy.stop();
+      logs?.stop();
     },
-    async close() {
-      await connection.stop();
-      await logs?.close();
-      await client.destroy();
-      connection.state = "closed";
+    close() {
+      closing ??= (async () => {
+        connection.stopInput();
+        try {
+          await drain([policy.close(), logs?.close()]);
+        } finally {
+          await client.destroy();
+          connection.state = "closed";
+        }
+      })();
+      return closing;
     },
   };
   return connection;

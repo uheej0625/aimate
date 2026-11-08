@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createDiscordConnection } from "../../../src/platforms/discord/createDiscordApplication.js";
 import { EventBus } from "../../../src/core/EventBus.js";
+import { DiscordPolicyService } from "../../../src/platforms/discord/policy/DiscordPolicyService.js";
 
 test("Discord connection gates events until identity preparation and activation", async () => {
   const handlers = new Map();
@@ -65,4 +66,31 @@ test("Discord connection gates events until identity preparation and activation"
   handlers.get("messageCreate")(message);
   assert.equal(received, 1);
   assert.equal(client.commands.size, 6);
+});
+
+test("Discord cleanup has a deadline and destroys the transport once", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let release;
+  const pending = new Promise((resolve) => {
+    release = resolve;
+  });
+  t.mock.method(DiscordPolicyService.prototype, "close", () => pending);
+  let destroyed = 0;
+  const connection = createDiscordConnection({
+    configManager: { get: () => "fixture" },
+    client: {
+      destroy: async () => {
+        destroyed++;
+      },
+    },
+  });
+  const closing = connection.close();
+  assert.equal(connection.close(), closing);
+  assert.equal(connection.isReady(), false);
+  assert.equal(destroyed, 0);
+  t.mock.timers.tick(5000);
+  await closing;
+  assert.equal(destroyed, 1);
+  assert.equal(connection.state, "closed");
+  release();
 });

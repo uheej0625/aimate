@@ -40,7 +40,10 @@ export async function main({ cli = false } = {}) {
     host = createHost({
       definitions: selected,
       createCharacter: async ({ id }) => {
-        const settings = createCharacterConfigManager({ characterId: id });
+        const settings = createCharacterConfigManager({
+          characterId: id,
+          source: configManager,
+        });
         const connections = [];
         if (settings.get("connections.discord"))
           connections.push(
@@ -51,7 +54,7 @@ export async function main({ cli = false } = {}) {
         return { configManager: settings, connections };
       },
       disconnectDatabase: async () => {
-        configManager.close();
+        await configManager.close();
         await prisma.$disconnect();
       },
     });
@@ -61,7 +64,7 @@ export async function main({ cli = false } = {}) {
   } catch (error) {
     if (host) await host.close();
     else {
-      configManager?.close();
+      await configManager?.close();
       await prisma.$disconnect();
     }
     const exitCode = error instanceof ConfigurationError ? 78 : 1;

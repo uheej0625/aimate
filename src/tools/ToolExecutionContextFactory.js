@@ -10,7 +10,6 @@ export class ToolExecutionContextFactory {
     generationRepository = null,
     messageActionService = null,
     participantService = null,
-    platformClients = new Map(),
     connections = new Map(),
   }) {
     this.configManager = configManager;
@@ -18,7 +17,6 @@ export class ToolExecutionContextFactory {
     this.generationRepository = generationRepository;
     this.messageActionService = messageActionService;
     this.participantService = participantService;
-    this.platformClients = platformClients;
     this.connections = connections;
     this.characterId = getRequiredCharacterId(configManager);
   }
@@ -35,8 +33,7 @@ export class ToolExecutionContextFactory {
   }) {
     return {
       platform,
-      platformClient: this.platformClients.get(platform) ?? null,
-      platformClients: this.platformClients,
+      platformClient: this.connections.get(platform)?.client ?? null,
       connections: this.connections,
       configManager: this.configManager,
       imageGenerator: this.imageGenerator,

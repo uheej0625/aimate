@@ -64,18 +64,6 @@ export function createHost({
           const app = await buildRuntime({
             configManager,
             connections: byPlatform,
-            platformClients: new Map(
-              connections.map((c) => [c.platform, c.client]),
-            ),
-            participantSources: new Map(
-              connections
-                .filter((c) => c.participantSource)
-                .map((c) => [c.platform, c.participantSource]),
-            ),
-            conversationPolicy: {
-              isEnabled: (channel) =>
-                byPlatform.get(channel.platform)?.isEnabled(channel) ?? false,
-            },
           });
           if (closing) {
             for (const connection of connections)
@@ -177,7 +165,7 @@ export function createHost({
         (item) => item.platform === platform,
       );
       if (!connection) return;
-      await connection.stop();
+      connection.stopInput();
       await entry.app.closePlatform(platform);
       await connection.close();
     },
@@ -185,12 +173,18 @@ export function createHost({
       const entry = characters.get(characterId);
       if (!entry) return;
       entry.closing ??= (async () => {
-        for (const connection of entry.connections)
-          await attempt(() => connection.stop());
+        // Input gates and timers stop synchronously; no network work before abort.
+        const stopped = entry.connections.map((connection) =>
+          attempt(() => connection.stopInput()),
+        );
         await attempt(() => entry.app.close());
-        for (const connection of entry.connections)
-          await attempt(() => connection.close());
-        entry.configManager.close();
+        await Promise.all(stopped);
+        await Promise.all(
+          entry.connections.map((connection) =>
+            attempt(() => connection.close()),
+          ),
+        );
+        await attempt(() => entry.configManager.close());
         characters.delete(characterId);
         activeCharacters.delete(characterId);
       })();
@@ -198,11 +192,9 @@ export function createHost({
     },
     close() {
       closing ??= (async () => {
-        for (const entry of characters.values())
-          for (const connection of entry.connections)
-            await attempt(() => connection.stop());
-        for (const characterId of [...characters.keys()])
-          await host.closeCharacter(characterId);
+        await Promise.all(
+          [...characters.keys()].map((id) => host.closeCharacter(id)),
+        );
         await disconnectDatabase?.();
       })();
       return closing;

@@ -70,10 +70,14 @@ export class DiscordLogService {
     await this.refreshing;
   }
 
-  async close() {
+  stop() {
     clearInterval(this.timer);
     this.timer = null;
     this.unsubscribers?.forEach((unsubscribe) => unsubscribe());
+  }
+
+  async close() {
+    this.stop();
     await this.flush();
     if (this.initialized) await this.refresh();
     this.closed = true;

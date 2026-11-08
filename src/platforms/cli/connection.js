@@ -33,11 +33,12 @@ export function createCliConnection({ configManager, onQuit }) {
       app = runtime;
     },
     async prepare() {
+      connection.state = "starting";
       await app.botAccountService.initBotAccount({
         platform: "cli",
         platformId: client.user.id,
       });
-      connection.state = "ready";
+      if (connection.state === "starting") connection.state = "ready";
     },
     async activate() {
       connection.state = "active";
@@ -58,12 +59,12 @@ export function createCliConnection({ configManager, onQuit }) {
         app.pendingWork.delete(opening);
       }
     },
-    async stop() {
+    stopInput() {
       connection.state = "stopped";
       tui?.close();
     },
     async close() {
-      await connection.stop();
+      connection.stopInput();
       connection.state = "closed";
     },
   };

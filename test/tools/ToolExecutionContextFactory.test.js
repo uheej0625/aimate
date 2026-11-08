@@ -15,14 +15,14 @@ test("ToolExecutionContextFactory creates explicit tool dependencies", () => {
   };
   const delivery = { isCurrent: () => true };
   const platformClient = {};
-  const platformClients = new Map([["discord", platformClient]]);
+  const connections = new Map([["discord", { client: platformClient }]]);
   const requestCreatedAt = new Date("2026-08-01T15:21:03.000Z");
   const factory = new ToolExecutionContextFactory({
     configManager,
     imageGenerator,
     generationRepository,
     messageActionService,
-    platformClients,
+    connections,
   });
 
   const context = factory.create({
