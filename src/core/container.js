@@ -253,6 +253,7 @@ export async function createContainer({
           ...conversationSession.queues.values(),
         ]);
         await generationRepository.cancelInProgress();
+        conversationSession.clearAll();
       })();
       return closing;
     },

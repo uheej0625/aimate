@@ -115,6 +115,42 @@ test("ChatFlow tests", async (t) => {
   );
 
   await t.test(
+    "startup failures retain the created generation and settle the turn",
+    async () => {
+      const error = new Error("abort registration failed");
+      let failure;
+      let unregistered;
+      const chatFlow = createChatFlow({
+        generationAbortRegistry: {
+          abortChannel() {},
+          register() {
+            throw error;
+          },
+          unregister: (...args) => {
+            unregistered = args;
+          },
+        },
+        failureHandler: {
+          handle: async (details) => {
+            failure = details;
+          },
+        },
+      });
+      const request = createRequest();
+
+      await chatFlow.execute(request);
+
+      assert.strictEqual(failure.error, error);
+      assert.strictEqual(failure.generation.id, "gen-123");
+      assert.strictEqual(failure.channelRecord, baseChannelRecord);
+      assert.deepStrictEqual(unregistered, ["channel-123", "gen-123"]);
+      const key = chatFlow.conversationSession.key(request.channelPort);
+      assert.equal(chatFlow.conversationSession.states.get(key).active, false);
+      assert.equal(chatFlow.tasks.size, 0);
+    },
+  );
+
+  await t.test(
     "execute cancels an aborted model request without failing the generation",
     async () => {
       const registry = new ChatGenerationAbortRegistry();

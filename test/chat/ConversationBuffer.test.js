@@ -34,7 +34,7 @@ test("ConversationBuffer tests", async (t) => {
     });
     assert.equal(
       buffer.conversationSession.isCurrent(
-        buffer.getKey(request.channelPort),
+        buffer.conversationSession.key(request.channelPort),
         executedRequest.turnId,
       ),
       true,
@@ -112,6 +112,44 @@ test("ConversationBuffer tests", async (t) => {
 
     assert.strictEqual(executed, false, "Should not execute if cleared");
   });
+});
+
+test("clearAll settles buffered turns without clearing unrelated sessions", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let now = 100;
+  const session = new ConversationSession({
+    now: () => now,
+    watchDuration: 50,
+  });
+  const execute = t.mock.fn();
+  const buffer = new ConversationBuffer(
+    { execute },
+    { get: () => 10 },
+    session,
+  );
+  const requests = [
+    createRequest("cli", "same-id", "bot"),
+    createRequest("discord", "same-id", "bot"),
+  ];
+  for (const request of requests) await buffer.add(request);
+  const activeTurn = session.begin("active-generation");
+  // A newer turn must not be settled by an older buffered request.
+  const newerKey = session.key(requests[1].channelPort);
+  const newerTurn = session.begin(newerKey);
+
+  buffer.clearAll();
+  buffer.clearAll();
+  t.mock.timers.tick(100);
+
+  assert.equal(execute.mock.callCount(), 0);
+  assert.equal(buffer.buffers.size, 0);
+  assert.equal(session.isCurrent("active-generation", activeTurn), true);
+  assert.equal(session.isCurrent(newerKey, newerTurn), true);
+  const clearedKey = session.key(requests[0].channelPort);
+  assert.equal(session.states.get(clearedKey).active, false);
+  assert.equal(session.isWatching(clearedKey), true);
+  now = 150;
+  assert.equal(session.isWatching(clearedKey), false);
 });
 
 function createRequest(platform, platformChannelId, botId) {

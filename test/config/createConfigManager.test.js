@@ -5,10 +5,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { parse, stringify } from "yaml";
+import chokidar from "chokidar";
 import {
   createConfigManager,
+  ConfigManager,
   getDefaultConfigPath,
 } from "../../src/config/index.js";
+import { ConfigurationError } from "../../src/config/ConfigurationError.js";
 import { captureLogs } from "../helpers/logs.js";
 
 function createFixture(t, options = {}) {
@@ -43,6 +46,61 @@ const vertexEnv = {
   VERTEX_CLIENT_EMAIL: "test@example.invalid",
   VERTEX_PRIVATE_KEY: "test-private-key",
 };
+
+test("construction does no I/O or subscription; initialization loads an injected source", (t) => {
+  let reads = 0;
+  let subscriptions = 0;
+  let unsubscribed = false;
+  const manager = new ConfigManager("unused.yaml", {
+    source: {
+      getAll: () => {
+        reads++;
+        return { conversation: { bufferTimeout: 42 } };
+      },
+      onChange: () => {
+        subscriptions++;
+        return () => {
+          unsubscribed = true;
+        };
+      },
+    },
+  });
+  t.after(() => manager.close());
+  assert.equal(reads, 0);
+  assert.equal(subscriptions, 0);
+  assert.equal(manager.watcher, null);
+  manager.initialize({ watch: false });
+  assert.equal(reads, 1);
+  assert.equal(subscriptions, 1);
+  assert.equal(manager.get("conversation.bufferTimeout"), 42);
+  manager.close();
+  assert.equal(unsubscribed, true);
+});
+
+test("missing and invalid initial files fail startup instead of returning empty settings", (t) => {
+  t.mock.method(chokidar, "watch", () =>
+    assert.fail("Do not watch invalid settings"),
+  );
+  const records = captureLogs(t);
+  const directory = fs.mkdtempSync(
+    path.join(os.tmpdir(), "aimate-invalid-config-"),
+  );
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const configPath = path.join(directory, "config.yaml");
+  const create = () =>
+    createConfigManager({ configPath, watch: true, env: {} });
+  assert.throws(create, ConfigurationError);
+  for (const source of [
+    "ai: [",
+    "- item",
+    "secrets: { apiKey: PRIVATE_SENTINEL }",
+  ]) {
+    fs.writeFileSync(configPath, source);
+    assert.throws(create, ConfigurationError);
+  }
+  assert.equal(records.length, 4);
+  assert.doesNotMatch(JSON.stringify(records), /PRIVATE_SENTINEL/);
+});
 
 function assertGeneralSettings(config) {
   assert.equal(config.ai.vertex.projectId, vertexEnv.VERTEX_PROJECT_ID);

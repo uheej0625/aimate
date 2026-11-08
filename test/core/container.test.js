@@ -59,6 +59,10 @@ test("character close aborts owned requests, blocks new work and drains before c
     credentials: loadAiCredentials({ AI_GATEWAY_API_KEY: "test-key" }),
   });
   const signal = app.generationAbortRegistry.register("channel", 99);
+  const session = app.conversationBuffer.conversationSession;
+  const channelPort = { platform: "cli", platformChannelId: "buffered" };
+  await app.conversationBuffer.add({ channelPort, internalChannelId: "buffered" });
+  const activeTurn = session.begin("active-generation");
   let finish;
   const pending = new Promise((resolve) => {
     finish = resolve;
@@ -70,11 +74,14 @@ test("character close aborts owned requests, blocks new work and drains before c
   };
   const closing = app.close();
   assert.equal(signal.aborted, true);
+  assert.equal(session.states.get(session.key(channelPort)).active, false);
+  assert.equal(session.isCurrent("active-generation", activeTurn), true);
   assert.equal(cancelled, false);
   assert.deepEqual(await app.messageHandler.handle({}), { changed: false });
   finish();
   await closing;
   assert.equal(cancelled, true);
+  assert.equal(session.states.size, 0);
   assert.equal(app.close(), closing);
 });
 

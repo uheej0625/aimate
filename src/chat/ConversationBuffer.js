@@ -25,7 +25,7 @@ export class ConversationBuffer {
    */
   async add(request) {
     if (request.turnId) return this.schedule(request);
-    const key = this.getKey(request.channelPort);
+    const key = this.conversationSession.key(request.channelPort);
     return await this.conversationSession.run(key, () =>
       this.schedule({
         ...request,
@@ -35,7 +35,7 @@ export class ConversationBuffer {
   }
 
   schedule(request) {
-    const key = this.getKey(request.channelPort);
+    const key = this.conversationSession.key(request.channelPort);
     const fields = {
       platform: request.channelPort.platform,
       platformChannelId: request.channelPort.platformChannelId,
@@ -91,7 +91,7 @@ export class ConversationBuffer {
    * @returns {boolean}
    */
   has(channel) {
-    return this.buffers.has(this.getKey(channel));
+    return this.buffers.has(this.conversationSession.key(channel));
   }
 
   /**
@@ -99,7 +99,7 @@ export class ConversationBuffer {
    * @param {import('../application/contracts.js').ChannelPort} channel
    */
   clear(channel) {
-    const key = this.getKey(channel);
+    const key = this.conversationSession.key(channel);
 
     if (this.buffers.has(key)) {
       const { timer, turnId } = this.buffers.get(key);
@@ -121,23 +121,16 @@ export class ConversationBuffer {
     return false;
   }
 
-  getKey(channelPort) {
-    return JSON.stringify([
-      channelPort.platform,
-      channelPort.platformChannelId,
-    ]);
-  }
-
   /**
    * Clear all buffers. (graceful shutdown 시 호출)
    */
   clearAll() {
     const count = this.buffers.size;
-    for (const { timer } of this.buffers.values()) {
+    for (const [key, { timer, turnId }] of this.buffers) {
       clearTimeout(timer);
+      this.conversationSession.settle(key, turnId);
     }
     this.buffers.clear();
-    this.conversationSession.clearAll();
     logger.debug(
       { event: "buffer.cleared_all", count },
       "Conversation buffers cleared",

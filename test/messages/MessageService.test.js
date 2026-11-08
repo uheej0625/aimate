@@ -5,7 +5,12 @@ const sentAt = new Date("2026-09-19T23:00:00Z");
 
 import { MessageService } from "../../src/messages/MessageService.js";
 
-function createService({ messageRepository = {}, eventRepository = {} } = {}) {
+function createService({
+  userRepository = {},
+  platformAccountRepository = {},
+  messageRepository = {},
+  eventRepository = {},
+} = {}) {
   const events = [];
   const defaults = {
     transaction: async (callback) => await callback({}),
@@ -27,10 +32,11 @@ function createService({ messageRepository = {}, eventRepository = {} } = {}) {
   return {
     events,
     service: new MessageService(
-      { create: async () => ({ id: "user-123" }) },
+      { create: async () => ({ id: "user-123" }), ...userRepository },
       {
         findByPlatformId: async () => null,
         upsert: async (data) => ({ id: "account-123", ...data }),
+        ...platformAccountRepository,
       },
       { upsert: async (data) => ({ id: "channel-123", ...data }) },
       { upsert: async (data) => ({ id: "server-123", ...data }) },
@@ -58,6 +64,46 @@ function normalizedMessage(overrides = {}) {
     ...overrides,
   };
 }
+
+test("saveMessage creates only missing users and refreshes the account through one upsert", async (t) => {
+  for (const existing of [
+    null,
+    {
+      id: "existing-account",
+      userId: "existing-user",
+      user: { characterId: "other-character" },
+    },
+  ]) {
+    const create = t.mock.fn(async () => ({ id: "new-user" }));
+    const upsert = t.mock.fn(async (data) => ({
+      id: "saved-account",
+      ...data,
+    }));
+    const { service } = createService({
+      userRepository: { create },
+      platformAccountRepository: {
+        findByPlatformId: async () => existing,
+        upsert,
+      },
+    });
+
+    const result = await service.saveMessage(normalizedMessage());
+
+    assert.equal(create.mock.callCount(), existing ? 0 : 1);
+    assert.equal(upsert.mock.callCount(), 1);
+    assert.deepStrictEqual(upsert.mock.calls[0].arguments, [
+      {
+        platform: "discord",
+        platformId: "author-1",
+        userId: existing?.userId ?? "new-user",
+        handle: "user",
+        displayName: "User",
+      },
+    ]);
+    assert.equal(result.authorCharacterId, existing?.user.characterId ?? null);
+    assert.equal(result.message.authorId, "saved-account");
+  }
+});
 
 test("MessageService saves a message and records its observed state", async () => {
   let savedData;

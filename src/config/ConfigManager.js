@@ -3,6 +3,7 @@ import path from "path";
 import chokidar from "chokidar";
 import { parse } from "yaml";
 import { createLogger } from "../core/logger.js";
+import { ConfigurationError } from "./ConfigurationError.js";
 
 const logger = createLogger("ConfigManager");
 
@@ -11,34 +12,34 @@ const logger = createLogger("ConfigManager");
  * Reads YAML configuration; environment overrides stay in memory.
  */
 class ConfigManager {
-  constructor(
-    configPath = "./config.yaml",
-    { watch = true, onLoad, source } = {},
-  ) {
+  constructor(configPath = "./config.yaml", { onLoad, source } = {}) {
     this.configPath = source?.configPath ?? path.resolve(configPath);
     this.config = null;
     this.watcher = null;
     this.changeCallbacks = [];
-    this.watch = watch;
     this.onLoad = onLoad;
     this.source = source;
+  }
 
+  /** Load before attaching subscriptions or opening a file watcher. */
+  initialize({ watch = true } = {}) {
     this.load();
-    if (source) {
-      this.unsubscribe = source.onChange(() => this.load());
-    } else if (this.watch) {
+    if (this.source) {
+      this.unsubscribe = this.source.onChange(() => this.load());
+    } else if (watch) {
       this.setupWatcher();
     }
+    return this;
   }
 
   /**
    * Load config from file
    * @returns {Object|null} Loaded configuration
+   * @throws {ConfigurationError} If the initial load fails
    */
   load() {
     const previous = this.config;
     try {
-      this.loadError = null;
       const config = this.source
         ? structuredClone(this.source.getAll())
         : parse(fs.readFileSync(this.configPath, "utf8"), {
@@ -71,7 +72,6 @@ class ConfigManager {
       if (previous) this.notifyChange(previous, this.config);
       return this.config;
     } catch (error) {
-      this.loadError = error;
       logger.error(
         {
           event: "config.load.failed",
@@ -80,7 +80,8 @@ class ConfigManager {
         },
         "Configuration load failed",
       );
-      this.config = previous ?? {};
+      this.config = previous;
+      if (previous === null) throw new ConfigurationError(error.message);
       return null;
     }
   }
@@ -201,6 +202,7 @@ class ConfigManager {
   close() {
     clearTimeout(this.debounceTimer);
     this.unsubscribe?.();
+    this.unsubscribe = null;
     if (this.watcher) {
       const closing = this.watcher.close();
       this.watcher = null;

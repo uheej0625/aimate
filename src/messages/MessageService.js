@@ -81,28 +81,15 @@ export class MessageService {
     );
 
     const authorCharacterId = platformAccount?.user?.characterId ?? null;
-    if (!platformAccount) {
-      // Create new user first
-      const user = await this.userRepository.create();
-
-      // Create platform account
-      platformAccount = await this.platformAccountRepository.upsert({
-        platform: platform,
-        platformId: message.author.platformUserId,
-        userId: user.id,
-        handle: message.author.handle,
-        displayName: message.author.displayName,
-      });
-    } else {
-      // Update existing platform account
-      platformAccount = await this.platformAccountRepository.upsert({
-        platform: platform,
-        platformId: message.author.platformUserId,
-        userId: platformAccount.userId,
-        handle: message.author.handle,
-        displayName: message.author.displayName,
-      });
-    }
+    const userId =
+      platformAccount?.userId ?? (await this.userRepository.create()).id;
+    platformAccount = await this.platformAccountRepository.upsert({
+      platform,
+      platformId: message.author.platformUserId,
+      userId,
+      handle: message.author.handle,
+      displayName: message.author.displayName,
+    });
 
     // 4. Save message
     const {

@@ -208,14 +208,15 @@ export class ToolRegistry {
                     );
                   }
                   abortSignal?.throwIfAborted();
-                  if (
-                    !this.getActiveTools(platform, context).some(
-                      (definition) => definition.name === toolDef.name,
-                    )
-                  )
-                    throw new Error(
-                      "Tool target is unavailable or disallowed.",
+                  if (toolDef.targetPlatform) {
+                    const connection = context.connections?.get(
+                      toolDef.targetPlatform,
                     );
+                    if (!connection?.canUseTool(toolDef, context))
+                      throw new Error(
+                        "Tool target is unavailable or disallowed.",
+                      );
+                  }
                   const target = toolDef.targetPlatform
                     ? context.connections.get(toolDef.targetPlatform)
                     : null;

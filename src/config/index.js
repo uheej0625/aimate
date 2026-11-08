@@ -55,9 +55,8 @@ export function createConfigManager({
   watch = !isTestRuntime(),
 } = {}) {
   return new ConfigManager(configPath, {
-    watch,
     onLoad: (manager) => applyEnvOverrides(manager, env),
-  });
+  }).initialize({ watch });
 }
 
 /** Isolated settings derived from the host's shared source; identity/connections require restart. */
@@ -70,8 +69,7 @@ export function createCharacterConfigManager({
 } = {}) {
   let selectedId = characterId;
   let connections;
-  const manager = new ConfigManager(configPath, {
-    watch,
+  return new ConfigManager(configPath, {
     source,
     onLoad: (current) => {
       selectedId = getRequiredCharacterId(
@@ -103,12 +101,7 @@ export function createCharacterConfigManager({
       };
       applyEnvOverrides(current, env);
     },
-  });
-  if (manager.loadError) {
-    manager.close();
-    throw new ConfigurationError(manager.loadError.message);
-  }
-  return manager;
+  }).initialize({ watch });
 }
 
 /**
