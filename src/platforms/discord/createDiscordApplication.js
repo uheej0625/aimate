@@ -52,7 +52,8 @@ export async function createDiscordApplication({
     messageHandler: {
       async handle(event) {
         const result = await app.messageHandler.handle(event);
-        if (result.changed) void discordLogService.refresh();
+        if (result.changed || result.observedChanged)
+          void discordLogService.refresh();
         return result;
       },
     },

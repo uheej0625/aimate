@@ -16,6 +16,10 @@ const { prisma } = await import("../../database/client.js");
 const { getCliBotId } = await import("./constants.js");
 const { createMockClient } = await import("./mocks.js");
 const { startRepl } = await import("./repl.js");
+const { readCliHistory } = await import("./history.js");
+const { MessageRepository } = await import(
+  "../../repositories/MessageRepository.js"
+);
 const { createLogger } = await import("../../core/logger.js");
 
 const logger = createLogger("CLI");
@@ -70,5 +74,7 @@ const logger = createLogger("CLI");
     channelCatalog,
     messageHandler,
     mockClient,
+    readHistory: (channelId, options) =>
+      readCliHistory(new MessageRepository(configManager), channelId, options),
   });
 })();

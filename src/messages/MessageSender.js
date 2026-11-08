@@ -191,7 +191,7 @@ export class MessageSender {
           message,
           generationId,
           generatedImageAttachments,
-          { observedAt },
+          { observedAt, kind: "SENT" },
         ),
       );
     try {

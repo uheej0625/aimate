@@ -19,6 +19,7 @@ test("Discord adapter returns a platform-neutral incoming message", () => {
     content: "hello",
     sentAt: raw.createdAt,
     editedAt: null,
+    attachments: [],
     author: {
       platformUserId: "user-1",
       handle: "user",
@@ -66,6 +67,7 @@ test("Discord channel port sends and normalizes the returned message", async () 
     content: "reply",
     sentAt: new Date("2026-10-30T10:00:00Z"),
     editedAt: null,
+    attachments: [],
     author: {
       platformUserId: "bot-1",
       handle: "bot",
@@ -166,4 +168,43 @@ test("Discord reactions fetch the current target and respect cancellation before
     /abort/i,
   );
   assert.deepEqual(emojis, ["👍"]);
+});
+
+test("Discord history fetches fresh authorized account data in chronological order with attachments", async () => {
+  let options;
+  const older = createDiscordMessage({ id: "older" });
+  const newer = createDiscordMessage({
+    id: "newer",
+    attachments: new Map([
+      [
+        "file",
+        {
+          id: "file",
+          name: "photo.png",
+          url: "https://example.invalid/photo.png",
+          contentType: "image/png",
+        },
+      ],
+    ]),
+  });
+  const port = adaptChannel({
+    id: "channel-1",
+    messages: {
+      fetch: async (value) => {
+        options = value;
+        return new Map([
+          ["newer", newer],
+          ["older", older],
+        ]);
+      },
+    },
+  });
+  const history = await port.readHistory({ limit: 50, before: "trigger" });
+  assert.deepEqual(options, { limit: 50, before: "trigger", cache: false });
+  assert.deepEqual(
+    history.map((message) => message.platformMessageId),
+    ["older", "newer"],
+  );
+  assert.equal(history[1].attachments[0].name, "photo.png");
+  assert.equal("client" in history[1], false);
 });

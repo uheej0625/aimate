@@ -11,10 +11,10 @@ function harness(overrides = {}) {
   const channel = { platform: "discord", platformChannelId: "channel" };
   const service = {
     hasStoredMessage: async () => true,
-    saveMessage: async () => ({ changed: true }),
+    saveMessage: async () => ({ changed: true, observedChanged: true }),
     updateMessage: async (_message, options) => {
       calls.push(["update", options.observed]);
-      return { changed: true };
+      return { changed: true, observedChanged: options.observed };
     },
     deleteMessages: async (_platform, _ids, _channelId, options) => {
       calls.push(["delete", options.observed]);
@@ -23,6 +23,9 @@ function harness(overrides = {}) {
         deletedMessages: [
           { authorId: "user", isBot: false, author: { platformId: "user" } },
         ],
+        observedMessages: options.observed
+          ? [{ authorId: "user", isBot: false, author: { platformId: "user" } }]
+          : [],
       };
     },
     ...overrides,
@@ -119,6 +122,21 @@ test("new input starts watching and cancels active generation before buffering",
   assert.equal(h.session.isCurrent(h.key, h.requests[0].turnId), true);
 });
 
+test("a new character observation schedules even when shared message storage did not change", async () => {
+  const h = harness({
+    saveMessage: async () => ({ changed: false, observedChanged: true }),
+  });
+  await h.handle("CREATE");
+  assert.equal(h.requests.length, 1);
+  await h.handle("CREATE", {
+    message: {
+      ...h.message,
+      author: { platformUserId: "external-bot", isBot: true },
+    },
+  });
+  assert.equal(h.requests.length, 1);
+});
+
 test("log channels skip creation, edits and deletions before hydration or storage", async () => {
   const h = harness({
     saveMessage: () => assert.fail("Log messages must not be stored"),
@@ -145,8 +163,8 @@ test("log channels skip creation, edits and deletions before hydration or storag
 
 test("bots and duplicate events do not start or prolong watching", async () => {
   const h = harness({
-    saveMessage: async () => ({ changed: false }),
-    updateMessage: async () => ({ changed: false }),
+    saveMessage: async () => ({ changed: false, observedChanged: false }),
+    updateMessage: async () => ({ changed: false, observedChanged: false }),
   });
   await h.handle("CREATE");
   await h.handle("CREATE", {
@@ -198,6 +216,7 @@ test("bulk deletion schedules once and bot-only deletion never schedules", async
     deleteMessages: async () => ({
       deletedCount: 1,
       deletedMessages: [{ isBot: true }],
+      observedMessages: [{ isBot: true }],
     }),
   });
   bots.session.begin(bots.key);

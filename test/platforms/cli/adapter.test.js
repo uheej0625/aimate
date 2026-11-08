@@ -39,6 +39,7 @@ test("CLI adapter matches the platform-neutral message contract", () => {
     content: "hello",
     sentAt: raw.createdAt,
     editedAt: null,
+    attachments: [],
     author: {
       platformUserId: "user-1",
       handle: "user",

@@ -30,6 +30,7 @@ export function adaptMessageData(raw) {
     content: raw.content,
     sentAt: raw.createdAt ?? null,
     editedAt: raw.editedAt ?? null,
+    attachments: raw.attachments ?? [],
     author: {
       platformUserId: raw.author.id,
       handle: raw.author.username,

@@ -23,6 +23,7 @@ export async function startRepl({
   channelCatalog,
   messageHandler,
   mockClient,
+  readHistory,
   onQuit = null,
 }) {
   const tui = new ChatTui();
@@ -33,6 +34,7 @@ export async function startRepl({
     const channel = createMockChannel({
       channelId,
       mockClient,
+      readHistory: (options) => readHistory(channelId, options),
       onTyping: () => tui.setBusy(channelId, true),
       onSend: (content) => {
         tui.addMessage(channelId, {

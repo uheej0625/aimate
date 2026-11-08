@@ -9,6 +9,8 @@
  * @property {Date|null} sentAt - Original platform send time; never the observation or storage time.
  * @property {Date|null} editedAt - Platform edit marker/version; not evidence of witnessing an edit.
  * @property {string} content
+ * @property {Array} [attachments] - Attachment metadata received in this snapshot.
+ * @property {string} [observationId] - Stable platform revision/event ID for updates without editedAt.
  * @property {NormalizedAuthor} author
  */
 
@@ -28,6 +30,7 @@
  * @property {string} platformChannelId
  * @property {(message: OutgoingMessage) => Promise<NormalizedMessage>} send
  * @property {() => Promise<void>} sendTyping
+ * @property {(options: {limit: number, before?: string}) => Promise<NormalizedMessage[]>} [readHistory] - Authorized account read, oldest first. No implicit shared-cache fallback.
  * @property {(platformMessageId: string, message: OutgoingMessage) => Promise<NormalizedMessage>} [reply]
  * @property {(platformMessageId: string, emoji: string, options?: {abortSignal?: AbortSignal}) => Promise<void>} [react]
  */

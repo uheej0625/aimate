@@ -20,6 +20,14 @@ export class EventRepository {
     return await tx.event.create({ data: eventData });
   }
 
+  async findObservation(tx, identity) {
+    return await tx.event.findUnique({
+      where: {
+        characterId_platform_platformMessageId_observationKey: identity,
+      },
+    });
+  }
+
   /** Freeze the observed history and pending range in one database transaction. */
   async snapshot(channelId, rerollGenerationId = null) {
     const characterId = this.characterId;
@@ -29,48 +37,12 @@ export class EventRepository {
       });
       const fromExclusive = state?.handledThroughEventId ?? 0;
       const visible = {
-        OR: [{ generationId: null }, { generation: { discardedAt: null } }],
+        OR: [
+          { generationId: null },
+          { generation: { discardedAt: null } },
+          { generation: { characterId: { not: characterId } } },
+        ],
       };
-      const currentMessages = await tx.message.findMany({
-        where: {
-          channelId,
-          deletedAt: null,
-          OR: [
-            { isBot: false },
-            { generationId: null },
-            { generation: { discardedAt: null } },
-          ],
-        },
-        orderBy: { id: "desc" },
-      });
-      // Reading current history is an experience, not a retroactive edit observation.
-      for (const message of currentMessages.reverse()) {
-        const latest = await this.findLatestForMessage(tx, {
-          characterId,
-          platform: message.platform,
-          platformMessageId: message.platformId,
-        });
-        if (
-          latest &&
-          latest.snapshotContent === message.content &&
-          latest.snapshotAttachmentsJson === message.attachmentsJson &&
-          sameDate(latest.editedAt, message.editedAt)
-        )
-          continue;
-        await this.create(tx, {
-          characterId,
-          channelId,
-          messageId: message.id,
-          platform: message.platform,
-          platformMessageId: message.platformId,
-          kind: "READ",
-          source: "HISTORY",
-          snapshotContent: message.content,
-          snapshotAttachmentsJson: message.attachmentsJson,
-          editedAt: message.editedAt,
-          generationId: message.isBot ? message.generationId : null,
-        });
-      }
       const include = { message: { include: { author: true } } };
       const history = await tx.event.findMany({
         where: {
@@ -116,6 +88,7 @@ export class EventRepository {
                 .filter((id) => id !== null),
             },
             discardedAt: { not: null },
+            characterId,
           },
           select: { id: true },
         });
@@ -135,10 +108,6 @@ export class EventRepository {
       };
     });
   }
-}
-
-function sameDate(a, b) {
-  return (a?.getTime() ?? null) === (b?.getTime() ?? null);
 }
 
 function toSnapshot({ message, ...event }) {

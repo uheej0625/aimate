@@ -445,7 +445,16 @@ test("platform send time survives late reads, edits, deletion and replay snapsho
     content: "read later",
     editedAt: new Date("2026-09-26T00:00:00Z"),
   });
-  await h.historyService.fetchHistoryData(channelId, h.botId);
+  await h.messageService.readRecentHistory({
+    ...h.channel,
+    readHistory: async () => [
+      {
+        ...original,
+        content: "read later",
+        editedAt: new Date("2026-09-26T00:00:00Z"),
+      },
+    ],
+  });
   await h.messageService.updateMessage(
     {
       ...original,
@@ -585,7 +594,11 @@ test("chat pipeline persists history and multiple model-free replies", async () 
     ).length,
     1,
   );
-  assert.ok(messages.every(({ generationId }) => generationId !== null));
+  assert.ok(
+    messages.every(({ isBot, generationId }) =>
+      isBot ? generationId !== null : generationId === null,
+    ),
+  );
   assert.strictEqual(events.length, 5);
   assert.ok(events.every(({ characterId }) => characterId === "fixture"));
   assert.ok(
@@ -790,7 +803,12 @@ for (const content of ["", " \n\t"]) {
     });
     assert.equal(stored.content, content);
     assert.equal(stored.events[0].kind, "READ");
-    assert.equal(stored.generation.status, "COMPLETED");
+    assert.equal(stored.generation, null);
+    const generation = await prisma.generation.findFirst({
+      where: { channelId: channelRecord.id },
+    });
+    assert.equal(generation.status, "COMPLETED");
+    assert.equal(JSON.parse(generation.input).messages[0].id, stored.id);
   });
 }
 
@@ -850,6 +868,7 @@ test("message persistence records changes and retains deletion tombstones", asyn
     {
       ...original,
       content: "after",
+      observationId: "revision-1",
     },
     { observed: true },
   );
@@ -857,6 +876,7 @@ test("message persistence records changes and retains deletion tombstones", asyn
     {
       ...original,
       content: "after",
+      observationId: "revision-1",
     },
     { observed: true },
   );
@@ -864,6 +884,7 @@ test("message persistence records changes and retains deletion tombstones", asyn
     {
       ...original,
       content: "before",
+      observationId: "revision-2",
     },
     { observed: true },
   );
@@ -963,7 +984,8 @@ test("message persistence records changes and retains deletion tombstones", asyn
   const unknownDeleteEvents = await prisma.event.findMany({
     where: { platform: "cli", platformMessageId: unknownId },
   });
-  assert.strictEqual(unknownDeleteEvents.length, 0);
+  assert.strictEqual(unknownDeleteEvents.length, 1);
+  assert.strictEqual(unknownDeleteEvents[0].snapshotContent, null);
   const lateUnknown = await harness.messageService.saveMessage({
     ...original,
     platformMessageId: unknownId,
@@ -978,25 +1000,22 @@ test("soft deletion preserves references and hides messages from current queries
       const harness = createHarness({
         generateTextFn: async () => fakeTextResult("reply"),
       });
-      const original = createUserMessage(harness, {
-        id: `soft-delete-${randomUUID()}`,
+      const channel = await harness.activate();
+      const original = await harness.channel.send({
         content: "retained content",
       });
       const attachments = [
         { name: "example.txt", text: "retained attachment" },
       ];
-      const created = await harness.messageService.saveMessage(
-        original,
-        null,
-        attachments,
-      );
       const generation = await harness.generationRepository.create({
-        channelId: created.channel.id,
+        channelId: channel.id,
         status: "PROCESSING",
       });
-      await harness.messageRepository.addGenerationId(
-        created.message.id,
+      const created = await harness.messageService.saveMessage(
+        original,
         generation.id,
+        attachments,
+        { kind: "SENT" },
       );
       const memory = await prisma.memory.create({
         data: {
@@ -1044,7 +1063,7 @@ test("soft deletion preserves references and hides messages from current queries
       assert.strictEqual(retained.memories[0].id, memory.id);
       assert.deepStrictEqual(
         retained.events.map(({ kind }) => kind),
-        ["READ"],
+        ["SENT"],
       );
       assert.ok(
         retained.events.every(
@@ -2005,6 +2024,8 @@ test("expired Discord activation stops buffered work and the runtime timer recon
 
 function createHarness({
   generateTextFn,
+  characterId = "fixture",
+  platformChannelId = null,
   messageTools = false,
   participantSource = null,
   humanize = { enabled: true },
@@ -2019,7 +2040,7 @@ function createHarness({
   const mockClient = createMockClient({ botId });
   const sentMessages = [];
   const channel = createMockChannel({
-    channelId: `channel-${id}`,
+    channelId: platformChannelId ?? `channel-${id}`,
     mockClient,
     onSend: (content) => {
       assert.ok(
@@ -2031,7 +2052,7 @@ function createHarness({
   });
   const config = {
     app: { language: "ko-KR" },
-    character: "fixture",
+    character: characterId,
     ai: {
       chat: {
         provider: "openai",
@@ -2348,6 +2369,13 @@ test("idle edits and deletions remain unobserved; a later edit marker is a histo
     id: randomUUID(),
     content: "new conversation",
   });
+  h.channel.readHistory = async ({ limit, before }) => {
+    assert.equal(limit, 50);
+    assert.equal(before, next.platformMessageId);
+    return [
+      { ...original, content: "B", editedAt: new Date("2026-09-20T02:00:00Z") },
+    ];
+  };
   await h.receive("CREATE", { message: next });
   await h.flush();
   const generation = await prisma.generation.findFirst({
@@ -2610,7 +2638,11 @@ test("a failed observation write rolls back the message change", async () => {
   };
   await assert.rejects(
     h.receive("UPDATE", {
-      message: { ...original, content: "must roll back" },
+      message: {
+        ...original,
+        content: "must roll back",
+        observationId: "rollback-revision",
+      },
     }),
     /event insert failed/,
   );
@@ -2674,7 +2706,8 @@ test("mixed bulk deletion records one batch and schedules only once", async () =
   const deleted = await prisma.event.findMany({
     where: { channelId: channelRecord.id, kind: "DELETE" },
   });
-  assert.equal(deleted.length, 3);
+  assert.equal(deleted.length, 4);
+  assert.ok(deleted.some((event) => event.snapshotContent === null));
   assert.equal(new Set(deleted.map((event) => event.batchId)).size, 1);
   assert.ok(deleted[0].batchId);
 });
@@ -2714,7 +2747,7 @@ test("older edit versions and duplicate create cannot roll back the current mess
     ).content,
     "newest",
   );
-  assert.equal(h.bufferedRequests.length, before);
+  assert.equal(h.bufferedRequests.length, before + 1);
 });
 
 test("a confirmed output can fill a deletion tombstone without restoring the message", async () => {
@@ -2725,7 +2758,9 @@ test("a confirmed output can fill a deletion tombstone without restoring the mes
   h.conversationSession.begin(h.conversationSession.key(h.channel));
   const output = await h.channel.send({ content: "actually delivered" });
   await h.receive("DELETE", { platformMessageIds: [output.platformMessageId] });
-  const saved = await h.messageService.saveMessage(output);
+  const saved = await h.messageService.saveMessage(output, null, undefined, {
+    kind: "SENT",
+  });
   assert.ok(saved.message.deletedAt);
   assert.ok(saved.message.authorId);
   assert.equal(saved.message.isBot, true);
@@ -2734,9 +2769,9 @@ test("a confirmed output can fill a deletion tombstone without restoring the mes
   });
   assert.deepEqual(
     events.map((event) => event.kind),
-    ["SENT"],
+    ["DELETE", "SENT"],
   );
-  assert.equal(events[0].snapshotContent, "actually delivered");
+  assert.equal(events[1].snapshotContent, "actually delivered");
   assert.equal(
     await h.messageRepository.findByPlatformId("cli", output.platformMessageId),
     null,
@@ -2821,7 +2856,7 @@ test("replaying an older snapshot does not resurrect outputs discarded since it 
   assert.equal(input.pendingMessages.length, 2);
 });
 
-test("context includes all stored messages and handled events beyond the configured limit", async () => {
+test("context includes all observed messages and handled events beyond the configured limit", async () => {
   const requests = [];
   const h = createHarness({
     generateTextFn: async (request) => {
@@ -2830,7 +2865,7 @@ test("context includes all stored messages and handled events beyond the configu
     },
   });
   const channel = await h.activate();
-  // Stored history has not yet been observed by this character.
+  // Already observed experiences remain available beyond the platform read limit.
   for (let i = 0; i < 55; i++) {
     await h.messageService.saveMessage(
       createUserMessage(h, {
@@ -2839,13 +2874,13 @@ test("context includes all stored messages and handled events beyond the configu
       }),
       null,
       [],
-      { observed: false },
+      { observed: true },
     );
   }
   const initial = await h.eventRepository.snapshot(channel.id);
   assert.equal(initial.events.length, 55);
   assert.equal(initial.events[0].snapshotContent, "historical 0");
-  assert.ok(initial.events.every((event) => event.source === "HISTORY"));
+  assert.ok(initial.events.every((event) => event.source === "LIVE"));
   await h.executeChat();
   await h.receive("CREATE", {
     message: createUserMessage(h, {
@@ -2901,6 +2936,7 @@ test("fixed numbers survive observation gaps, late history, edits, deletion and 
         id: resumed.message.platformId,
         content: "edited 101",
       }),
+      observationId: "fixed-number-edit",
     },
     { observed: true },
   );
@@ -2927,6 +2963,12 @@ test("fixed numbers survive observation gaps, late history, edits, deletion and 
     }),
   );
   assert.equal(newMessage.channelMessageNo, 5);
+  const { readCliHistory } = await import("../../src/platforms/cli/history.js");
+  await h.messageService.readRecentHistory({
+    ...h.channel,
+    readHistory: (options) =>
+      readCliHistory(repository, h.channel.platformChannelId, options),
+  });
   const snapshot = await h.eventRepository.snapshot(channel.id);
   assert.deepEqual(
     snapshot.events
@@ -3027,7 +3069,12 @@ test("failed first observation rolls back number allocation and tombstones keep 
     1,
   );
   assert.ok(tombstone.deletedAt);
-  const confirmed = await h.messageService.saveMessage(output);
+  const confirmed = await h.messageService.saveMessage(
+    output,
+    null,
+    undefined,
+    { kind: "SENT" },
+  );
   assert.equal(confirmed.message.channelMessageNo, 1);
   assert.equal(
     (await prisma.channel.findUnique({ where: { id: channel.id } }))
@@ -3246,4 +3293,458 @@ test("interruption during a tool reply preserves confirmed delivery and cancels 
   assert.equal(output.channelMessageNo, 3);
   await h.flush();
   assert.deepEqual(h.sentMessages, ["confirmed tool reply", "fresh response"]);
+});
+
+function observerPair() {
+  const platformChannelId = randomUUID();
+  const generateTextFn = async () => fakeTextResult("");
+  return ["observer-a", "observer-b"].map((characterId) =>
+    createHarness({ characterId, platformChannelId, generateTextFn }),
+  );
+}
+
+test("characters independently deduplicate CREATE and EDIT deliveries and retain their own knowledge", async () => {
+  const [a, b] = observerPair();
+  const original = createUserMessage(a, {
+    id: randomUUID(),
+    content: "tomorrow",
+  });
+  const first = await a.messageService.saveMessage(original);
+  const second = await b.messageService.saveMessage(original);
+  assert.equal(second.changed, false);
+  assert.equal(second.observedChanged, true);
+  assert.equal(
+    (await b.messageService.saveMessage(original)).observedChanged,
+    false,
+  );
+  assert.equal(first.message.id, second.message.id);
+  assert.equal(
+    (await prisma.channel.findUnique({ where: { id: first.channel.id } }))
+      .lastMessageNo,
+    1,
+  );
+
+  const edited = {
+    ...original,
+    content: "today",
+    editedAt: new Date("2026-11-08T01:00:00Z"),
+  };
+  await a.messageService.updateMessage(edited, { observed: true });
+  const count = await prisma.event.count({
+    where: { channelId: first.channel.id },
+  });
+  for (let i = 0; i < 2; i++) {
+    const context = await b.historyService.fetchHistoryData(
+      first.channel.id,
+      b.botId,
+    );
+    assert.deepEqual(
+      context.eventSnapshot.events.map((event) => event.snapshotContent),
+      ["tomorrow"],
+    );
+  }
+  assert.equal(
+    await prisma.event.count({ where: { channelId: first.channel.id } }),
+    count,
+  );
+  const witnessed = await b.messageService.updateMessage(edited, {
+    observed: true,
+  });
+  assert.equal(witnessed.changed, false);
+  assert.equal(witnessed.observedChanged, true);
+  assert.equal(
+    (await b.messageService.updateMessage(edited, { observed: true }))
+      .observedChanged,
+    false,
+  );
+  const event = await prisma.event.findFirst({
+    where: {
+      characterId: "observer-b",
+      messageId: first.message.id,
+      kind: "EDIT",
+    },
+  });
+  assert.equal(event.previousContent, "tomorrow");
+});
+
+test("reverting edits and late versions preserve received snapshots without rolling shared state back", async () => {
+  const [a, b] = observerPair();
+  const original = createUserMessage(a, {
+    id: randomUUID(),
+    content: "original",
+  });
+  const saved = await a.messageService.saveMessage(original);
+  await b.messageService.saveMessage(original);
+  const middle = {
+    ...original,
+    content: "middle",
+    editedAt: new Date("2026-11-08T01:00:00Z"),
+  };
+  const reverted = { ...original, editedAt: new Date("2026-11-08T02:00:00Z") };
+  await a.messageService.updateMessage(middle, { observed: true });
+  await a.messageService.updateMessage(reverted, { observed: true });
+  await b.messageService.updateMessage(middle, { observed: true });
+  await b.messageService.updateMessage(reverted, { observed: true });
+  await b.messageService.updateMessage(middle, { observed: true });
+  const events = await prisma.event.findMany({
+    where: { characterId: "observer-b", messageId: saved.message.id },
+    orderBy: { id: "asc" },
+  });
+  assert.deepEqual(
+    events.map((event) => event.snapshotContent),
+    ["original", "middle", "original"],
+  );
+  assert.equal(
+    (await a.messageRepository.findById(saved.message.id)).content,
+    "original",
+  );
+  assert.equal(
+    (await a.messageRepository.findById(saved.message.id)).editedAt.getTime(),
+    reverted.editedAt.getTime(),
+  );
+});
+
+test("DELETE remains observable by each character after another observer already stored deletion", async () => {
+  const [a, b] = observerPair();
+  const original = createUserMessage(a, { id: randomUUID(), content: "known" });
+  const saved = await a.messageService.saveMessage(original);
+  await b.messageService.saveMessage(original);
+  await a.messageService.updateMessage(
+    { ...original, content: "only a knows", editedAt: new Date() },
+    { observed: true },
+  );
+  const args = [
+    "cli",
+    [original.platformMessageId],
+    saved.channel.id,
+    { observed: true },
+  ];
+  assert.equal(
+    (await a.messageService.deleteMessages(...args)).deletedCount,
+    1,
+  );
+  const result = await b.messageService.deleteMessages(...args);
+  assert.equal(result.deletedCount, 0);
+  assert.equal(result.observedMessages.length, 1);
+  assert.equal(
+    (await b.messageService.deleteMessages(...args)).observedMessages.length,
+    0,
+  );
+  const deletion = await prisma.event.findFirst({
+    where: {
+      characterId: "observer-b",
+      messageId: saved.message.id,
+      kind: "DELETE",
+    },
+  });
+  assert.equal(deletion.snapshotContent, "known");
+});
+
+test("explicit history reads use only authorized platform snapshots, never the shared message body", async () => {
+  const [a, b] = observerPair();
+  const original = createUserMessage(a, { id: randomUUID(), content: "old" });
+  const saved = await a.messageService.saveMessage(original);
+  const newest = {
+    ...original,
+    content: "shared newest",
+    editedAt: new Date("2026-11-08T02:00:00Z"),
+  };
+  await a.messageService.updateMessage(newest, { observed: true });
+  const history = {
+    ...original,
+    content: "platform snapshot",
+    editedAt: new Date("2026-11-08T01:00:00Z"),
+  };
+  const channel = {
+    ...b.channel,
+    readHistory: async ({ limit }) => {
+      assert.equal(limit, 50);
+      return [history];
+    },
+  };
+  await b.messageService.readRecentHistory(channel);
+  const input = await b.historyService.fetchHistoryData(
+    saved.channel.id,
+    b.botId,
+  );
+  assert.deepEqual(
+    input.eventSnapshot.events.map((event) => [
+      event.kind,
+      event.source,
+      event.snapshotContent,
+    ]),
+    [["READ", "HISTORY", "platform snapshot"]],
+  );
+  assert.deepEqual(input.inputMessages, []);
+  assert.equal(
+    (await a.messageRepository.findById(saved.message.id)).content,
+    "shared newest",
+  );
+  await b.messageService.readRecentHistory(
+    {
+      ...channel,
+      readHistory: () => assert.fail("Must not read without permission"),
+    },
+    { canRead: async () => false },
+  );
+  assert.equal(
+    await prisma.event.count({
+      where: { characterId: "observer-b", channelId: saved.channel.id },
+    }),
+    1,
+  );
+});
+
+test("a received output is linked by its sender later and shared inputs never overwrite output ownership", async () => {
+  const [a, b] = observerPair();
+  const input = createUserMessage(a, {
+    id: randomUUID(),
+    content: "shared input",
+  });
+  const saved = await a.messageService.saveMessage(input);
+  await b.messageService.saveMessage(input);
+  const ga = await a.generationRepository.create({
+    channelId: saved.channel.id,
+    status: "PROCESSING",
+  });
+  const gb = await b.generationRepository.create({
+    channelId: saved.channel.id,
+    status: "PROCESSING",
+  });
+  const record = {
+    inputMessages: ["shared input"],
+    messageIds: [saved.message.id],
+  };
+  await a.generationRepository.recordInputWithMessages(ga.id, record);
+  await b.generationRepository.recordInputWithMessages(gb.id, record);
+  assert.equal(
+    (await a.messageRepository.findById(saved.message.id)).generationId,
+    null,
+  );
+  const output = {
+    ...(await a.channel.send({ content: "delivered" })),
+    author: { platformUserId: a.botId, handle: "a", isBot: false },
+  };
+  const received = await b.messageService.saveMessage(output);
+  await b.messageService.updateMessage(
+    { ...output, content: "edited before confirmation", editedAt: new Date() },
+    { observed: true },
+  );
+  const confirmed = await a.messageService.saveMessage(output, ga.id, [], {
+    kind: "SENT",
+  });
+  assert.equal(confirmed.message.id, received.message.id);
+  assert.equal(confirmed.message.content, "edited before confirmation");
+  assert.equal(confirmed.message.generationId, ga.id);
+  assert.equal(
+    (
+      await a.rerollConversation.prepare({
+        platform: "cli",
+        platformMessageId: output.platformMessageId,
+      })
+    ).status,
+    "READY",
+  );
+  assert.equal(
+    (await b.messageRepository.findById(received.message.id)).generationId,
+    ga.id,
+  );
+  await b.generationRepository.recordInputWithMessages(gb.id, {
+    inputMessages: ["delivered"],
+    messageIds: [received.message.id],
+  });
+  assert.equal(
+    (await a.messageRepository.findById(received.message.id)).generationId,
+    ga.id,
+  );
+  await a.messageService.saveMessage(output, ga.id, [], { kind: "SENT" });
+  assert.equal(
+    await prisma.event.count({
+      where: { messageId: received.message.id, kind: "SENT" },
+    }),
+    1,
+  );
+  await b.messageService.readRecentHistory({
+    ...b.channel,
+    readHistory: async () => [output],
+  });
+  assert.equal(
+    (
+      await prisma.event.findFirst({
+        where: { messageId: received.message.id, kind: "SENT" },
+      })
+    ).snapshotContent,
+    "delivered",
+  );
+  await a.generationRepository.discard(ga.id);
+  assert.ok(
+    (await b.eventRepository.snapshot(saved.channel.id)).events.some(
+      (event) => event.source === "HISTORY" && event.generationId === ga.id,
+    ),
+  );
+  assert.ok(
+    (await b.eventRepository.snapshot(saved.channel.id)).events.some(
+      (event) => event.messageId === received.message.id,
+    ),
+  );
+  assert.ok(
+    !(await a.eventRepository.snapshot(saved.channel.id)).events.some(
+      (event) => event.messageId === received.message.id,
+    ),
+  );
+});
+
+test("new sessions read the last 50 CLI messages once, exclude triggering input and never reread mid-session", async () => {
+  const { readCliHistory } = await import("../../src/platforms/cli/history.js");
+  const h = createHarness({ generateTextFn: async () => fakeTextResult("") });
+  const channel = await h.activate();
+  for (let i = 0; i < 55; i++) {
+    await h.messageService.saveMessage(
+      createUserMessage(h, { id: randomUUID(), content: `past ${i}` }),
+      null,
+      [],
+      { observed: false },
+    );
+  }
+  assert.deepEqual((await h.eventRepository.snapshot(channel.id)).events, []);
+  let reads = 0;
+  h.channel.readHistory = async (options) => {
+    reads++;
+    assert.equal(options.limit, 50);
+    return readCliHistory(
+      h.messageRepository,
+      h.channel.platformChannelId,
+      options,
+    );
+  };
+  const message = createUserMessage(h, { id: randomUUID(), content: "start" });
+  await h.receive("CREATE", { message });
+  await h.receive("CREATE", { message });
+  assert.equal(reads, 1);
+  const snapshot = await h.eventRepository.snapshot(channel.id);
+  assert.equal(
+    snapshot.events.filter((event) => event.source === "HISTORY").length,
+    50,
+  );
+  assert.deepEqual(
+    snapshot.events
+      .filter((event) => event.source === "HISTORY")
+      .map((event) => event.snapshotContent),
+    Array.from({ length: 50 }, (_, i) => `past ${i + 5}`),
+  );
+  assert.deepEqual(
+    (await h.historyService.fetchHistoryData(channel.id, h.botId))
+      .inputMessages,
+    ["start"],
+  );
+  await h.flush();
+  await h.receive("CREATE", {
+    message: createUserMessage(h, {
+      id: randomUUID(),
+      content: "same session",
+    }),
+  });
+  assert.equal(reads, 1);
+  await h.flush();
+  h.setTime(600_000);
+  await h.receive("CREATE", {
+    message: createUserMessage(h, { id: randomUUID(), content: "new session" }),
+  });
+  assert.equal(reads, 2);
+  assert.equal(h.bufferedRequests.length, 3);
+});
+
+test("history read failures, revoked access and foreign channel snapshots never fall back to shared rows", async () => {
+  const [a, b] = observerPair();
+  const original = createUserMessage(a, {
+    id: randomUUID(),
+    content: "shared secret",
+  });
+  const saved = await a.messageService.saveMessage(original);
+  const failed = {
+    ...b.channel,
+    readHistory: async () => {
+      throw new Error("History access denied");
+    },
+  };
+  assert.equal(await b.messageService.readRecentHistory(failed), 0);
+  assert.deepEqual(
+    (await b.eventRepository.snapshot(saved.channel.id)).events,
+    [],
+  );
+  let allowed = true;
+  const revoked = {
+    ...b.channel,
+    readHistory: async () => {
+      allowed = false;
+      return [original];
+    },
+  };
+  await b.messageService.readRecentHistory(revoked, {
+    canRead: async () => allowed,
+  });
+  assert.deepEqual(
+    (await b.eventRepository.snapshot(saved.channel.id)).events,
+    [],
+  );
+  const foreign = { ...original, platformChannelId: randomUUID() };
+  await assert.rejects(
+    b.messageService.readRecentHistory({
+      ...b.channel,
+      readHistory: async () => [foreign],
+    }),
+    /authorized channel/,
+  );
+  assert.deepEqual(
+    (await b.eventRepository.snapshot(saved.channel.id)).events,
+    [],
+  );
+});
+
+test("attachment revisions are received snapshots and missing revision identity rolls back an observed edit", async () => {
+  const [a, b] = observerPair();
+  const original = {
+    ...createUserMessage(a, { id: randomUUID(), content: "same text" }),
+    attachments: [{ name: "old.png" }],
+  };
+  const saved = await a.messageService.saveMessage(original);
+  await b.messageService.saveMessage(original);
+  assert.equal(
+    (await b.messageService.updateMessage(original, { observed: true }))
+      .observedChanged,
+    false,
+  );
+  const version = {
+    ...original,
+    attachments: [{ name: "new.png" }],
+    editedAt: new Date(),
+  };
+  await a.messageService.updateMessage(version, { observed: true });
+  const context = await b.eventRepository.snapshot(saved.channel.id);
+  assert.equal(
+    context.events[0].snapshotAttachmentsJson,
+    JSON.stringify(original.attachments),
+  );
+  await assert.rejects(
+    b.messageService.updateMessage(
+      { ...original, content: "invalid revision" },
+      { observed: true },
+    ),
+    /observationId or editedAt/,
+  );
+  assert.equal(
+    (await b.messageRepository.findById(saved.message.id)).content,
+    "same text",
+  );
+  const witnessed = await b.messageService.updateMessage(version, {
+    observed: true,
+  });
+  assert.equal(witnessed.observedChanged, true);
+  const observed = (
+    await b.eventRepository.snapshot(saved.channel.id)
+  ).events.at(-1);
+  assert.equal(
+    observed.snapshotAttachmentsJson,
+    JSON.stringify(version.attachments),
+  );
 });

@@ -83,7 +83,6 @@ test("RerollConversation prepares cleanup and reruns the conversation", async ()
       findByGenerationId: async () => [
         { platformId: "reply-1", isBot: true },
         { platformId: "reply-2", isBot: true },
-        { platformId: "user-input", isBot: false },
       ],
     },
     {

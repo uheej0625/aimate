@@ -216,7 +216,7 @@ export class MessageActionService {
             confirmed.message,
             context.generationId,
             [],
-            { observedAt: new Date(confirmed.observedAt) },
+            { observedAt: new Date(confirmed.observedAt), kind: "SENT" },
           ),
         ),
       );

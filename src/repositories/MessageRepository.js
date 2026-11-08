@@ -60,7 +60,7 @@ export class MessageRepository {
         authorId,
         isBot,
         ...(generationId !== null ? { generationId } : {}),
-        sentAt,
+        sentAt: existing?.sentAt ?? sentAt,
       },
       create: {
         platform,
@@ -79,21 +79,19 @@ export class MessageRepository {
     });
   }
 
-  async updateContentInTransaction(tx, messageId, content, editedAt = null) {
-    return await tx.message.update({
-      where: { id: messageId },
-      data: { content, editedAt },
-    });
-  }
-
-  async findActiveByPlatformIdsInTransaction(tx, platform, platformIds) {
+  async findByPlatformIdsInTransaction(
+    tx,
+    platform,
+    platformIds,
+    channelId = null,
+  ) {
     if (!platformIds.length) return [];
 
     return await tx.message.findMany({
       where: {
         platform,
         platformId: { in: platformIds },
-        deletedAt: null,
+        ...(channelId ? { channelId } : {}),
       },
       include: { author: true },
     });
@@ -118,7 +116,11 @@ export class MessageRepository {
   async rememberDeletion(tx, platform, platformId, channelId) {
     const where = { platform_platformId: { platform, platformId } };
     const existing = await tx.message.findUnique({ where });
-    if (existing) return existing;
+    if (existing) {
+      if (existing.channelId !== channelId)
+        throw new Error("Deletion does not belong to the event channel.");
+      return existing;
+    }
     const channelMessageNo = await this.allocateNumber(tx, channelId);
     return await tx.message.upsert({
       where,
@@ -180,16 +182,31 @@ export class MessageRepository {
     platform,
     platformChannelId,
     limit = this.configManager.get("conversation.maxContextMessages"),
+    before = undefined,
   ) {
+    const boundary = before
+      ? await prisma.message.findFirst({
+          where: {
+            platform,
+            platformId: before,
+            channel: { platformId: platformChannelId },
+          },
+        })
+      : null;
+    if (before && !boundary)
+      throw new Error(
+        "History boundary does not belong to the requested channel.",
+      );
     const messages = await prisma.message.findMany({
       where: {
         deletedAt: null,
+        ...(boundary ? { id: { lt: boundary.id } } : {}),
         channel: {
           platform,
           platformId: platformChannelId,
         },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: limit,
       include: {
         author: {
@@ -201,13 +218,6 @@ export class MessageRepository {
     });
 
     return messages.reverse();
-  }
-
-  async addGenerationId(messageId, generationId) {
-    await prisma.message.updateMany({
-      where: { id: messageId, deletedAt: null },
-      data: { generationId },
-    });
   }
 
   async findById(messageId) {

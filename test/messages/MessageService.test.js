@@ -11,12 +11,12 @@ function createService({ messageRepository = {}, eventRepository = {} } = {}) {
     transaction: async (callback) => await callback({}),
     findByPlatformIdInTransaction: async () => null,
     upsertInTransaction: async (_tx, data) => ({ id: 1, ...data }),
-    updateContentInTransaction: async (_tx, id, content) => ({ id, content }),
-    findActiveByPlatformIdsInTransaction: async () => [],
+    findByPlatformIdsInTransaction: async () => [],
     findActiveByChannelInTransaction: async () => [],
     softDeleteByIdsInTransaction: async (_tx, ids) => ids.length,
   };
   const eventDefaults = {
+    findObservation: async () => null,
     findLatestForMessage: async () => null,
     create: async (_tx, data) => {
       events.push(data);
@@ -72,7 +72,7 @@ test("MessageService saves a message and records its observed state", async () =
 
   const result = await service.saveMessage(
     normalizedMessage(),
-    "generation-1",
+    null,
     [{ name: "note.txt" }],
     { observedAt },
   );
@@ -81,7 +81,7 @@ test("MessageService saves a message and records its observed state", async () =
   assert.strictEqual(result.channel.id, "channel-123");
   assert.strictEqual(result.platformAccount.id, "account-123");
   assert.strictEqual(result.changed, true);
-  assert.strictEqual(savedData.generationId, "generation-1");
+  assert.strictEqual(savedData.generationId, null);
   assert.strictEqual(savedData.sentAt, sentAt);
   assert.deepStrictEqual(events, [
     {
@@ -91,6 +91,8 @@ test("MessageService saves a message and records its observed state", async () =
       platform: "discord",
       platformMessageId: "message-1",
       kind: "READ",
+      source: "LIVE",
+      observationKey: "CREATE",
       editedAt: null,
       observedAt,
       snapshotContent: "Hello",
@@ -126,11 +128,6 @@ test("MessageService records an update with the post-update snapshot", async () 
   const { service, events } = createService({
     messageRepository: {
       findByPlatformIdInTransaction: async () => existing,
-      updateContentInTransaction: async (_tx, id, content) => ({
-        ...existing,
-        id,
-        content,
-      }),
     },
     eventRepository: {
       findLatestForMessage: async () => ({ generationId: "generation-1" }),
@@ -138,7 +135,7 @@ test("MessageService records an update with the post-update snapshot", async () 
   });
 
   const result = await service.updateMessage(
-    normalizedMessage({ content: "after" }),
+    normalizedMessage({ content: "after", observationId: "revision-1" }),
     { observed: true, observedAt },
   );
 
@@ -151,11 +148,13 @@ test("MessageService records an update with the post-update snapshot", async () 
       platform: "discord",
       platformMessageId: "message-1",
       kind: "EDIT",
+      source: "LIVE",
+      observationKey: "EDIT:revision-1",
       previousContent: null,
       editedAt: null,
       observedAt,
       snapshotContent: "after",
-      snapshotAttachmentsJson: "[]",
+      snapshotAttachmentsJson: null,
       generationId: "generation-1",
     },
   ]);
@@ -183,7 +182,7 @@ test("MessageService soft deletes rows after recording delete events", async () 
   let deletedIds;
   const { service, events } = createService({
     messageRepository: {
-      findActiveByPlatformIdsInTransaction: async () => messages,
+      findByPlatformIdsInTransaction: async () => messages,
       softDeleteByIdsInTransaction: async (_tx, ids) => {
         deletedIds = ids;
         return ids.length;
@@ -199,6 +198,7 @@ test("MessageService soft deletes rows after recording delete events", async () 
   assert.deepStrictEqual(result, {
     deletedCount: 2,
     deletedMessages: messages,
+    observedMessages: messages,
   });
   assert.deepStrictEqual(deletedIds, [1, 2]);
   assert.deepStrictEqual(

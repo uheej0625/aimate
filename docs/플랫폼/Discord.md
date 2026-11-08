@@ -12,6 +12,8 @@ messageCreate·messageUpdate·messageDelete·messageDeleteBulk를 CREATE·UPDATE
 
 활성 채널은 첫 CREATE 저장 시 자동 등록한다. 비활성 채널의 새 입력은 저장하지 않고 기존 기록의 수정·삭제만 반영한다. 로그 전용 채널의 생성·수정·삭제 이벤트는 MessageHandler에서 본문 조회·저장·응답 예약 전에 건너뛴다. Channel 행이 존재한다는 이유만으로 대화가 활성화되지 않는다. DM·멘션 전용 응답·features별 필터는 제공하지 않는다.
 
+새 대화 세션에서 해당 client의 messages.fetch에 limit=50·before=시작 메시지 ID·cache=false를 전달해 과거 내역을 읽는다. 반환된 본문과 첨부를 HISTORY READ로 기록하며, 조회 실패 시 공통 DB로 대체하지 않고 현재 입력만 처리한다. 같은 세션의 연속 응답·문맥 조회·재생성은 이 API 읽기를 반복하지 않는다. LIVE 수정 중복은 editedAt 버전으로 구분한다.
+
 ## 봇 프레즌스
 
 시작 시 온라인·활동 없음으로 접속하며 ready 이벤트는 프레즌스를 덮어쓰지 않는다. AI는 두 Discord 전용 도구를 사용한다.

@@ -146,6 +146,7 @@ model Event {
   platformMessageId String
   kind              String // READ, EDIT, DELETE, SENT
   source            String @default("LIVE") // LIVE or HISTORY
+  observationKey    String? // Stable delivery/revision key; explicit HISTORY reads have no key.
 
   snapshotContent         String?
   snapshotAttachmentsJson String?
@@ -160,6 +161,7 @@ model Event {
 
   @@index([characterId, channelId, id])
   @@index([platform, platformMessageId, id])
+  @@unique([characterId, platform, platformMessageId, observationKey])
 }
 
 model ConversationState {

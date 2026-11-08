@@ -27,10 +27,12 @@ export function createMockChannel({
   mockClient,
   onSend = null,
   onTyping = null,
+  readHistory = null,
 }) {
   const mockChannel = {
     platform: "cli",
     platformChannelId: channelId,
+    ...(readHistory ? { readHistory } : {}),
     sendTyping: async () => onTyping?.(),
     send: async (payload) => {
       const createdAt = new Date();

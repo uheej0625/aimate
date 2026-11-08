@@ -20,6 +20,14 @@ export function adaptMessageData(discordMessage) {
     content: discordMessage.content,
     sentAt: discordMessage.createdAt ?? null,
     editedAt: discordMessage.editedAt ?? null,
+    attachments: [...(discordMessage.attachments?.values() ?? [])].map(
+      (attachment) => ({
+        id: attachment.id,
+        name: attachment.name,
+        url: attachment.url,
+        contentType: attachment.contentType ?? null,
+      }),
+    ),
     author: {
       platformUserId: discordMessage.author.id,
       handle: discordMessage.author.username,
@@ -40,6 +48,14 @@ export function adaptChannel(discordChannel) {
   return {
     platform: "discord",
     platformChannelId: discordChannel.id,
+    readHistory: async ({ limit, before }) => {
+      const messages = await discordChannel.messages.fetch({
+        limit,
+        before,
+        cache: false,
+      });
+      return [...messages.values()].reverse().map(adaptMessageData);
+    },
     send: async (message) => {
       const sentMessage = await discordChannel.send(message);
       return adaptMessageData(sentMessage);

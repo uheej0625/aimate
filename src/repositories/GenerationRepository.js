@@ -43,9 +43,7 @@ export class GenerationRepository {
   }
 
   /**
-   * Record the user messages consumed by a chat generation as one unit.
-   * The generation input snapshot and message links must either both persist
-   * or both be rolled back.
+   * Freeze consumed input without changing the output ownership of any message.
    *
    * @param {number} generationId
    * @param {{inputMessages: string[], messageIds: number[]}} input
@@ -79,12 +77,11 @@ export class GenerationRepository {
       const ids = [...new Set(messageIds.filter((id) => id !== null))];
       if (ids.length === 0) return true;
 
-      const messages = await tx.message.updateMany({
+      const count = await tx.message.count({
         where: { id: { in: ids } },
-        data: { generationId },
       });
 
-      if (messages.count !== ids.length) {
+      if (count !== ids.length) {
         throw new Error(
           `Cannot record input for generation ${generationId} because one or more messages are missing.`,
         );

@@ -22,13 +22,13 @@ export class RerollConversation {
       platformMessageId,
     );
 
-    if (!message?.isBot || !message.generationId || !message.generation.input) {
+    if (!message?.generationId || !message.generation.input) {
       return { status: "NOT_REROLLABLE" };
     }
 
-    const generationMessages = (
-      await this.messageRepository.findByGenerationId(message.generationId)
-    ).filter((row) => row.isBot);
+    const generationMessages = await this.messageRepository.findByGenerationId(
+      message.generationId,
+    );
     if (!generationMessages.length) {
       return { status: "MESSAGES_NOT_FOUND" };
     }

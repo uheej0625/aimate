@@ -4,6 +4,8 @@
 
 선택한 캐릭터의 connections.cli가 필요하다. 모의 봇 계정 ID는 `cli-bot-<characterId>`이며 같은 캐릭터의 Discord 계정과 하나의 User를 공유한다. 저장 기록의 assistant 표시는 현재 모의 client의 사용자 ID로 판정한다. CLI 채널 목록·관찰·생성의 캐릭터별 접근 범위 분리는 후속 단계다.
 
+새 세션에서는 선택한 UI 채널의 시작 입력 이전 최근 최대 50건을 readCliHistory로 읽어 HISTORY에 기록한다. CLI의 플랫폼 원본은 로컬 SQLite이며, 이 명시적 읽기 경로와 문맥의 읽기 전용 Event 조회를 구분한다. 같은 세션에서는 재조회하지 않고 HISTORY만으로 응답을 예약하지 않는다. 이 로컬 읽기 경로를 원격 플랫폼의 계정 권한 확인 대신 사용하지 않는다.
+
 ## 채널과 화면
 
 ChannelCatalog가 CLI 채널과 활성 Message를 읽는다. 기본 조회는 채널마다 최근 100개이며 모델 컨텍스트의 범위와 다르다. 채널이 없으면 UUID로 새 채널을 만든다.

@@ -118,6 +118,7 @@ export class MessageHandler {
         channelId = channelRecord?.id;
         return await withLogContext({ channelId }, async () => {
           let changed = false;
+          let observedChanged = false;
           let shouldRespond = false;
           let deletedCount = 0;
           if (kind === "DELETE") {
@@ -129,9 +130,10 @@ export class MessageHandler {
             );
             deletedCount = result.deletedCount;
             changed = deletedCount > 0;
+            observedChanged = result.observedMessages.length > 0;
             shouldRespond =
               observed &&
-              result.deletedMessages.some(
+              result.observedMessages.some(
                 (message) =>
                   message.authorId &&
                   !message.isBot &&
@@ -156,22 +158,33 @@ export class MessageHandler {
               const result = await this.messageService.saveMessage(
                 message,
                 null,
-                [],
+                undefined,
                 { observedAt },
               );
               changed = result.changed;
+              observedChanged = result.observedChanged;
               channelRecord ??= result.channel;
-              shouldRespond = changed;
+              shouldRespond = observedChanged && !message.author.isBot;
             } else {
-              ({ changed } = await this.messageService.updateMessage(message, {
-                observed,
-                observedAt,
-                storedOnly: !enabled,
-              }));
-              shouldRespond = observed && changed;
+              ({ changed, observedChanged } =
+                await this.messageService.updateMessage(message, {
+                  observed,
+                  observedAt,
+                  storedOnly: !enabled,
+                }));
+              shouldRespond =
+                observed && observedChanged && !message.author.isBot;
             }
           } else {
             throw new Error(`Unsupported message event: ${kind}`);
+          }
+          if (shouldRespond && !observed && channel.readHistory) {
+            await this.messageService.readRecentHistory(channel, {
+              before: platformMessageId,
+              canRead: async () =>
+                !this.conversationPolicy ||
+                (await this.conversationPolicy.isEnabled(channel)),
+            });
           }
           if (
             shouldRespond &&
@@ -206,6 +219,7 @@ export class MessageHandler {
             {
               event: "message.processed",
               changed,
+              observedChanged,
               deletedCount,
               refreshed: shouldRespond,
               observed,
@@ -220,7 +234,12 @@ export class MessageHandler {
             },
             "Message event processed",
           );
-          return { changed, deletedCount, refreshed: shouldRespond };
+          return {
+            changed,
+            observedChanged,
+            deletedCount,
+            refreshed: shouldRespond,
+          };
         });
       } catch (error) {
         logger.error(
