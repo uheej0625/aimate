@@ -51,7 +51,10 @@ export class MessageSender {
     if (delivery.isCurrent && !delivery.isCurrent()) return false;
     if (!text) return true;
 
-    const maxLength = this.configManager.get("messages.maxLength") ?? 1900;
+    const maxLength = Math.min(
+      this.configManager.get("messages.maxLength") ?? 1900,
+      channel.constraints?.maxTextLength ?? Infinity,
+    );
     const chunks = this.messageSplitter.split(text, maxLength);
     for (const [chunkIndex, chunk] of chunks.entries()) {
       if (
@@ -95,6 +98,9 @@ export class MessageSender {
     const { cleanText, files, generatedImageAttachments } =
       await this.generatedImageAttachmentResolver.resolve(text);
 
+    if (files.length && channel.constraints?.attachments === false)
+      throw new Error("This connection does not support attachments.");
+
     // 텍스트도 없고 파일도 없으면 스킵
     if (!cleanText && files.length === 0) {
       logger.debug(
@@ -108,7 +114,7 @@ export class MessageSender {
     }
 
     if (this.configManager.get("humanize.enabled") !== false) {
-      await channel.sendTyping();
+      await channel.sendTyping?.();
       const delay = this.typingPacer.calculate(cleanText, {
         min: this.configManager.get("humanize.typingDelayMin"),
         max: this.configManager.get("humanize.typingDelayMax"),

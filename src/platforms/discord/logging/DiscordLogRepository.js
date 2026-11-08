@@ -1,22 +1,24 @@
 import { prisma } from "../../../database/client.js";
 
 export class DiscordLogRepository {
-  constructor(database = prisma) {
+  constructor(characterId, database = prisma) {
+    if (!characterId) throw new Error("Logs require characterId.");
+    this.characterId = characterId;
     this.database = database;
   }
 
   async configure({ guildId, channelId, enabled }) {
-    if (!enabled) {
-      return await this.database.channel.updateMany({
+    if (!enabled)
+      return this.database.logSubscription.deleteMany({
         where: {
-          platform: "discord",
-          platformId: channelId,
-          server: { platformId: guildId },
-          logEnabled: true,
+          characterId: this.characterId,
+          channel: {
+            platform: "discord",
+            platformId: channelId,
+            server: { platformId: guildId },
+          },
         },
-        data: { logEnabled: false },
       });
-    }
     const server = {
       connectOrCreate: {
         where: {
@@ -25,30 +27,34 @@ export class DiscordLogRepository {
         create: { platform: "discord", platformId: guildId },
       },
     };
-    return await this.database.channel.upsert({
+    const channel = await this.database.channel.upsert({
       where: {
         platform_platformId: { platform: "discord", platformId: channelId },
       },
-      update: { logEnabled: true, server },
-      create: {
-        platform: "discord",
-        platformId: channelId,
-        logEnabled: true,
-        server,
+      update: { server },
+      create: { platform: "discord", platformId: channelId, server },
+    });
+    return this.database.logSubscription.upsert({
+      where: {
+        characterId_channelId: {
+          characterId: this.characterId,
+          channelId: channel.id,
+        },
       },
+      create: { characterId: this.characterId, channelId: channel.id },
+      update: {},
     });
   }
 
   async destinations() {
-    const channels = await this.database.channel.findMany({
+    const subscriptions = await this.database.logSubscription.findMany({
       where: {
-        platform: "discord",
-        logEnabled: true,
-        server: { platform: "discord" },
+        characterId: this.characterId,
+        channel: { platform: "discord", server: { platform: "discord" } },
       },
-      select: { platformId: true, server: { select: { platformId: true } } },
+      include: { channel: { include: { server: true } } },
     });
-    return channels.map((channel) => ({
+    return subscriptions.map(({ channel }) => ({
       guildId: channel.server.platformId,
       channelId: channel.platformId,
     }));
@@ -65,12 +71,14 @@ export class DiscordLogRepository {
     return await this.database.generation.findFirst({
       where: {
         id,
+        characterId: this.characterId,
         channel: { platform: "discord", server: { platformId: guildId } },
       },
     });
   }
 
-  async pendingEvents(channelId, characterId) {
+  async pendingEvents(channelId) {
+    const characterId = this.characterId;
     const state = await this.database.conversationState.findUnique({
       where: { characterId_channelId: { characterId, channelId } },
     });
@@ -81,7 +89,12 @@ export class DiscordLogRepository {
         id: { gt: state?.handledThroughEventId ?? 0 },
         source: "LIVE",
         kind: { in: ["READ", "EDIT", "DELETE"] },
-        message: { isBot: false },
+        message: {
+          OR: [
+            { isBot: false },
+            { author: { user: { characterId: { not: null } } } },
+          ],
+        },
       },
       select: {
         id: true,
@@ -89,19 +102,27 @@ export class DiscordLogRepository {
         snapshotContent: true,
         previousContent: true,
         observedAt: true,
-        message: { select: { channelMessageNo: true } },
+        message: {
+          select: {
+            channelMessageNo: true,
+            author: { select: { user: { select: { characterId: true } } } },
+          },
+        },
       },
       orderBy: [{ observedAt: "asc" }, { id: "asc" }],
     });
-    return events.map(({ message, ...event }) => ({
-      ...event,
-      channelMessageNo: message.channelMessageNo,
-    }));
+    return events
+      .filter(({ message }) => message.author?.user.characterId !== characterId)
+      .map(({ message, ...event }) => ({
+        ...event,
+        channelMessageNo: message.channelMessageNo,
+      }));
   }
 
   async changes({ since, guildIds }) {
     return await this.database.generation.findMany({
       where: {
+        characterId: this.characterId,
         channel: {
           platform: "discord",
           server: { platformId: { in: guildIds } },

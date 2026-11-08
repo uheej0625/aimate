@@ -1,12 +1,15 @@
 import { fixWindowsEncoding } from "../../utils/system.js";
 import { loadEnv } from "../../config/env.js";
-import { createCharacterConfigManager } from "../../config/index.js";
+import {
+  createConfigManager,
+  createCharacterConfigManager,
+} from "../../config/index.js";
 import { configureLogger } from "../../core/logger.js";
 
 fixWindowsEncoding();
 loadEnv();
 
-const configManager = createCharacterConfigManager({ watch: false });
+const configManager = createConfigManager({ watch: false });
 configureLogger(configManager);
 
 const { REST, Routes } = await import("discord.js");
@@ -20,17 +23,6 @@ const logger = createLogger("Deploy");
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-
-let token;
-try {
-  token = getRequiredDiscordToken(configManager);
-} catch (error) {
-  logger.fatal(
-    { event: "commands.deploy.failed", err: error },
-    "Discord token configuration is invalid",
-  );
-  process.exit(1);
-}
 
 // 커맨드 파일 로드
 const commandsPath = join(__dirname, "commands");
@@ -49,52 +41,58 @@ for (const file of commandFiles) {
   }
 }
 
-const rest = new REST({ version: "10" }).setToken(token);
-
+const { getCharacterDefinitions } = await import("../../config/characters.js");
+const { selectedDefinitions, readCharacterOption } = await import(
+  "../../config/selection.js"
+);
+let failed = false;
 try {
-  const application = await rest.get(Routes.currentApplication());
-  const clientId = application.id;
-
-  logger.info(
-    { event: "commands.deploy.started", count: commands.length },
-    "Deploying Discord commands",
-  );
-
-  const guildId = process.env.DISCORD_GUILD_ID;
-
-  let data;
-  if (guildId) {
-    // 길드 등록 (즉시 반영)
-    data = await rest.put(Routes.applicationGuildCommands(clientId, guildId), {
-      body: commands,
+  for (const { id } of selectedDefinitions(
+    getCharacterDefinitions(configManager),
+    { platform: "discord", characterId: readCharacterOption() },
+  )) {
+    const settings = createCharacterConfigManager({
+      characterId: id,
+      watch: false,
     });
-    logger.info(
-      {
-        event: "commands.deploy.completed",
-        guildId,
-        scope: "guild",
-        count: data.length,
-      },
-      "Discord guild commands deployed",
-    );
-  } else {
-    // 전역 등록 (반영까지 최대 1시간 소요)
-    data = await rest.put(Routes.applicationCommands(clientId), {
-      body: commands,
-    });
-    logger.info(
-      {
-        event: "commands.deploy.completed",
-        scope: "global",
-        count: data.length,
-      },
-      "Discord global commands deployed",
-    );
+    try {
+      const rest = new REST({ version: "10" }).setToken(
+        getRequiredDiscordToken(settings),
+      );
+      const application = await rest.get(Routes.currentApplication());
+      const guildId = process.env.DISCORD_GUILD_ID;
+      await rest.put(
+        guildId
+          ? Routes.applicationGuildCommands(application.id, guildId)
+          : Routes.applicationCommands(application.id),
+        { body: commands },
+      );
+      logger.info(
+        {
+          event: "commands.deploy.completed",
+          characterId: id,
+          guildId,
+          count: commands.length,
+        },
+        "Discord commands deployed",
+      );
+    } catch (error) {
+      failed = true;
+      logger.error(
+        { event: "commands.deploy.failed", characterId: id, err: error },
+        "Discord command deployment failed",
+      );
+    } finally {
+      settings.close();
+    }
   }
 } catch (error) {
-  logger.fatal(
+  failed = true;
+  logger.error(
     { event: "commands.deploy.failed", err: error },
-    "Discord command deployment failed",
+    "Invalid deployment selection",
   );
-  process.exit(1);
+} finally {
+  configManager.close();
 }
+if (failed) process.exitCode = 1;

@@ -17,6 +17,7 @@ export class ChatFlow {
     conversationSession,
     conversationPolicy = null,
   }) {
+    this.tasks = new Map();
     Object.assign(this, {
       chatContextPreparer,
       channelRepository,
@@ -32,9 +33,11 @@ export class ChatFlow {
   }
 
   execute(request) {
-    return withLogContext(
+    if (this.closed) return Promise.resolve();
+    const task = withLogContext(
       {
         platform: request.channelPort.platform,
+        characterId: this.generationLifecycle.generationRepository?.characterId,
         platformChannelId: request.channelPort.platformChannelId,
         channelId: request.internalChannelId,
         generationType: "CHAT",
@@ -42,6 +45,12 @@ export class ChatFlow {
       },
       () => this.executeTurn(request),
     );
+    this.tasks.set(task, request.channelPort.platform);
+    task.then(
+      () => this.tasks.delete(task),
+      () => this.tasks.delete(task),
+    );
+    return task;
   }
 
   async executeTurn({
@@ -55,7 +64,7 @@ export class ChatFlow {
     const key = session.key(channelPort);
     const run = (operation) => session.run(key, operation);
     const isCurrent = () =>
-      session.isCurrent(key, turnId) && !abortSignal?.aborted;
+      !this.closed && session.isCurrent(key, turnId) && !abortSignal?.aborted;
     let generation;
     let channelRecord;
     let abortSignal;
@@ -126,6 +135,7 @@ export class ChatFlow {
 
     try {
       const started = await run(async () => {
+        if (this.closed) return false;
         if (turnId && !isCurrent()) return false;
         if (
           this.conversationPolicy &&

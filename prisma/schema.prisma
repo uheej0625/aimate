@@ -59,8 +59,8 @@ model Channel {
   platform   String
   platformId String
 
-  lastMessageNo Int     @default(0)
-  logEnabled    Boolean @default(false)
+  lastMessageNo    Int               @default(0)
+  logSubscriptions LogSubscription[]
 
   serverId String?
   server   Server? @relation(fields: [serverId], references: [id])
@@ -78,6 +78,7 @@ model Channel {
 
 // Typed access policy for a platform scope; adapters supply the scope hierarchy.
 model Policy {
+  characterId      String
   platform         String
   platformServerId String?
   type             String
@@ -87,10 +88,18 @@ model Policy {
   temporaryEffect  String?
   expiresAt        DateTime?
   updatedBy        String
-  updatedAt        DateTime @updatedAt
+  updatedAt        DateTime  @updatedAt
 
-  @@id([platform, type, scope, targetId])
-  @@index([platform, platformServerId, type])
+  @@id([characterId, platform, type, scope, targetId])
+  @@index([characterId, platform, platformServerId, type])
+}
+
+model LogSubscription {
+  characterId String
+  channelId   String
+  channel     Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@id([characterId, channelId])
 }
 
 model Message {
@@ -145,7 +154,7 @@ model Event {
   platform          String
   platformMessageId String
   kind              String // READ, EDIT, DELETE, SENT
-  source            String @default("LIVE") // LIVE or HISTORY
+  source            String  @default("LIVE") // LIVE or HISTORY
   observationKey    String? // Stable delivery/revision key; explicit HISTORY reads have no key.
 
   snapshotContent         String?
@@ -159,9 +168,9 @@ model Event {
 
   observedAt DateTime @default(now())
 
+  @@unique([characterId, platform, platformMessageId, observationKey])
   @@index([characterId, channelId, id])
   @@index([platform, platformMessageId, id])
-  @@unique([characterId, platform, platformMessageId, observationKey])
 }
 
 model ConversationState {

@@ -4,7 +4,7 @@ app:
   environment: development
   timezone: Asia/Seoul
   language: ko-KR
-character: seoa # 현재 단일 실행 대상. 변경 후 재시작.
+character: seoa # CLI 기본 선택. Discord Host는 목록 전체 실행.
 characters:
   - id: seoa
     connections:

@@ -181,7 +181,7 @@ test("Discord logs read existing records and API response text without changing 
   const createLogs = () =>
     new DiscordLogService({
       client: { channels: { fetch: async () => logChannel } },
-      repository: new DiscordLogRepository(),
+      repository: new DiscordLogRepository("fixture"),
       eventBus: h.eventBus,
       conversationBuffer: { buffers },
       configManager: {
@@ -203,9 +203,9 @@ test("Discord logs read existing records and API response text without changing 
     where: {
       platform_platformId: { platform: "discord", platformId: logChannelId },
     },
-    include: { server: true },
+    include: { server: true, logSubscriptions: true },
   });
-  assert.equal(logRecord.logEnabled, true);
+  assert.equal(logRecord.logSubscriptions.length, 1);
   assert.equal(logRecord.server.platformId, guildId);
   for (const kind of ["CREATE", "UPDATE", "DELETE"]) {
     assert.deepEqual(
@@ -322,7 +322,10 @@ test("Discord logs read existing records and API response text without changing 
   );
   await h.generationRepository.completeChat(generation.id, new Date());
   assert.deepEqual(
-    await new DiscordLogRepository().pendingEvents(saved.channel.id, "fixture"),
+    await new DiscordLogRepository("fixture").pendingEvents(
+      saved.channel.id,
+      "fixture",
+    ),
     [],
   );
   await logs.refresh();
@@ -399,7 +402,10 @@ test("Discord logs read existing records and API response text without changing 
     ),
   );
   assert.equal(
-    await new DiscordLogRepository().generation(generation.id, randomUUID()),
+    await new DiscordLogRepository("fixture").generation(
+      generation.id,
+      randomUUID(),
+    ),
     null,
   );
   await restarted.configure({
@@ -415,7 +421,12 @@ test("Discord logs read existing records and API response text without changing 
   const disabledRecord = await prisma.channel.findUnique({
     where: { id: logRecord.id },
   });
-  assert.equal(disabledRecord.logEnabled, false);
+  assert.equal(
+    await prisma.logSubscription.count({
+      where: { channelId: disabledRecord.id },
+    }),
+    0,
+  );
 });
 
 test("platform send time survives late reads, edits, deletion and replay snapshots", async () => {
@@ -1506,7 +1517,7 @@ for (const original of ["", "x".repeat(4000)]) {
       original ? [1900, 1900, 200] : [0],
     );
     assert.ok(payloads.slice(0, -1).every((payload) => !payload.files));
-    assert.deepEqual(payloads.at(-1).files, [{ attachment: imagePath }]);
+    assert.deepEqual(payloads.at(-1).files, [{ path: imagePath }]);
     const generation = await prisma.generation.findFirst({
       where: { channelId: channel.id, type: "CHAT" },
     });
@@ -1644,7 +1655,7 @@ test("typed policies persist bases, replace temporary overrides and expire after
     "../../src/repositories/PolicyRepository.js"
   );
   const { resolvePolicy } = await import("../../src/policies/Policy.js");
-  const repository = new PolicyRepository();
+  const repository = new PolicyRepository("fixture");
   const platformServerId = randomUUID();
   const context = {
     platform: "discord",
@@ -1677,7 +1688,7 @@ test("typed policies persist bases, replace temporary overrides and expire after
   assert.equal(saved.expiresAt.toISOString(), "2026-11-02T03:00:00.000Z");
   assert.equal((await repository.list(context)).length, 1);
   const status = resolvePolicy({
-    policies: await new PolicyRepository().list(context),
+    policies: await new PolicyRepository("fixture").list(context),
     type: context.type,
     chain,
     now: new Date("2026-11-02T03:00:00Z"),
@@ -1701,7 +1712,7 @@ test("policies isolate types and platforms and support serverless contexts", asy
   const { PolicyRepository } = await import(
     "../../src/repositories/PolicyRepository.js"
   );
-  const repository = new PolicyRepository();
+  const repository = new PolicyRepository("fixture");
   const targetId = randomUUID();
   const platformServerId = randomUUID();
   const subject = {
@@ -1797,7 +1808,7 @@ async function discordConversationHarness(options = {}) {
         fetch: async () => rawChannel,
       },
     },
-    repository: new PolicyRepository(),
+    repository: new PolicyRepository("fixture"),
     channelRepository: new ChannelRepository(),
     now: () => time,
   });
@@ -2050,6 +2061,7 @@ function createHarness({
       sentMessages.push(content);
     },
   });
+  channel.constraints.attachments = true; // This fake transport accepts files for delivery regression tests.
   const config = {
     app: { language: "ko-KR" },
     character: characterId,
@@ -2575,6 +2587,13 @@ test("reroll reuses fixed input repeatedly and excludes discarded output without
     });
     assert.equal(plan.status, "READY");
     assert.deepEqual(plan.platformMessageIds, [output.platformId]);
+    // Gateway deletion may finish before the command applies its own confirmed deletion.
+    await h.messageService.deleteMessages(
+      "cli",
+      plan.platformMessageIds,
+      channelRecord.id,
+      { observed: true },
+    );
     await h.rerollConversation.execute({
       platform: "cli",
       generationId: plan.generationId,
@@ -3747,4 +3766,340 @@ test("attachment revisions are received snapshots and missing revision identity 
     observed.snapshotAttachmentsJson,
     JSON.stringify(version.attachments),
   );
+});
+
+test("characters converse as owned bots while cancellation, reroll, policies and log subscriptions stay scoped", async () => {
+  const { BotAccountService } = await import(
+    "../../src/accounts/BotAccountService.js"
+  );
+  const { PolicyRepository } = await import(
+    "../../src/repositories/PolicyRepository.js"
+  );
+  const { DiscordLogRepository } = await import(
+    "../../src/platforms/discord/logging/DiscordLogRepository.js"
+  );
+  const { GetGenerationInfo } = await import(
+    "../../src/application/GetGenerationInfo.js"
+  );
+  const { ChannelCatalog } = await import(
+    "../../src/application/ChannelCatalog.js"
+  );
+  const suffix = randomUUID(),
+    platformChannelId = randomUUID();
+  const started = deferred(),
+    release = deferred();
+  let calls = 0;
+  const a = createHarness({
+    characterId: `a-${suffix}`,
+    platformChannelId,
+    generateTextFn: async () => fakeTextResult("## messages\nA says hello"),
+  });
+  const b = createHarness({
+    characterId: `b-${suffix}`,
+    platformChannelId,
+    generateTextFn: async () => {
+      if (++calls === 1) {
+        started.resolve();
+        await release.promise;
+        return fakeTextResult("## messages\nstale B");
+      }
+      return fakeTextResult("## messages\nB answers A");
+    },
+  });
+  for (const h of [a, b])
+    await new BotAccountService(new PlatformAccountRepository(), {
+      get: () => h.messageService.characterId,
+    }).initBotAccount({ platform: "cli", platformId: h.botId });
+  const channel = await a.activate();
+  const human = createUserMessage(a, {
+    id: randomUUID(),
+    content: "talk together",
+  });
+  await a.receive("CREATE", { message: human });
+  await b.receive("CREATE", { message: human });
+  const pendingB = b.flush();
+  await started.promise;
+  await a.flush();
+  const bFirst = await prisma.generation.findFirst({
+    where: { characterId: b.messageService.characterId, channelId: channel.id },
+  });
+  assert.equal(bFirst.status, "PROCESSING", "A's generation must not cancel B");
+  const aGeneration = await prisma.generation.findFirst({
+    where: { characterId: a.messageService.characterId, channelId: channel.id },
+  });
+  const aOutput = (
+    await a.messageRepository.findByGenerationId(aGeneration.id)
+  )[0];
+  const normalized = (h, output) => ({
+    platform: "cli",
+    platformMessageId: output.platformId,
+    platformChannelId,
+    platformServerId: null,
+    content: output.content,
+    sentAt: output.sentAt,
+    author: { platformUserId: h.botId, handle: h.botId, isBot: true },
+  });
+  await b.receive("CREATE", { message: normalized(a, aOutput) });
+  release.resolve();
+  await pendingB;
+  await b.flush();
+  assert.deepEqual(b.sentMessages, ["B answers A"]);
+  const bGeneration = await prisma.generation.findFirst({
+    where: {
+      characterId: b.messageService.characterId,
+      channelId: channel.id,
+      status: "COMPLETED",
+    },
+  });
+  assert.ok(
+    JSON.parse(bGeneration.input).messages.some(
+      (message) => message.content === "A says hello",
+    ),
+  );
+  const bOutput = (
+    await b.messageRepository.findByGenerationId(bGeneration.id)
+  )[0];
+  await a.receive("CREATE", { message: normalized(b, bOutput) });
+  assert.ok(
+    (
+      await a.historyService.fetchHistoryData(channel.id, a.botId)
+    ).inputMessages.includes("B answers A"),
+  );
+  assert.equal(
+    (
+      await a.rerollConversation.prepare({
+        platform: "cli",
+        platformMessageId: bOutput.platformId,
+      })
+    ).status,
+    "NOT_REROLLABLE",
+  );
+  assert.equal(
+    await new GetGenerationInfo(
+      a.messageRepository,
+      a.messageService.characterId,
+    ).execute({ platform: "cli", platformMessageId: bOutput.platformId }),
+    null,
+  );
+  assert.equal(await a.generationRepository.findById(bGeneration.id), null);
+  const privateImage = await b.generationRepository.create({
+    channelId: channel.id,
+    type: "IMAGE",
+    status: "COMPLETED",
+    input: "private image prompt",
+  });
+  assert.equal(
+    (await a.messageRepository.findGenerationInputsByIds([privateImage.id]))
+      .size,
+    0,
+  );
+  assert.equal(
+    (
+      await b.messageRepository.findGenerationInputsByIds([privateImage.id])
+    ).get(privateImage.id),
+    "private image prompt",
+  );
+  await assert.rejects(a.generationRepository.discard(bGeneration.id));
+
+  const pa = new PolicyRepository(a.messageService.characterId),
+    pb = new PolicyRepository(b.messageService.characterId);
+  const policy = {
+    platform: "discord",
+    type: "conversation",
+    scope: "server",
+    targetId: suffix,
+    platformServerId: suffix,
+    updatedBy: "fixture",
+  };
+  await pa.set({ ...policy, effect: "allow" });
+  await pb.set({ ...policy, effect: "deny" });
+  assert.equal((await pa.list(policy))[0].effect, "allow");
+  assert.equal((await pb.list(policy))[0].effect, "deny");
+  const logsA = new DiscordLogRepository(a.messageService.characterId),
+    logsB = new DiscordLogRepository(b.messageService.characterId);
+  const ownDeletion = await prisma.event.create({
+    data: {
+      characterId: a.messageService.characterId,
+      channelId: channel.id,
+      messageId: aOutput.id,
+      platform: "cli",
+      platformMessageId: aOutput.platformId,
+      kind: "DELETE",
+      source: "LIVE",
+    },
+  });
+  const pendingInputs = await logsA.pendingEvents(channel.id);
+  assert.equal(
+    pendingInputs.some(({ id }) => id === ownDeletion.id),
+    false,
+  );
+  assert.ok(
+    pendingInputs.some(
+      ({ channelMessageNo }) => channelMessageNo === bOutput.channelMessageNo,
+    ),
+    "Other characters remain pending inputs while self deletions do not",
+  );
+  const logId = randomUUID();
+  await logsA.configure({ guildId: suffix, channelId: logId, enabled: true });
+  const logChannel = await new ChannelRepository().findByPlatformId(
+    "discord",
+    logId,
+  );
+  assert.equal((await logsA.destinations()).length, 1);
+  assert.equal((await logsB.destinations()).length, 0);
+  for (const h of [a, b])
+    assert.deepEqual(
+      await h.receive("CREATE", {
+        channel: { platform: "discord", platformChannelId: logId },
+        message: undefined,
+        loadMessage: () => assert.fail("No log-channel observation"),
+      }),
+      { changed: false },
+    );
+  const logGenerationA = await a.generationRepository.create({
+    channelId: logChannel.id,
+    status: "PROCESSING",
+  });
+  const logGenerationB = await b.generationRepository.create({
+    channelId: logChannel.id,
+    status: "PROCESSING",
+  });
+  assert.equal(
+    (await logsA.generation(logGenerationA.id, suffix)).id,
+    logGenerationA.id,
+  );
+  assert.equal(await logsA.generation(logGenerationB.id, suffix), null);
+  await a.generationRepository.cancelInProgress();
+  assert.equal(
+    (await b.generationRepository.findById(logGenerationB.id)).status,
+    "PROCESSING",
+  );
+  await logsB.configure({ guildId: suffix, channelId: logId, enabled: true });
+  await logsA.configure({ guildId: suffix, channelId: logId, enabled: false });
+  assert.equal(
+    (await new ChannelRepository().findByPlatformId("discord", logId))
+      .logEnabled,
+    true,
+  );
+  await logsB.configure({ guildId: suffix, channelId: logId, enabled: false });
+  assert.equal(
+    (await new ChannelRepository().findByPlatformId("discord", logId))
+      .logEnabled,
+    false,
+  );
+  const catalogA = new ChannelCatalog(
+    new ChannelRepository(),
+    a.messageRepository,
+    pa,
+  );
+  const catalogB = new ChannelCatalog(
+    new ChannelRepository(),
+    b.messageRepository,
+    pb,
+  );
+  const localId = randomUUID();
+  await catalogA.create({ platform: "cli", platformChannelId: localId });
+  assert.ok(
+    (await catalogA.list({ platform: "cli" })).some(
+      (entry) => entry.id === localId,
+    ),
+  );
+  assert.equal(
+    (await catalogB.list({ platform: "cli" })).some(
+      (entry) => entry.id === localId,
+    ),
+    false,
+  );
+});
+
+test("one character runs two platform conversations concurrently with separate cursors and the correct sending account", async () => {
+  const id = `multi-${randomUUID()}`;
+  const started = deferred(),
+    release = deferred();
+  const h = createHarness({
+    characterId: id,
+    generateTextFn: async (request) => {
+      if (
+        request.messages.some((message) =>
+          message.content.includes("first platform input"),
+        )
+      ) {
+        started.resolve();
+        await release.promise;
+        return fakeTextResult("## messages\nfirst reply");
+      }
+      return fakeTextResult("## messages\nsecond reply");
+    },
+  });
+  const secondChannelId = randomUUID(),
+    secondSelf = `self-${randomUUID()}`;
+  const sent = [];
+  const second = {
+    platform: "test",
+    platformChannelId: secondChannelId,
+    constraints: { maxTextLength: 80, attachments: false },
+    async send({ content }) {
+      sent.push(content);
+      return {
+        platform: "test",
+        platformMessageId: randomUUID(),
+        platformChannelId: secondChannelId,
+        platformServerId: null,
+        content,
+        sentAt: new Date(),
+        author: { platformUserId: secondSelf, handle: "self", isBot: false },
+      };
+    },
+  };
+  const firstChannel = await h.activate();
+  const secondChannel = await new ChannelRepository().upsert({
+    platform: "test",
+    platformId: secondChannelId,
+  });
+  await h.receive("CREATE", {
+    message: createUserMessage(h, {
+      id: randomUUID(),
+      content: "first platform input",
+    }),
+  });
+  const firstRequest = h.bufferedRequests.at(-1);
+  await h.messageHandler.handle({
+    kind: "CREATE",
+    channel: second,
+    botId: secondSelf,
+    message: {
+      platform: "test",
+      platformMessageId: randomUUID(),
+      platformChannelId: secondChannelId,
+      content: "second platform input",
+      author: { platformUserId: "human-test", handle: "human", isBot: false },
+    },
+  });
+  const secondRequest = h.bufferedRequests.at(-1);
+  const pending = h.chatFlow.execute(firstRequest);
+  await started.promise;
+  await h.chatFlow.execute(secondRequest);
+  assert.deepEqual(sent, ["second reply"]);
+  assert.deepEqual(h.sentMessages, []);
+  const firstGeneration = await prisma.generation.findFirst({
+    where: { characterId: id, channelId: firstChannel.id },
+  });
+  assert.equal(firstGeneration.status, "PROCESSING");
+  release.resolve();
+  await pending;
+  assert.deepEqual(h.sentMessages, ["first reply"]);
+  const states = await prisma.conversationState.findMany({
+    where: { characterId: id },
+  });
+  assert.equal(states.length, 2);
+  assert.deepEqual(
+    new Set(states.map((state) => state.channelId)),
+    new Set([firstChannel.id, secondChannel.id]),
+  );
+  const secondOutput = await prisma.message.findFirst({
+    where: { channelId: secondChannel.id, generationId: { not: null } },
+    include: { author: true },
+  });
+  assert.equal(secondOutput.author.platformId, secondSelf);
+  assert.equal(secondOutput.isBot, false);
 });

@@ -11,7 +11,7 @@ const logger = createLogger("GeneratedImageAttachmentResolver");
 const GENERATED_IMAGE_ID_REGEX = /^[a-f0-9]{8}$/;
 
 /**
- * Resolves [IMAGE:*] tags in model text into Discord file attachments.
+ * Resolves [IMAGE:*] tags in model text into platform-neutral local files.
  */
 export class GeneratedImageAttachmentResolver {
   constructor(generationRepository) {
@@ -63,7 +63,7 @@ export class GeneratedImageAttachmentResolver {
         continue;
       }
 
-      files.push({ attachment: localPath });
+      files.push({ path: localPath });
       generatedImageAttachments.push({
         type: "generated_image",
         imageId,

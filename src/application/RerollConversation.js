@@ -9,6 +9,8 @@ export class RerollConversation {
     generationLifecycle,
     conversationSession,
   ) {
+    this.characterId = messageService.characterId;
+    this.generationRepository = generationLifecycle.generationRepository;
     this.messageRepository = messageRepository;
     this.messageService = messageService;
     this.chatFlow = chatFlow;
@@ -22,7 +24,11 @@ export class RerollConversation {
       platformMessageId,
     );
 
-    if (!message?.generationId || !message.generation.input) {
+    if (
+      !message?.generationId ||
+      !message.generation.input ||
+      message.generation.characterId !== this.characterId
+    ) {
       return { status: "NOT_REROLLABLE" };
     }
 
@@ -49,6 +55,27 @@ export class RerollConversation {
     conversationRequest,
     generationId,
   }) {
+    const generation = await this.generationRepository.findById(generationId);
+    const channel = await this.messageService.channelRepository.findById(
+      conversationRequest.internalChannelId,
+    );
+    const outputs = await this.messageRepository.findByGenerationId(
+      generationId,
+      { includeDeleted: true },
+    );
+    if (
+      !generation ||
+      generation.channelId !== conversationRequest.internalChannelId ||
+      channel?.platform !== platform ||
+      conversationRequest.channelPort.platform !== platform ||
+      channel.platformId !==
+        conversationRequest.channelPort.platformChannelId ||
+      outputs.some((row) => row.platform !== platform) ||
+      platformMessageIds.some(
+        (id) => !outputs.some((row) => row.platformId === id),
+      )
+    )
+      throw new Error("Reroll ownership or channel mismatch.");
     const session = this.conversationSession;
     const key = session.key(conversationRequest.channelPort);
     const { deletedCount } = await session.run(key, async () => {

@@ -168,10 +168,7 @@ export class DiscordLogService {
           updatedAt: createdAt,
         },
       };
-      const events = await this.repository.pendingEvents(
-        channel.id,
-        entry.record.characterId,
-      );
+      const events = await this.repository.pendingEvents(channel.id);
       const input = JSON.stringify({
         eventSnapshot: {
           events,

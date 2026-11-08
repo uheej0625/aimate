@@ -10,9 +10,9 @@ const BOUNDARIES = [
 /** Limits rendered text length while preserving attachment tags and fenced code. */
 export class MessageSplitter {
   split(text, maxLength = 1900) {
-    if (!Number.isInteger(maxLength) || maxLength < 32 || maxLength > 2000) {
+    if (!Number.isInteger(maxLength) || maxLength < 32) {
       throw new RangeError(
-        "messages.maxLength must be an integer from 32 to 2000.",
+        "messages.maxLength must be an integer of at least 32.",
       );
     }
     if (renderedLength(text) <= maxLength) return [text];

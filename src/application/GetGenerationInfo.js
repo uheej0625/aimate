@@ -2,7 +2,8 @@
  * Returns a platform-neutral generation view for a stored message.
  */
 export class GetGenerationInfo {
-  constructor(messageRepository) {
+  constructor(messageRepository, characterId) {
+    this.characterId = characterId;
     this.messageRepository = messageRepository;
   }
 
@@ -16,6 +17,7 @@ export class GetGenerationInfo {
     if (!message.generation) return { generation: null };
 
     const generation = message.generation;
+    if (generation.characterId !== this.characterId) return null;
     return {
       generation: {
         id: generation.id,
@@ -26,9 +28,7 @@ export class GetGenerationInfo {
             ? parseChatInput(generation.input).messages
             : [],
         outputMessages:
-          generation.type === "CHAT"
-            ? parseStringArray(generation.output)
-            : [],
+          generation.type === "CHAT" ? parseStringArray(generation.output) : [],
         createdAt: generation.createdAt,
         updatedAt: generation.updatedAt,
       },

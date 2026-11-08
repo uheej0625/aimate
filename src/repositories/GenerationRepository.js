@@ -9,10 +9,8 @@ export class GenerationRepository {
   /**
    * @param {import('../config/ConfigManager.js').default} [configManager]
    */
-  constructor(configManager = null) {
-    this.characterId = configManager
-      ? getRequiredCharacterId(configManager)
-      : null;
+  constructor(configManager) {
+    this.characterId = getRequiredCharacterId(configManager);
   }
 
   /**
@@ -30,6 +28,8 @@ export class GenerationRepository {
       characterId = this.characterId,
     } = generationData;
 
+    if (characterId !== this.characterId)
+      throw new Error("Generation ownership conflict.");
     return await prisma.generation.create({
       data: {
         channelId,
@@ -65,6 +65,7 @@ export class GenerationRepository {
       const generation = await tx.generation.updateMany({
         where: {
           id: generationId,
+          characterId: this.characterId,
           status: "PROCESSING",
         },
         data: { input },
@@ -94,12 +95,16 @@ export class GenerationRepository {
   async completeChat(generationId, sentAt) {
     return await prisma.$transaction(async (tx) => {
       const generation = await tx.generation.findUnique({
-        where: { id: generationId },
+        where: { id: generationId, characterId: this.characterId },
       });
       if (generation?.status !== "GENERATED") return false;
       const metadata = JSON.parse(generation.metadata ?? "{}") ?? {};
       const result = await tx.generation.updateMany({
-        where: { id: generationId, status: "GENERATED" },
+        where: {
+          id: generationId,
+          characterId: this.characterId,
+          status: "GENERATED",
+        },
         data: {
           status: "COMPLETED",
           sentAt,
@@ -142,7 +147,7 @@ export class GenerationRepository {
 
   async discard(generationId) {
     await prisma.generation.update({
-      where: { id: generationId },
+      where: { id: generationId, characterId: this.characterId },
       data: { discardedAt: new Date() },
     });
   }
@@ -155,7 +160,7 @@ export class GenerationRepository {
    */
   async updateStatus(generationId, status) {
     return await prisma.generation.update({
-      where: { id: generationId },
+      where: { id: generationId, characterId: this.characterId },
       data: { status },
     });
   }
@@ -174,6 +179,7 @@ export class GenerationRepository {
     const result = await prisma.generation.updateMany({
       where: {
         id: generationId,
+        characterId: this.characterId,
         status: { in: statuses },
       },
       data: { status },
@@ -192,6 +198,7 @@ export class GenerationRepository {
     const result = await prisma.generation.updateMany({
       where: {
         channelId,
+        characterId: this.characterId,
         type,
         status: { in: ["PROCESSING", "GENERATED"] },
       },
@@ -205,10 +212,24 @@ export class GenerationRepository {
   /** Cancel every generation that can still produce an external side effect. */
   async cancelInProgress() {
     const result = await prisma.generation.updateMany({
-      where: { status: { in: ["PROCESSING", "GENERATED"] } },
+      where: {
+        characterId: this.characterId,
+        status: { in: ["PROCESSING", "GENERATED"] },
+      },
       data: { status: "CANCELLED" },
     });
     return result.count;
+  }
+
+  async cancelPlatform(platform) {
+    return await prisma.generation.updateMany({
+      where: {
+        characterId: this.characterId,
+        channel: { platform },
+        status: { in: ["PROCESSING", "GENERATED"] },
+      },
+      data: { status: "CANCELLED" },
+    });
   }
 
   /**
@@ -218,7 +239,7 @@ export class GenerationRepository {
    */
   async findById(generationId) {
     return await prisma.generation.findUnique({
-      where: { id: generationId },
+      where: { id: generationId, characterId: this.characterId },
     });
   }
 
@@ -230,6 +251,7 @@ export class GenerationRepository {
   async findCompletedImageByOutput(filename) {
     return await prisma.generation.findFirst({
       where: {
+        characterId: this.characterId,
         type: "IMAGE",
         status: "COMPLETED",
         output: filename,
@@ -251,7 +273,7 @@ export class GenerationRepository {
    */
   async updateDetails(generationId, details) {
     return await prisma.generation.update({
-      where: { id: generationId },
+      where: { id: generationId, characterId: this.characterId },
       data: prepareDetails(details),
     });
   }
@@ -276,6 +298,7 @@ export class GenerationRepository {
     const result = await prisma.generation.updateMany({
       where: {
         id: generationId,
+        characterId: this.characterId,
         status: { in: statuses },
       },
       data: {

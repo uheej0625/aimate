@@ -1,121 +1,68 @@
 import test from "node:test";
-import assert from "node:assert";
-import { createCharacterConfigManager } from "../../../src/config/index.js";
-import { createDiscordApplication } from "../../../src/platforms/discord/createDiscordApplication.js";
-import { loadAiCredentials } from "../../../src/ai/credentials.js";
+import assert from "node:assert/strict";
+import { createDiscordConnection } from "../../../src/platforms/discord/createDiscordApplication.js";
+import { EventBus } from "../../../src/core/EventBus.js";
 
-test("createDiscordApplication registers commands and events without a service locator", async (t) => {
-  const configManager = createCharacterConfigManager({
-    env: {
-      AI_GATEWAY_API_KEY: "test-key",
-      VERTEX_PROJECT_ID: "test-project",
-    },
-    watch: false,
-  });
-  t.after(() => configManager.close());
-
-  const eventHandlers = new Map();
-  const onceHandlers = new Map();
+test("Discord connection gates events until identity preparation and activation", async () => {
+  const handlers = new Map();
+  let received = 0,
+    initialized = 0;
   const client = {
     commands: new Map(),
-    channels: {
-      fetch: async () => null,
+    on: (name, handler) => handlers.set(name, handler),
+    once: (name, handler) => handlers.set(name, handler),
+    user: { id: "bot", username: "fixture" },
+    async login(token) {
+      assert.equal(token, "test-token");
     },
-    on: (name, handler) => eventHandlers.set(name, handler),
-    once: (name, handler) => onceHandlers.set(name, handler),
-    user: null,
+    destroy() {},
+    channels: { fetch: async () => null },
   };
-
-  const app = await createDiscordApplication({
+  const configManager = {
+    get: (key) => (key === "character" ? "fixture" : undefined),
+  };
+  const connection = createDiscordConnection({
     configManager,
     client,
-    credentials: loadAiCredentials({ AI_GATEWAY_API_KEY: "test-key" }),
+    env: { AIMATE_DISCORD_FIXTURE_TOKEN: "test-token" },
   });
-  t.after(async () => {
-    await app.discordPolicyService.close();
-    await app.discordLogService.close();
-  });
-
-  assert.strictEqual(client.commands.size, 6);
-  assert.equal(client.commands.has("정책"), true);
-  assert.equal(client.commands.has("활성화"), false);
-  assert.strictEqual(
-    app.messageHandler.conversationPolicy,
-    app.chatFlow.conversationPolicy,
-  );
-  assert.strictEqual(typeof app.discordPolicyService.isAllowed, "function");
-  assert.strictEqual(eventHandlers.size, 5);
-  assert.strictEqual(onceHandlers.size, 1);
-  assert.strictEqual("services" in client, false);
-
-  const refresh = app.discordLogService.refresh;
-  let refreshed = 0;
-  app.discordLogService.refresh = () => {
-    refreshed++;
-    return Promise.resolve();
-  };
-  try {
-    let changed = true;
-    app.messageHandler.handle = async () => ({ changed });
-    const message = {
-      id: "message",
-      channelId: "conversation",
-      partial: true,
-      channel: { id: "conversation" },
-      client: { user: { id: "bot" } },
-    };
-    eventHandlers.get("messageCreate")(message);
-    await new Promise(setImmediate);
-    assert.strictEqual(
-      refreshed,
-      0,
-      "Input is blocked until account ownership is established",
-    );
-    client.user = { id: "bot", username: "bot" };
-    app.botAccountService.initBotAccount = async () => {
-      throw new Error("Account ownership conflict");
-    };
-    await assert.rejects(app.initializeAccount(), /Account ownership conflict/);
-    eventHandlers.get("messageCreate")(message);
-    let interactionHandled = false;
-    eventHandlers.get("interactionCreate")({
-      isChatInputCommand() {
-        interactionHandled = true;
-        return false;
+  const app = {
+    pendingWork: new Set(),
+    eventBus: new EventBus(),
+    conversationBuffer: { buffers: new Map() },
+    botAccountService: {
+      async initBotAccount(account) {
+        assert.equal(account.platformId, "bot");
+        initialized++;
       },
-    });
-    await new Promise(setImmediate);
-    assert.strictEqual(
-      refreshed,
-      0,
-      "Failed ownership validation must keep input blocked",
-    );
-    assert.strictEqual(
-      interactionHandled,
-      false,
-      "Commands are also blocked before account initialization",
-    );
-    app.botAccountService.initBotAccount = async (account) => {
-      assert.strictEqual(account.platform, "discord");
-      assert.strictEqual(account.platformId, "bot");
-    };
-    await app.initializeAccount();
-    eventHandlers.get("messageCreate")(message);
-    await new Promise(setImmediate);
-    assert.strictEqual(
-      refreshed,
-      1,
-      "Saved gateway observations immediately refresh the log view",
-    );
-    changed = false;
-    eventHandlers.get("messageCreate")(message);
-    await new Promise(setImmediate);
-    assert.strictEqual(
-      refreshed,
-      1,
-      "Skipped or duplicate messages do not refresh logs",
-    );
-  } finally {
-    app.discordLogService.refresh = refresh;
-  }
+    },
+    messageHandler: {
+      async handle() {
+        received++;
+        return { changed: false };
+      },
+      async stopDisabledConversations() {},
+    },
+  };
+  await connection.attach(app);
+  const message = {
+    id: "m",
+    channelId: "channel",
+    partial: true,
+    channel: { id: "channel" },
+    client,
+  };
+  handlers.get("messageCreate")(message);
+  await connection.prepare();
+  handlers.get("messageCreate")(message);
+  assert.equal(received, 0);
+  assert.equal(initialized, 1);
+  await connection.activate();
+  handlers.get("messageCreate")(message);
+  await new Promise(setImmediate);
+  assert.equal(received, 1);
+  await connection.close();
+  handlers.get("messageCreate")(message);
+  assert.equal(received, 1);
+  assert.equal(client.commands.size, 6);
 });

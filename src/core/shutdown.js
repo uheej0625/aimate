@@ -1,133 +1,39 @@
-import { createLogger, elapsedMs } from "./logger.js";
-
+import { createLogger } from "./logger.js";
 const logger = createLogger("Shutdown");
 
-/**
- * Graceful shutdown 핸들러를 등록한다.
- *
- * @param {Object} options
- * @param {import('../chat/ConversationBuffer.js').ConversationBuffer} options.conversationBuffer
- * @param {import('../chat/ChatGenerationAbortRegistry.js').ChatGenerationAbortRegistry} [options.generationAbortRegistry]
- * @param {{cancelInProgress: () => Promise<number>}} [options.generationRepository]
- * @param {import('../config/ConfigManager.js').default} [options.configManager]
- * @param {import('discord.js').Client|null} [options.client] - Discord 클라이언트 (없으면 무시)
- * @param {() => Promise<void>} [options.disconnectDatabase]
- */
+/** Process signals belong to the host, never individual characters. */
 export function registerShutdown({
-  conversationBuffer,
-  generationAbortRegistry = null,
-  generationRepository = null,
-  discordLogService = null,
-  discordPolicyService = null,
-  configManager = null,
-  client = null,
-  disconnectDatabase = null,
+  host,
+  exit = (code) => process.exit(code),
 }) {
-  let shuttingDown = false;
-
-  const shutdown = async (signal) => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-
-    const startedAt = performance.now();
-    logger.info(
-      { event: "app.shutdown.started", signal },
-      "Shutting down gracefully",
-    );
-
-    // 1. 대기 중인 모든 타이머 정리
-    conversationBuffer.clearAll();
-    await discordPolicyService?.close();
-    logger.debug(
-      { event: "app.shutdown.buffers_cleared" },
-      "Conversation buffers cleared",
-    );
-
-    // 2. 진행 중인 모델 요청 abort
-    if (generationAbortRegistry) {
-      const aborted = generationAbortRegistry.abortAll();
-      if (aborted > 0) {
-        logger.info(
-          { event: "app.shutdown.requests_aborted", count: aborted },
-          "Aborted in-flight model requests",
-        );
-      }
-    }
-
-    // 3. 진행 중인 Generation들을 CANCELLED로 변경
-    try {
-      const cancelled = await generationRepository?.cancelInProgress();
-      if (cancelled > 0) {
-        logger.info(
-          { event: "app.shutdown.generations_cancelled", count: cancelled },
-          "Cancelled in-progress generations",
-        );
-      }
-    } catch (error) {
-      logger.error(
-        { event: "app.shutdown.cancel.failed", err: error },
-        "Failed to cancel generations",
+  let closing;
+  const shutdown = (signal) =>
+    (closing ??= (async () => {
+      logger.info(
+        { event: "app.shutdown.started", signal },
+        "Shutting down gracefully",
       );
-    }
-
-    // Finish queued log edits while Discord and the database are still available.
-    try {
-      await discordLogService?.close();
-    } catch (error) {
-      logger.warn(
-        { event: "app.shutdown.logs.failed", err: error },
-        "Failed to flush Discord logs",
-      );
-    }
-
-    // 4. Discord 클라이언트 종료
-    if (client) {
       try {
-        client.destroy();
-        logger.debug(
-          { event: "app.shutdown.client_closed" },
-          "Discord client destroyed",
-        );
+        await host.close();
+        exit(0);
       } catch (error) {
         logger.error(
-          { event: "app.shutdown.client.failed", err: error },
-          "Failed to destroy client",
+          { event: "app.shutdown.failed", err: error },
+          "Shutdown failed",
         );
+        exit(1);
       }
-    }
-
-    // 5. Config watcher 종료
-    if (configManager) {
-      configManager.close();
-      logger.debug(
-        { event: "app.shutdown.config_closed" },
-        "Config watcher closed",
-      );
-    }
-
-    // 6. Prisma 연결 종료
-    if (disconnectDatabase) {
-      try {
-        await disconnectDatabase();
-        logger.debug(
-          { event: "app.shutdown.database_closed" },
-          "Database connection closed",
-        );
-      } catch (error) {
-        logger.error(
-          { event: "app.shutdown.database.failed", err: error },
-          "Failed to disconnect database",
-        );
-      }
-    }
-
-    logger.info(
-      { event: "app.shutdown.completed", durationMs: elapsedMs(startedAt) },
-      "Shutdown complete",
-    );
-    process.exit(0);
+    })());
+  const interrupt = () => {
+    void shutdown("SIGINT");
   };
-
-  process.on("SIGINT", () => shutdown("SIGINT"));
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  const terminate = () => {
+    void shutdown("SIGTERM");
+  };
+  process.on("SIGINT", interrupt);
+  process.on("SIGTERM", terminate);
+  return () => {
+    process.off("SIGINT", interrupt);
+    process.off("SIGTERM", terminate);
+  };
 }

@@ -38,6 +38,9 @@ import { GetGenerationInfo } from "../application/GetGenerationInfo.js";
 import { RerollConversation } from "../application/RerollConversation.js";
 import { ChannelCatalog } from "../application/ChannelCatalog.js";
 import { ParticipantService } from "../chat/context/ParticipantService.js";
+import { getRequiredCharacterId } from "../character/config.js";
+import { drain } from "./drain.js";
+import { PolicyRepository } from "../repositories/PolicyRepository.js";
 
 /**
  * Application composition root.
@@ -49,12 +52,15 @@ export async function createContainer({
   platformClients = new Map(),
   participantSources = new Map(),
   conversationPolicy = null,
+  connections = new Map(),
 }) {
   if (!configManager) {
     throw new Error("createContainer requires a configManager.");
   }
 
   await validateAiConfig(configManager, undefined, credentials);
+  const characterId = getRequiredCharacterId(configManager);
+  const pendingWork = new Set();
 
   const characterContextBuilder = new CharacterContextBuilder({
     configManager,
@@ -103,6 +109,7 @@ export async function createContainer({
     platformClients,
     messageActionService,
     participantService,
+    connections,
   });
 
   // Services (business logic layer)
@@ -167,7 +174,10 @@ export async function createContainer({
     conversationPolicy,
   });
 
-  const getGenerationInfo = new GetGenerationInfo(messageRepository);
+  const getGenerationInfo = new GetGenerationInfo(
+    messageRepository,
+    characterId,
+  );
   const rerollConversation = new RerollConversation(
     messageRepository,
     messageService,
@@ -178,6 +188,7 @@ export async function createContainer({
   const channelCatalog = new ChannelCatalog(
     channelRepository,
     messageRepository,
+    new PolicyRepository(characterId),
   );
 
   const conversationBuffer = new ConversationBuffer(
@@ -203,7 +214,40 @@ export async function createContainer({
     configManager,
   );
 
+  let closing;
   return {
+    characterId,
+    pendingWork,
+    connections,
+    async closePlatform(platform) {
+      for (const key of [...conversationSession.states.keys()]) {
+        const [source, platformChannelId] = JSON.parse(key);
+        if (source !== platform) continue;
+        conversationBuffer.clear({ platform, platformChannelId });
+        conversationSession.stop(key);
+        const channel = await channelRepository.findByPlatformId(
+          platform,
+          platformChannelId,
+        );
+        if (channel) generationAbortRegistry.abortChannel(channel.id);
+      }
+      await generationRepository.cancelPlatform(platform);
+    },
+    close() {
+      closing ??= (async () => {
+        messageHandler.closed = true;
+        chatFlow.closed = true;
+        conversationBuffer.clearAll();
+        generationAbortRegistry.abortAll();
+        await drain([
+          ...pendingWork,
+          ...chatFlow.tasks.keys(),
+          ...conversationSession.queues.values(),
+        ]);
+        await generationRepository.cancelInProgress();
+      })();
+      return closing;
+    },
     storedMessageService,
     getGenerationInfo,
     rerollConversation,

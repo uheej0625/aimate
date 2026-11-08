@@ -48,6 +48,7 @@ export function adaptChannel(discordChannel) {
   return {
     platform: "discord",
     platformChannelId: discordChannel.id,
+    constraints: { maxTextLength: 2000, attachments: true },
     readHistory: async ({ limit, before }) => {
       const messages = await discordChannel.messages.fetch({
         limit,
@@ -57,13 +58,13 @@ export function adaptChannel(discordChannel) {
       return [...messages.values()].reverse().map(adaptMessageData);
     },
     send: async (message) => {
-      const sentMessage = await discordChannel.send(message);
+      const sentMessage = await discordChannel.send(toDiscordPayload(message));
       return adaptMessageData(sentMessage);
     },
     sendTyping: () => discordChannel.sendTyping(),
     reply: async (platformMessageId, message) => {
       const sentMessage = await discordChannel.send({
-        ...message,
+        ...toDiscordPayload(message),
         reply: { messageReference: platformMessageId, failIfNotExists: true },
         allowedMentions: { repliedUser: false },
       });
@@ -113,5 +114,19 @@ export function adaptMessageDeletion(discordMessages, discordChannel) {
     platformMessageIds: [...discordMessages].map((message) => message.id),
     channel: adaptChannel(discordChannel),
     botId: discordChannel.client.user.id,
+  };
+}
+
+function toDiscordPayload({ files, ...message }) {
+  return {
+    ...message,
+    ...(files?.length
+      ? {
+          files: files.map(({ path, name }) => ({
+            attachment: path,
+            ...(name ? { name } : {}),
+          })),
+        }
+      : {}),
   };
 }

@@ -36,21 +36,25 @@ test("StoredMessageService uses the common event handler for confirmed deletions
 test("GetGenerationInfo returns a parsed generation DTO", async () => {
   const createdAt = new Date("2026-08-09T00:00:00Z");
   const updatedAt = new Date("2026-08-09T00:01:00Z");
-  const useCase = new GetGenerationInfo({
-    findByPlatformId: async () => ({
-      generation: {
-        id: 7,
-        type: "CHAT",
-        status: "COMPLETED",
-        input: JSON.stringify({
-          messages: [{ id: 1, content: "hello" }],
-        }),
-        output: JSON.stringify(["hi"]),
-        createdAt,
-        updatedAt,
-      },
-    }),
-  });
+  const useCase = new GetGenerationInfo(
+    {
+      findByPlatformId: async () => ({
+        generation: {
+          id: 7,
+          characterId: "fixture",
+          type: "CHAT",
+          status: "COMPLETED",
+          input: JSON.stringify({
+            messages: [{ id: 1, content: "hello" }],
+          }),
+          output: JSON.stringify(["hi"]),
+          createdAt,
+          updatedAt,
+        },
+      }),
+    },
+    "fixture",
+  );
 
   const result = await useCase.execute({
     platform: "discord",
@@ -78,14 +82,25 @@ test("RerollConversation prepares cleanup and reruns the conversation", async ()
       findByPlatformId: async () => ({
         generationId: 7,
         isBot: true,
-        generation: { channelId: "internal-channel-1", input: "{}" },
+        generation: {
+          characterId: "fixture",
+          channelId: "internal-channel-1",
+          input: "{}",
+        },
       }),
       findByGenerationId: async () => [
-        { platformId: "reply-1", isBot: true },
-        { platformId: "reply-2", isBot: true },
+        { platform: "discord", platformId: "reply-1", isBot: true },
+        { platform: "discord", platformId: "reply-2", isBot: true },
       ],
     },
     {
+      characterId: "fixture",
+      channelRepository: {
+        findById: async () => ({
+          platform: "discord",
+          platformId: "channel-1",
+        }),
+      },
       deleteMessages: async (...args) => {
         deleted.push(args);
         return { deletedCount: 2 };
@@ -94,7 +109,12 @@ test("RerollConversation prepares cleanup and reruns the conversation", async ()
     {
       execute: async (request) => requests.push(request),
     },
-    { discard: async (id) => assert.equal(id, 7) },
+    {
+      generationRepository: {
+        findById: async () => ({ channelId: "internal-channel-1" }),
+      },
+      discard: async (id) => assert.equal(id, 7),
+    },
     new ConversationSession(),
   );
 
@@ -155,6 +175,11 @@ test("ChannelCatalog maps repository records to channel DTOs", async () => {
           content: "hello",
           createdAt: updatedAt,
         },
+      ],
+    },
+    {
+      list: async () => [
+        { scope: "channel", targetId: "channel-1", effect: "allow" },
       ],
     },
   );

@@ -1,4 +1,5 @@
 import { prisma } from "../database/client.js";
+import { getRequiredCharacterId } from "../character/config.js";
 
 /**
  * Repository for Message database operations.
@@ -93,7 +94,7 @@ export class MessageRepository {
         platformId: { in: platformIds },
         ...(channelId ? { channelId } : {}),
       },
-      include: { author: true },
+      include: { author: { include: { user: true } } },
     });
   }
 
@@ -241,13 +242,13 @@ export class MessageRepository {
 
     return await prisma.message.findMany({
       where: { platform, platformId: { in: platformIds }, deletedAt: null },
-      include: { author: true },
+      include: { author: { include: { user: true } } },
     });
   }
 
-  async findByGenerationId(generationId) {
+  async findByGenerationId(generationId, { includeDeleted = false } = {}) {
     return await prisma.message.findMany({
-      where: { generationId, deletedAt: null },
+      where: { generationId, ...(includeDeleted ? {} : { deletedAt: null }) },
       orderBy: { createdAt: "asc" },
     });
   }
@@ -256,7 +257,10 @@ export class MessageRepository {
     if (!generationIds.length) return new Map();
 
     const generations = await prisma.generation.findMany({
-      where: { id: { in: generationIds } },
+      where: {
+        id: { in: generationIds },
+        characterId: getRequiredCharacterId(this.configManager),
+      },
       select: { id: true, input: true },
     });
 

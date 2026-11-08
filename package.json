@@ -5,7 +5,8 @@
   "main": "src/platforms/discord/index.js",
   "scripts": {
     "setup": "npm install && node scripts/setup.js && npm run db:init && npm run deploy",
-    "dev": "npm run discord",
+    "start": "cross-env PLATFORM=discord node src/platforms/discord/index.js",
+    "dev": "npm run start",
     "discord": "cross-env PLATFORM=discord node src/platforms/discord/index.js",
     "cli": "cross-env PLATFORM=cli node src/platforms/cli/index.js",
     "deploy": "node src/platforms/discord/deploy.js",

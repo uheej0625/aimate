@@ -74,7 +74,7 @@ export class HistoryService {
   isInput(event, botId) {
     return (
       event.source === "LIVE" &&
-      !event.isBot &&
+      (!event.isBot || !!event.authorCharacterId) &&
       event.authorPlatformId !== botId &&
       ["READ", "EDIT", "DELETE"].includes(event.kind)
     );

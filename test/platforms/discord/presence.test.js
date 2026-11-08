@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import client from "../../../src/platforms/discord/client.js";
+import { createDiscordClient } from "../../../src/platforms/discord/client.js";
+const client = createDiscordClient();
 import ready from "../../../src/platforms/discord/events/ready.js";
 
 test("Discord starts online without any activity", () => {

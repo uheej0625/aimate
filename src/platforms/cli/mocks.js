@@ -32,6 +32,7 @@ export function createMockChannel({
   const mockChannel = {
     platform: "cli",
     platformChannelId: channelId,
+    constraints: { maxTextLength: Infinity, attachments: false },
     ...(readHistory ? { readHistory } : {}),
     sendTyping: async () => onTyping?.(),
     send: async (payload) => {

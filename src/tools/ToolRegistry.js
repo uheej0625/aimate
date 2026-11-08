@@ -14,6 +14,8 @@ const logger = createLogger("ToolRegistry");
  * @property {boolean} [enabled]
  * @property {string[]} [platforms]
  * @property {string[]} [requires]
+ * @property {string[]} [channelCapabilities] - Required ChannelPort methods.
+ * @property {string} [targetPlatform] - Connected account to use independently of input platform.
  * @property {string} description
  * @property {Object} inputSchema
  * @property {(input: Object, context: Object) => Promise<unknown>} execute
@@ -126,7 +128,7 @@ export class ToolRegistry {
    * @param {string} platform - 현재 대화 플랫폼 ('discord', 'telegram', 'cli', …)
    * @returns {Object[]} 활성화된 툴 정의 배열
    */
-  getActiveTools(platform) {
+  getActiveTools(platform, context = {}) {
     return [...this.tools.values()].filter((tool) => {
       // 1. enabled 체크
       if (!tool.enabled) return false;
@@ -135,6 +137,21 @@ export class ToolRegistry {
       const platformOk =
         tool.platforms.includes("*") || tool.platforms.includes(platform);
       if (!platformOk) return false;
+      if (
+        tool.channelCapabilities?.some(
+          (name) => typeof context.channelPort?.[name] !== "function",
+        )
+      )
+        return false;
+      if (tool.targetPlatform) {
+        const connection = context.connections?.get(tool.targetPlatform);
+        if (!connection?.canUseTool(tool, context)) return false;
+      }
+      if (
+        tool.requires.includes("image") &&
+        context.channelPort?.constraints?.attachments === false
+      )
+        return false;
 
       // 인증 검증은 provider 경계에서 수행하며 도구에는 인증 값을 전달하지 않는다.
       const capabilitiesOk = tool.requires.every(
@@ -148,7 +165,7 @@ export class ToolRegistry {
   }
 
   createToolSet(platform, context) {
-    const activeTools = this.getActiveTools(platform);
+    const activeTools = this.getActiveTools(platform, context);
     logger.debug(
       {
         event: "tools.selected",
@@ -191,8 +208,21 @@ export class ToolRegistry {
                     );
                   }
                   abortSignal?.throwIfAborted();
+                  if (
+                    !this.getActiveTools(platform, context).some(
+                      (definition) => definition.name === toolDef.name,
+                    )
+                  )
+                    throw new Error(
+                      "Tool target is unavailable or disallowed.",
+                    );
+                  const target = toolDef.targetPlatform
+                    ? context.connections.get(toolDef.targetPlatform)
+                    : null;
                   const result = await toolDef.execute(input ?? {}, {
                     ...context,
+                    targetPlatform: toolDef.targetPlatform ?? platform,
+                    ...(target ? { platformClient: target.client } : {}),
                     toolCallId: options.toolCallId,
                     messages: options.messages,
                     abortSignal,

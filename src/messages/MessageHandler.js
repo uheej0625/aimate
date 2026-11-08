@@ -47,9 +47,11 @@ export class MessageHandler {
   }
 
   handle(event) {
+    if (this.closed) return Promise.resolve({ changed: false });
     return withLogContext(
       {
         platform: event.channel.platform,
+        characterId: this.messageService.characterId,
         platformChannelId: event.channel.platformChannelId,
         messageKind: event.kind,
         platformMessageId: event.message?.platformMessageId,
@@ -76,6 +78,7 @@ export class MessageHandler {
       "Message event received",
     );
     return await session.run(key, async () => {
+      if (this.closed) return { changed: false };
       logger.debug(
         { event: "message.processing", queueWaitMs: elapsedMs(startedAt) },
         "Message event dequeued",
@@ -136,7 +139,7 @@ export class MessageHandler {
               result.observedMessages.some(
                 (message) =>
                   message.authorId &&
-                  !message.isBot &&
+                  (!message.isBot || message.author?.user?.characterId) &&
                   message.author?.platformId !== botId,
               );
           } else if (kind === "CREATE" || kind === "UPDATE") {
@@ -164,16 +167,20 @@ export class MessageHandler {
               changed = result.changed;
               observedChanged = result.observedChanged;
               channelRecord ??= result.channel;
-              shouldRespond = observedChanged && !message.author.isBot;
-            } else {
-              ({ changed, observedChanged } =
-                await this.messageService.updateMessage(message, {
-                  observed,
-                  observedAt,
-                  storedOnly: !enabled,
-                }));
               shouldRespond =
-                observed && observedChanged && !message.author.isBot;
+                observedChanged &&
+                (!message.author.isBot || result.authorCharacterId);
+            } else {
+              const result = await this.messageService.updateMessage(message, {
+                observed,
+                observedAt,
+                storedOnly: !enabled,
+              });
+              ({ changed, observedChanged } = result);
+              shouldRespond =
+                observed &&
+                observedChanged &&
+                (!message.author.isBot || result.authorCharacterId);
             }
           } else {
             throw new Error(`Unsupported message event: ${kind}`);

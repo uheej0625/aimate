@@ -31,9 +31,10 @@ export async function loadEvents(client, dependencies = {}) {
       )
         return;
       const item = args[0];
-      withLogContext(
+      const task = withLogContext(
         {
           platform: "discord",
+          characterId: dependencies.characterId,
           platformEvent: eventModule.name,
           platformChannelId: item?.channelId ?? item?.channel?.id,
         },
@@ -51,6 +52,8 @@ export async function loadEvents(client, dependencies = {}) {
           "Discord event failed",
         );
       });
+      dependencies.pendingWork?.add(task);
+      void task.finally(() => dependencies.pendingWork?.delete(task));
     };
 
     if (eventModule.once) {

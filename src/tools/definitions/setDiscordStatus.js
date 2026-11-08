@@ -5,7 +5,8 @@ const statuses = ["online", "idle", "dnd", "invisible", "offline"];
 /** @type {import('../ToolRegistry.js').ToolDef} */
 export default {
   name: "set_discord_status",
-  platforms: ["discord"],
+  platforms: ["*"],
+  targetPlatform: "discord",
   description: "Discord 접속 상태를 변경한다. 변경을 남용하지 않는다.",
   inputSchema: jsonSchema({
     type: "object",

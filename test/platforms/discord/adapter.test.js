@@ -147,6 +147,24 @@ test("Discord replies require an existing target and normalize confirmed deliver
   assert.equal(message.content, "reply");
 });
 
+test("Discord converts platform-neutral files at its SDK boundary", async () => {
+  let payload;
+  const channel = adaptChannel({
+    id: "channel-1",
+    send: async (value) => {
+      payload = value;
+      return createDiscordMessage();
+    },
+  });
+  await channel.send({
+    content: "photo",
+    files: [{ path: "photo.png", name: "portrait.png" }],
+  });
+  assert.deepEqual(payload.files, [
+    { attachment: "photo.png", name: "portrait.png" },
+  ]);
+});
+
 test("Discord reactions fetch the current target and respect cancellation before reacting", async () => {
   let received;
   const emojis = [];

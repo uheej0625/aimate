@@ -115,7 +115,7 @@ test("oversized code fence metadata does not consume the entire message budget",
 });
 
 test("invalid limits are rejected instead of producing unsafe or non-progressing splits", () => {
-  for (const limit of [0, -1, 31, 2001, 32.5, NaN, "1900", Infinity]) {
+  for (const limit of [0, -1, 31, 32.5, NaN, "1900", Infinity]) {
     assert.throws(() => splitter.split("hello", limit), RangeError);
   }
 });

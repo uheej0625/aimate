@@ -29,9 +29,7 @@ test("GeneratedImageAttachmentResolver only attaches completed app-generated ima
     );
 
     assert.equal(result.cleanText, "ok");
-    assert.deepEqual(result.files, [
-      { attachment: path.join(imageDir, filename) },
-    ]);
+    assert.deepEqual(result.files, [{ path: path.join(imageDir, filename) }]);
     assert.deepEqual(result.generatedImageAttachments, [
       { type: "generated_image", imageId, filename, generationId: 42 },
     ]);

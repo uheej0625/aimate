@@ -57,12 +57,13 @@ async function runStartup(
   await writeFile(
     path.join(directory, "src/platforms/discord/client.js"),
     `
-export default {
+export const createDiscordClient = () => ({
   commands: new Map(),
   on() {},
   once() {},
   async login() { throw new Error("synthetic connection failure"); },
-};
+  destroy() {},
+});
 `,
   );
 
@@ -109,7 +110,7 @@ test("Discord startup exits with 78 for a missing Discord token", async (t) => {
 
 test("Discord startup exits with 78 for an invalid character ID", async (t) => {
   const result = await runStartup(t, (config) => {
-    config.character = "../invalid";
+    config.characters[0].id = "../invalid";
   });
   assertFailure(result, 78, /Invalid character ID/);
 });
@@ -118,7 +119,7 @@ test("Discord startup exits with 78 when the selected character has no Discord c
   const result = await runStartup(t, (config) => {
     config.characters[0].connections = { cli: {} };
   });
-  assertFailure(result, 78, /no Discord connection/);
+  assertFailure(result, 78, /No configured character/);
 });
 
 test("Discord startup exits with 78 for a missing character config", async (t) => {

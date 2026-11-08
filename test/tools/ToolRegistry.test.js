@@ -135,12 +135,13 @@ test("tool logs classify returned errors and aborts without logging payloads", a
   assert.doesNotMatch(JSON.stringify(records), /PRIVATE_/);
 });
 
-test("message action definitions are exposed only on Discord", async () => {
+test("message action definitions require the target channel capabilities", async () => {
   const registry = new ToolRegistry({ has: () => false });
   registry.registerAll([reply, react]);
   assert.deepStrictEqual(registry.getActiveTools("cli"), []);
   const received = [];
   const tools = registry.createToolSet("discord", {
+    channelPort: { reply() {}, react() {} },
     messageActionService: {
       reply: async (input) => {
         received.push(input);
@@ -158,4 +159,42 @@ test("message action definitions are exposed only on Discord", async () => {
     { targetMessageNo: 11, text: "hello" },
     { targetMessageNo: 11, emoji: "😴" },
   ]);
+});
+
+test("tools select connected targets and capabilities independently of the input platform and recheck permission", async () => {
+  const status = (
+    await import("../../src/tools/definitions/setDiscordStatus.js")
+  ).default;
+  const registry = new ToolRegistry({ get: () => "image-model" });
+  registry.registerAll([status, reply, react]);
+  const changed = [];
+  let allowed = true;
+  const connection = {
+    client: { user: { setStatus: (value) => changed.push(value) } },
+    canUseTool: () => allowed,
+  };
+  const context = {
+    platform: "test",
+    connections: new Map([["discord", connection]]),
+    channelPort: { reply() {} },
+    messageActionService: { reply: async () => ({ success: true }) },
+    delivery: { canDeliver: async () => true },
+  };
+  const tools = registry.createToolSet("test", context);
+  assert.ok(tools.set_discord_status);
+  assert.ok(tools.reply);
+  assert.equal(tools.react, undefined);
+  await tools.set_discord_status.execute({ status: "idle" });
+  assert.deepEqual(changed, ["idle"]);
+  allowed = false;
+  assert.match(
+    (await tools.set_discord_status.execute({ status: "online" })).error,
+    /unavailable or disallowed/,
+  );
+  assert.deepEqual(changed, ["idle"]);
+  assert.equal(
+    registry.createToolSet("test", { ...context, connections: new Map() })
+      .set_discord_status,
+    undefined,
+  );
 });

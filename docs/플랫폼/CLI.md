@@ -1,8 +1,8 @@
 # CLI
 
-`npm run cli`는 영속 채널을 가진 터미널 UI를 연다. 플랫폼 client만 모의 객체이며 저장·컨텍스트·도구·AI 생성은 같은 container를 사용한다.
+`npm run cli -- --character alice`는 영속 채널을 가진 터미널 UI를 연다. 선택한 캐릭터에 Discord가 설정되어 있으면 같은 런타임에서 함께 준비한다. 플랫폼 client만 모의 객체이며 저장·컨텍스트·도구·AI 생성은 같은 container를 사용한다.
 
-선택한 캐릭터의 connections.cli가 필요하다. 모의 봇 계정 ID는 `cli-bot-<characterId>`이며 같은 캐릭터의 Discord 계정과 하나의 User를 공유한다. 저장 기록의 assistant 표시는 현재 모의 client의 사용자 ID로 판정한다. CLI 채널 목록·관찰·생성의 캐릭터별 접근 범위 분리는 후속 단계다.
+선택한 캐릭터의 connections.cli가 필요하다. 모의 봇 계정 ID는 `cli-bot-<characterId>`이며 같은 캐릭터의 Discord 계정과 하나의 User를 공유한다. 저장 기록의 assistant 표시는 현재 모의 client의 사용자 ID로 판정한다. CLI 채널 생성 시 캐릭터별 대화 allow 정책을 기록하며 목록·입력·전송은 그 채널로 제한한다. `--character`로 캐릭터를 선택하고 생략하면 YAML의 character를 사용한다.
 
 새 세션에서는 선택한 UI 채널의 시작 입력 이전 최근 최대 50건을 readCliHistory로 읽어 HISTORY에 기록한다. CLI의 플랫폼 원본은 로컬 SQLite이며, 이 명시적 읽기 경로와 문맥의 읽기 전용 Event 조회를 구분한다. 같은 세션에서는 재조회하지 않고 HISTORY만으로 응답을 예약하지 않는다. 이 로컬 읽기 경로를 원격 플랫폼의 계정 권한 확인 대신 사용하지 않는다.
 
@@ -21,7 +21,7 @@ startRepl은 플랫폼 UUID별 모의 ChannelPort를 재사용하고 타이핑·
 | `PgUp/PgDn`, `Ctrl+U/Ctrl+D` | 대화 스크롤 |
 | `Ctrl+Q` 또는 `Ctrl+C` | 종료 신호 전달 |
 
-인터랙티브 CLI에서는 Pino 로그를 silent로 설정해 화면을 보호한다. 모의 채널 send는 content만 화면에 표시하므로 생성 이미지의 files 첨부는 렌더링하지 않는다. Discord 전용 presence·status 도구는 노출되지 않는다.
+인터랙티브 CLI에서는 Pino 로그를 silent로 설정해 화면을 보호한다. 모의 채널 send는 content만 화면에 표시하므로 생성 이미지의 files 첨부는 렌더링하지 않는다. 첨부 미지원이므로 이미지 생성 도구는 숨긴다. 준비된 자기 Discord 연결이 있으면 해당 계정이 허용한 상태·활동 도구는 CLI에서도 사용할 수 있다.
 
 ## UI와 애플리케이션의 경계
 

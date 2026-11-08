@@ -12,7 +12,7 @@ test("MessageSender injects pacing after attachment resolution and reads current
   };
   const calls = [];
   const saved = [];
-  const file = { attachment: "test.png" };
+  const file = { path: "test.png" };
   const attachments = [{ type: "generated_image", imageId: "1234abcd" }];
   const message = { platformMessageId: "sent-1", content: "hello" };
   const sender = new MessageSender(
@@ -247,8 +247,29 @@ test("cancellation stops remaining split chunks even with humanize disabled", as
 test("disabled humanize does not bypass invalid transport split settings", async () => {
   const h = createHarness({
     "humanize.enabled": false,
-    "messages.maxLength": 2001,
+    "messages.maxLength": 31,
   });
   await assert.rejects(h.sender.send(h.channel, "hello", 1), RangeError);
   assert.deepEqual(h.sent, []);
+});
+
+test("target constraints split delivery and typing is optional", async () => {
+  const h = createHarness({ "humanize.enabled": true });
+  delete h.channel.sendTyping;
+  h.channel.constraints = { maxTextLength: 80, attachments: false };
+  await h.sender.send(h.channel, "x".repeat(200), 1);
+  assert.deepEqual(
+    h.sent.map((text) => text.length),
+    [80, 80, 40],
+  );
+  h.sender.generatedImageAttachmentResolver.resolve = async () => ({
+    cleanText: "photo",
+    files: [{ path: "photo.png" }],
+    generatedImageAttachments: [],
+  });
+  await assert.rejects(
+    h.sender.send(h.channel, "photo", 1),
+    /does not support attachments/,
+  );
+  assert.equal(h.sent.length, 3);
 });

@@ -43,7 +43,9 @@ export class EventRepository {
           { generation: { characterId: { not: characterId } } },
         ],
       };
-      const include = { message: { include: { author: true } } };
+      const include = {
+        message: { include: { author: { include: { user: true } } } },
+      };
       const history = await tx.event.findMany({
         where: {
           characterId,
@@ -120,5 +122,6 @@ function toSnapshot({ message, ...event }) {
     authorHandle: message?.author?.handle ?? null,
     authorDisplayName: message?.author?.displayName ?? null,
     isBot: message?.isBot ?? false,
+    authorCharacterId: message?.author?.user?.characterId ?? null,
   };
 }

@@ -21,8 +21,9 @@ export class MessageActionService {
   }
 
   reply({ targetMessageNo, text }, context) {
-    if (typeof text !== "string" || !text.trim() || text.length > 2000)
-      throw new Error("Reply text must contain 1–2000 characters.");
+    const maxLength = context?.channelPort?.constraints?.maxTextLength ?? 2000;
+    if (typeof text !== "string" || !text.trim() || text.length > maxLength)
+      throw new Error(`Reply text must contain 1–${maxLength} characters.`);
     return this.execute("reply", targetMessageNo, text, context);
   }
 
@@ -113,10 +114,7 @@ export class MessageActionService {
         const observed = events.some(
           (event) => event.channelMessageNo === targetMessageNo,
         );
-        if (
-          !observed &&
-          !(target.isBot && target.generationId === generationId)
-        )
+        if (!observed && !(target.generationId === generationId))
           throw new Error(
             `Message #${targetMessageNo} has not been observed by this generation.`,
           );

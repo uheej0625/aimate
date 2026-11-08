@@ -80,6 +80,7 @@ export class MessageService {
       message.author.platformUserId,
     );
 
+    const authorCharacterId = platformAccount?.user?.characterId ?? null;
     if (!platformAccount) {
       // Create new user first
       const user = await this.userRepository.create();
@@ -131,6 +132,7 @@ export class MessageService {
       message: savedMessage,
       channel,
       platformAccount,
+      authorCharacterId,
       changed,
       observedChanged,
     };

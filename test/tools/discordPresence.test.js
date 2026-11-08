@@ -5,6 +5,9 @@ import statusTool from "../../src/tools/definitions/setDiscordStatus.js";
 import activityTool from "../../src/tools/definitions/setDiscordActivity.js";
 import { ToolRegistry } from "../../src/tools/ToolRegistry.js";
 
+const connected = (client) =>
+  new Map([["discord", { client, canUseTool: () => true }]]);
+
 function fixture() {
   const client = new Client({ intents: [] });
   client.user = new ClientUser(client, { id: "123", username: "bot" });
@@ -15,7 +18,10 @@ function fixture() {
   return {
     client,
     packets,
-    tools: registry.createToolSet("discord", { platformClient: client }),
+    tools: registry.createToolSet("discord", {
+      platformClient: client,
+      connections: connected(client),
+    }),
   };
 }
 
@@ -125,6 +131,16 @@ test("both presence tools report missing clients and SDK failures", async () => 
   const registry = new ToolRegistry({ get: () => undefined });
   registry.registerAll([statusTool, activityTool]);
   const tools = registry.createToolSet("discord", {
+    connections: connected({
+      user: {
+        setStatus() {
+          throw new Error("gateway failed");
+        },
+        setPresence() {
+          throw new Error("gateway failed");
+        },
+      },
+    }),
     platformClient: {
       user: {
         setPresence() {
@@ -150,7 +166,9 @@ test("both presence tools report missing clients and SDK failures", async () => 
 test("directory loading exposes separate status and activity tools only on Discord", async () => {
   const registry = new ToolRegistry({ get: () => undefined });
   await registry.loadFromDirectory();
-  const discord = registry.createToolSet("discord", {});
+  const discord = registry.createToolSet("discord", {
+    connections: connected({ user: {} }),
+  });
   const cli = registry.createToolSet("cli", {});
   assert.ok(discord.set_discord_status);
   assert.ok(discord.set_discord_activity);

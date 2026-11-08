@@ -29,7 +29,8 @@
  * @property {string} platform
  * @property {string} platformChannelId
  * @property {(message: OutgoingMessage) => Promise<NormalizedMessage>} send
- * @property {() => Promise<void>} sendTyping
+ * @property {() => Promise<void>} [sendTyping]
+ * @property {{maxTextLength: number, attachments: boolean}} constraints - Target transport limits.
  * @property {(options: {limit: number, before?: string}) => Promise<NormalizedMessage[]>} [readHistory] - Authorized account read, oldest first. No implicit shared-cache fallback.
  * @property {(platformMessageId: string, message: OutgoingMessage) => Promise<NormalizedMessage>} [reply]
  * @property {(platformMessageId: string, emoji: string, options?: {abortSignal?: AbortSignal}) => Promise<void>} [react]
@@ -38,7 +39,7 @@
 /**
  * @typedef {Object} OutgoingMessage
  * @property {string} [content]
- * @property {Array} [files]
+ * @property {{path: string, name?: string}[]} [files] - Local files; SDK upload objects belong in adapters.
  */
 
 /**
@@ -50,7 +51,7 @@
  * @property {() => Promise<NormalizedMessage>} [loadMessage] - Partial platform payload
  * @property {string[]} [platformMessageIds] - DELETE batch
  * @property {ChannelPort} channel
- * @property {string} botId
+ * @property {string} botId - This connection's authenticated self account ID, independent of isBot.
  */
 
 /**

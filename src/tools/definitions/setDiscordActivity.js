@@ -12,7 +12,8 @@ const activityTypes = {
 /** @type {import('../ToolRegistry.js').ToolDef} */
 export default {
   name: "set_discord_activity",
-  platforms: ["discord"],
+  platforms: ["*"],
+  targetPlatform: "discord",
   description:
     "Discord 활동을 변경한다. CUSTOM 외에는 자연어 설명이나 약칭 대신 실제 게임의 정식 전체 이름을 쓴다. 변경을 남용하지 말고, 특히 CUSTOM은 꼭 필요할 때만 사용한다.",
   inputSchema: jsonSchema({

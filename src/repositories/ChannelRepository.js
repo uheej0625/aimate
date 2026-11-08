@@ -41,7 +41,7 @@ export class ChannelRepository {
    * @returns {Promise<Object|null>}
    */
   async findByPlatformId(platform, platformId) {
-    return await prisma.channel.findUnique({
+    const record = await prisma.channel.findUnique({
       where: {
         platform_platformId: {
           platform,
@@ -50,8 +50,12 @@ export class ChannelRepository {
       },
       include: {
         server: true,
+        _count: { select: { logSubscriptions: true } },
       },
     });
+    return (
+      record && { ...record, logEnabled: record._count.logSubscriptions > 0 }
+    );
   }
 
   /**
@@ -60,12 +64,16 @@ export class ChannelRepository {
    * @returns {Promise<Object|null>}
    */
   async findById(id) {
-    return await prisma.channel.findUnique({
+    const record = await prisma.channel.findUnique({
       where: { id },
       include: {
         server: true,
+        _count: { select: { logSubscriptions: true } },
       },
     });
+    return (
+      record && { ...record, logEnabled: record._count.logSubscriptions > 0 }
+    );
   }
 
   /**
