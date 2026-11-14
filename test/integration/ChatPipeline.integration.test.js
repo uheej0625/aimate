@@ -537,7 +537,7 @@ test("chat pipeline persists history and multiple model-free replies", async () 
   await harness.executeChat();
 
   assert.deepStrictEqual(harness.sentMessages, ["첫 답장", "두 번째 답장"]);
-  assert.match(modelRequests[0].system, /Fixture Character/);
+  assert.match(modelRequests[0].instructions, /Fixture Character/);
   assert.ok(hasObservation(modelRequests[0].messages, "user", "안녕"));
 
   const secondInput = createUserMessage(harness, {
@@ -2030,6 +2030,103 @@ test("expired Discord activation stops buffered work and the runtime timer recon
   assert.equal(
     h.conversationSession.isWatching(h.conversationSession.key(h.channel)),
     false,
+  );
+});
+
+test("decision ignore preserves observations without consuming generation input; respond uses the latest batch", async (t) => {
+  const { DecisionBuffer } = await import(
+    "../../src/chat/decision/DecisionBuffer.js"
+  );
+  const { DecisionContext } = await import(
+    "../../src/chat/decision/DecisionContext.js"
+  );
+  const requests = [];
+  const states = [];
+  const h = createHarness({
+    generateTextFn: async (request) => {
+      requests.push(request);
+      return fakeTextResult("## messages\n답변이야");
+    },
+  });
+  const channelRecord = await h.activate();
+  const settings = {
+    debounceMs: 60_000,
+    maxWaitMs: 60_000,
+    recheckMs: 5000,
+    maxContextMessages: 20,
+    maxContextTokens: 4000,
+    character: "",
+    rules: "직접 질문에 응답",
+  };
+  const buffer = new DecisionBuffer({
+    settings,
+    chatFlow: h.chatFlow,
+    conversationSession: h.conversationSession,
+    generationAbortRegistry: h.generationAbortRegistry,
+    generationLifecycle: h.messageHandler.generationLifecycle,
+    contextBuilder: new DecisionContext(h.eventRepository, settings, "fixture"),
+    decider: {
+      evaluate: async (state) => {
+        states.push(state);
+        return states.length === 1 ? "ignore" : "respond";
+      },
+    },
+  });
+  h.messageHandler.conversationBuffer = buffer;
+  t.after(() => buffer.clearAll());
+  const decideNow = async () => {
+    const key = h.conversationSession.key(h.channel);
+    const entry = buffer.buffers.get(key);
+    clearTimeout(entry.timer);
+    await buffer.run(key, entry);
+    await Promise.all(h.chatFlow.tasks.keys());
+  };
+  const first = createUserMessage(h, {
+    id: randomUUID(),
+    content: "친구끼리 하는 이야기",
+  });
+  await h.receive("CREATE", { message: first });
+  await decideNow();
+  assert.equal(requests.length, 0);
+  assert.equal(h.sentMessages.length, 0);
+  const unhandled = await h.eventRepository.snapshot(channelRecord.id);
+  assert.equal(unhandled.fromExclusive, 0);
+  assert.ok(
+    unhandled.events.some(
+      (e) => e.platformMessageId === first.platformMessageId,
+    ),
+  );
+  const second = createUserMessage(h, {
+    id: randomUUID(),
+    content: "너도 의견을 말해줘",
+  });
+  await h.receive("CREATE", { message: second });
+  await decideNow();
+  assert.deepEqual(
+    states[1].messages.filter((m) => m.isNew).map((m) => m.messageId),
+    [second.platformMessageId],
+  );
+  assert.equal(requests.length, 1);
+  assert.match(JSON.stringify(requests[0].messages), /친구끼리 하는 이야기/);
+  assert.match(JSON.stringify(requests[0].messages), /너도 의견을 말해줘/);
+  assert.deepEqual(h.sentMessages, ["답변이야"]);
+  const handled = await h.eventRepository.snapshot(channelRecord.id);
+  assert.ok(handled.fromExclusive >= unhandled.throughInclusive);
+  const nextContext = await h.eventRepository.decisionContext(
+    channelRecord.id,
+    h.botId,
+    1,
+  );
+  assert.ok(nextContext.lastSentId);
+  assert.ok(
+    nextContext.events.some(
+      (e) => e.id === nextContext.lastSentId && e.kind === "SENT",
+    ),
+  );
+  const foreign = new EventRepository({ get: () => "another-character" });
+  assert.deepEqual(
+    (await foreign.decisionContext(channelRecord.id, h.botId, 20)).events,
+    [],
   );
 });
 

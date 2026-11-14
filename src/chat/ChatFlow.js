@@ -164,6 +164,7 @@ export class ChatFlow {
           (await this.conversationPolicy.isEnabled(turn.channelPort))) &&
         turn.isCurrent(),
       onDelivered: () => {
+        session.recordDelivery(turn.key, turn.turnId);
         turn.deliveredAt = session.now();
         turn.sentAt = new Date();
       },
@@ -222,6 +223,12 @@ export class ChatFlow {
         turn.generation.id,
         input,
       );
+      if (recorded !== false)
+        this.conversationSession.recordInput(
+          turn.key,
+          turn.turnId,
+          input.eventSnapshot?.throughInclusive ?? 0,
+        );
       return recorded === false ? null : input;
     });
     if (prepared)

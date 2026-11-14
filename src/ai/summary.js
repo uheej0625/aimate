@@ -24,13 +24,14 @@ export async function generateSummaryText({
   const messages = [{ role: "user", content: userMessage }];
   const request = {
     model,
-    system,
+    instructions: system,
     messages,
+    include: { requestBody: true, responseBody: true },
     ...getGenerationSettings(settings),
   };
   const requestMetadata = toRequestMetadata({
     settings,
-    system: request.system,
+    system: request.instructions,
     messages,
     tools: {},
     appTools: {},

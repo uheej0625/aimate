@@ -84,6 +84,29 @@ test("adaptMessageData does not retain Discord runtime objects", () => {
   assert.equal("channel" in message, false);
 });
 
+test("Discord preserves mention and reply identities for decision context", async () => {
+  const raw = createDiscordMessage({
+    reference: { messageId: "original" },
+    mentions: { users: new Map([["bot-1", {}]]) },
+  });
+  const message = adaptMessageData(raw);
+  assert.equal(message.replyToMessageId, "original");
+  assert.deepEqual(message.mentionedUserIds, ["bot-1"]);
+  const port = adaptChannel({
+    id: "channel-1",
+    messages: {
+      fetch: async (options) => {
+        assert.deepEqual(options, { message: "original", force: true });
+        return createDiscordMessage({
+          id: "original",
+          content: "reply target",
+        });
+      },
+    },
+  });
+  assert.equal((await port.readMessage("original")).content, "reply target");
+});
+
 test("Discord deletion adapter keeps only IDs and channel context", () => {
   const first = createDiscordMessage({ id: "message-1" });
   const second = createDiscordMessage({ id: "message-2" });

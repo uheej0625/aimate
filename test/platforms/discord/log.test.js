@@ -325,6 +325,27 @@ test("incoming messages accumulate in one waiting card across buffer turns and b
   assert.match(h.edited.at(-1).payload.embeds[0].data.title, /취소/);
 });
 
+test("decision cursor entries do not leave phantom waiting cards after ignore", async (t) => {
+  const h = harness();
+  t.after(() => h.service.close());
+  h.conversationBuffer.mode = "decision";
+  const key = JSON.stringify(["discord", "conversation"]);
+  const entry = { revision: 1, dirty: true, running: false };
+  h.conversationBuffer.buffers.set(key, entry);
+  h.records.pending = [observed(1, "사람끼리 대화")];
+  await h.service.refresh();
+  assert.equal(h.sent.length, 1);
+  entry.dirty = false;
+  await h.service.refresh();
+  assert.match(h.edited.at(-1).payload.embeds[0].data.title, /취소/);
+  await h.service.refresh();
+  assert.equal(h.sent.length, 1);
+  entry.revision++;
+  entry.dirty = true;
+  await h.service.refresh();
+  assert.equal(h.sent.length, 2);
+});
+
 test("request observations keep message numbers and chronological edits and deletions on single lines", () => {
   const first = {
     ...observed(1, "  first[BREAK]line\nnext  "),

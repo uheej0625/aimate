@@ -110,7 +110,7 @@ test("model logs summarize steps, usage and warnings without request or output b
         request: { body: "PRIVATE_REQUEST" },
         response: { body: "PRIVATE_RESPONSE" },
       };
-      await request.onStepFinish(step);
+      await request.onStepEnd(step);
       return {
         ...fakeTextResult("PRIVATE_OUTPUT"),
         usage: step.usage,

@@ -29,6 +29,18 @@ export function createImageModel(
   );
 }
 
+export function createDecisionModel(
+  configManager,
+  credentials = loadAiCredentials(),
+) {
+  const settings = getAiSettings(configManager, "decision");
+  if (settings.provider !== "gateway")
+    throw new Error(`Unsupported Decision provider: ${settings.provider}`);
+  return createProvider(configManager, settings, credentials).decision(
+    settings.model,
+  );
+}
+
 function createProvider(configManager, settings, credentials) {
   const provider = settings.provider ?? "gateway";
 
@@ -41,6 +53,7 @@ function createProvider(configManager, settings, credentials) {
     return {
       language: (model) => gateway(model),
       image: (model) => gateway.image(model),
+      decision: (model) => gateway.decisionModel(model),
     };
   }
 
@@ -100,7 +113,13 @@ function createProvider(configManager, settings, credentials) {
 
     return {
       language: (model) =>
-        settings.api === "responses" ? xai.responses(model) : xai(model),
+        settings.api === "responses"
+          ? xai.responses(model)
+          : createOpenAICompatible({
+              name: "xai",
+              baseURL: settings.baseURL ?? "https://api.x.ai/v1",
+              apiKey: credentials.xaiApiKey,
+            }).chatModel(model),
       image: (model) => xai.image(model),
     };
   }

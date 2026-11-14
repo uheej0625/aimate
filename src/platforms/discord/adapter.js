@@ -20,6 +20,12 @@ export function adaptMessageData(discordMessage) {
     content: discordMessage.content,
     sentAt: discordMessage.createdAt ?? null,
     editedAt: discordMessage.editedAt ?? null,
+    ...(discordMessage.reference?.messageId
+      ? { replyToMessageId: discordMessage.reference.messageId }
+      : {}),
+    ...(discordMessage.mentions?.users?.size
+      ? { mentionedUserIds: [...discordMessage.mentions.users.keys()] }
+      : {}),
     attachments: [...(discordMessage.attachments?.values() ?? [])].map(
       (attachment) => ({
         id: attachment.id,
@@ -57,6 +63,13 @@ export function adaptChannel(discordChannel) {
       });
       return [...messages.values()].reverse().map(adaptMessageData);
     },
+    readMessage: async (platformMessageId) =>
+      adaptMessageData(
+        await discordChannel.messages.fetch({
+          message: platformMessageId,
+          force: true,
+        }),
+      ),
     send: async (message) => {
       const sentMessage = await discordChannel.send(toDiscordPayload(message));
       return adaptMessageData(sentMessage);

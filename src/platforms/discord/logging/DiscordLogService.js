@@ -139,14 +139,16 @@ export class DiscordLogService {
       if (record.updatedAt > this.since) this.since = record.updatedAt;
     }
     for (const entry of this.waiting.values()) {
-      if (!entry.cancelled && !this.conversationBuffer.buffers.has(entry.key)) {
+      if (!entry.cancelled && !this.isWaiting(entry.key)) {
         await this.cancelWaiting(entry, subscriptions);
       }
     }
   }
 
   async syncWaiting(destinations) {
-    for (const [key, { turnId }] of this.conversationBuffer.buffers) {
+    for (const [key, buffered] of this.conversationBuffer.buffers) {
+      if (!this.isWaiting(key)) continue;
+      const turnId = buffered.turnId ?? `decision:${key}:${buffered.revision}`;
       const [platform, platformId] = JSON.parse(key);
       if (platform !== "discord") continue;
       const createdAt = new Date();
@@ -185,6 +187,16 @@ export class DiscordLogService {
       this.waiting.set(platformId, entry);
       await this.deliver(entry.record, channel, destinations);
     }
+  }
+
+  isWaiting(key) {
+    const entry = this.conversationBuffer.buffers.get(key);
+    return (
+      !!entry &&
+      (this.conversationBuffer.mode !== "decision" ||
+        entry.dirty ||
+        entry.running)
+    );
   }
 
   async cancelWaiting(entry, subscriptions) {

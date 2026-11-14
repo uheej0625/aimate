@@ -41,8 +41,39 @@ export class ConversationSession {
       turnId,
       startedAt: this.isWatching(key, at) ? previous.startedAt : at,
       active: true,
+      deliveryVersion: previous?.deliveryVersion ?? 0,
     });
     return turnId;
+  }
+
+  /** Observe new input without invalidating the currently generating turn. */
+  observe(key, at = this.now()) {
+    const previous = this.states.get(key);
+    this.states.set(key, {
+      ...previous,
+      startedAt: this.isWatching(key, at) ? previous.startedAt : at,
+      until: at + this.watchDuration,
+      active: previous?.active ?? false,
+    });
+  }
+
+  decisionState(key) {
+    const state = this.states.get(key);
+    return {
+      turnId: state?.turnId ?? null,
+      active: state?.active ?? false,
+      inputThroughEventId: state?.inputThroughEventId ?? 0,
+      deliveryVersion: state?.deliveryVersion ?? 0,
+    };
+  }
+
+  recordInput(key, turnId, throughEventId) {
+    if (this.isCurrent(key, turnId))
+      this.states.get(key).inputThroughEventId = throughEventId;
+  }
+
+  recordDelivery(key, turnId) {
+    if (this.isCurrent(key, turnId)) this.states.get(key).deliveryVersion += 1;
   }
 
   isCurrent(key, turnId) {

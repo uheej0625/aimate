@@ -123,6 +123,7 @@ export class MessageHandler {
           let changed = false;
           let observedChanged = false;
           let shouldRespond = false;
+          let decisionMessage;
           let deletedCount = 0;
           if (kind === "DELETE") {
             const result = await this.messageService.deleteMessages(
@@ -145,6 +146,7 @@ export class MessageHandler {
           } else if (kind === "CREATE" || kind === "UPDATE") {
             // Lazy platform hydration stays inside the receive-order queue.
             const message = event.message ?? (await event.loadMessage());
+            decisionMessage = message;
             platformMessageId = message.platformMessageId;
             if (message.author.platformUserId === botId) {
               logger.debug(
@@ -200,7 +202,19 @@ export class MessageHandler {
           ) {
             shouldRespond = false;
           }
-          if (shouldRespond) {
+          if (shouldRespond && this.conversationBuffer.mode === "decision") {
+            session.observe(key, receivedAt);
+            this.conversationBuffer.add({
+              channelPort: channel,
+              internalChannelId: channelRecord.id,
+              botId,
+              message: decisionMessage,
+              changedMessageIds:
+                kind === "DELETE"
+                  ? event.platformMessageIds
+                  : [platformMessageId],
+            });
+          } else if (shouldRespond) {
             const turnId = session.begin(key, receivedAt);
             logger.debug(
               { event: "conversation.turn.started", turnId },

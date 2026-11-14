@@ -1,4 +1,4 @@
-import { generateText, stepCountIs } from "ai";
+import { generateText, isStepCount } from "ai";
 import { AIResponseParser } from "../chat/response/AIResponseParser.js";
 import { GeneratedImageTagPolicy } from "../chat/response/GeneratedImageTagPolicy.js";
 import { createLogger, elapsedMs } from "../core/logger.js";
@@ -48,12 +48,13 @@ export async function generateChatReply({
   const tools = composeDialectTools({ settings, appTools });
   const request = {
     model,
-    system: systemInstruction || undefined,
+    instructions: systemInstruction || undefined,
     messages,
     tools: Object.keys(tools).length > 0 ? tools : undefined,
-    stopWhen: stepCountIs(configManager.get("tools.maxSteps") ?? 5),
+    stopWhen: isStepCount(configManager.get("tools.maxSteps") ?? 5),
+    include: { requestBody: true, responseBody: true },
     abortSignal,
-    onStepFinish: (step) => {
+    onStepEnd: (step) => {
       logger.debug(
         {
           event: "model.step.completed",
@@ -70,7 +71,7 @@ export async function generateChatReply({
   };
   const requestMetadata = toRequestMetadata({
     settings,
-    system: request.system,
+    system: request.instructions,
     messages,
     tools,
     appTools,

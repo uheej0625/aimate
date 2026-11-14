@@ -12,6 +12,12 @@ characters:
       cli: {}
     settings: {} # ai/conversation/messages/humanize/features/tools의 캐릭터별 덮어쓰기
 ai:
+  decision:
+    provider: gateway
+    model: parallel/parallel-decisions-fast # AI Gateway Decision 모델
+    prompt: default
+    timeoutMs: 10000
+    providerOptions: {}
   vertex:
     projectId: "" # VERTEX_PROJECT_ID 환경 변수로도 지정 가능
     location: global
@@ -43,9 +49,18 @@ ai:
     maxRetries: 3
     providerOptions: {}
 conversation:
+  responseMode: buffer # buffer: 기존 방식(API 불필요), decision: 참여 여부 판단
   maxContextMessages: 20
   maxHistoryDays: 30
   bufferTimeout: 5000 # ms
+  decision:
+    debounceMs: 1000
+    maxWaitMs: 5000
+    recheckMs: 5000 # wait 뒤 새 입력이 없으면 한 번만 재평가
+    maxContextMessages: 20
+    maxContextTokens: 4000 # UTF-8 크기로 추정한 입력 예산, 정확한 토큰 수는 모델에 따라 다름
+    character: "" # 참여 판단에 필요한 짧은 캐릭터 설명
+    rules: "" # 프롬프트 팩의 기본 참여 규칙에 덧붙일 캐릭터별 규칙
 messages:
   maxLength: 1900
 humanize:

@@ -23,6 +23,10 @@ import { loadAiCredentials } from "../ai/credentials.js";
 import { MessageHandler } from "../messages/MessageHandler.js";
 import { ConversationBuffer } from "../chat/ConversationBuffer.js";
 import { ConversationSession } from "../chat/ConversationSession.js";
+import { ConversationDecider } from "../ai/ConversationDecider.js";
+import { DecisionBuffer } from "../chat/decision/DecisionBuffer.js";
+import { DecisionContext } from "../chat/decision/DecisionContext.js";
+import { getDecisionSettings } from "../chat/decision/config.js";
 import { MessageSender } from "../messages/MessageSender.js";
 import { ChatFlow } from "../chat/ChatFlow.js";
 import { ChatGenerationLifecycle } from "../chat/ChatGenerationLifecycle.js";
@@ -199,11 +203,30 @@ export async function createContainer({
     new PolicyRepository(characterId),
   );
 
-  const conversationBuffer = new ConversationBuffer(
-    chatFlow,
-    configManager,
-    conversationSession,
-  );
+  const decisionSettings = getDecisionSettings(configManager);
+  const decider =
+    configManager.get("conversation.responseMode") === "decision"
+      ? new ConversationDecider(configManager, credentials)
+      : null;
+  if (decider) await decider.loadPrompt();
+  const conversationBuffer =
+    configManager.get("conversation.responseMode") === "decision"
+      ? new DecisionBuffer({
+          chatFlow,
+          conversationSession,
+          generationAbortRegistry,
+          generationLifecycle,
+          conversationPolicy,
+          settings: decisionSettings,
+          decider,
+          contextBuilder: new DecisionContext(
+            eventRepository,
+            decisionSettings,
+            characterId,
+            conversationPolicy,
+          ),
+        })
+      : new ConversationBuffer(chatFlow, configManager, conversationSession);
 
   const messageHandler = new MessageHandler(
     messageService,
@@ -250,6 +273,7 @@ export async function createContainer({
         await drain([
           ...pendingWork,
           ...chatFlow.tasks.keys(),
+          ...(conversationBuffer.tasks ?? []),
           ...conversationSession.queues.values(),
         ]);
         await generationRepository.cancelInProgress();

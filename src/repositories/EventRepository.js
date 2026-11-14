@@ -28,6 +28,59 @@ export class EventRepository {
     });
   }
 
+  /** Bounded observations for decisions; never advances the generation cursor. */
+  async decisionContext(channelId, botId, limit, replyIds = []) {
+    const where = {
+      characterId: this.characterId,
+      channelId,
+      OR: [
+        { generationId: null },
+        { generation: { discardedAt: null } },
+        { generation: { characterId: { not: this.characterId } } },
+      ],
+    };
+    const include = {
+      message: { include: { author: { include: { user: true } } } },
+    };
+    return prisma.$transaction(async (tx) => {
+      const recent = await tx.event.findMany({
+        where,
+        include,
+        orderBy: { id: "desc" },
+        take: limit,
+      });
+      const lastSent = await tx.event.findFirst({
+        where: {
+          ...where,
+          kind: "SENT",
+          message: { author: { platformId: botId } },
+        },
+        include,
+        orderBy: { id: "desc" },
+      });
+      const references = [];
+      for (const platformMessageId of replyIds) {
+        const event = await tx.event.findFirst({
+          where: { ...where, platformMessageId },
+          include,
+          orderBy: { id: "desc" },
+        });
+        if (event) references.push(event);
+      }
+      const events = [
+        ...new Map(
+          [...recent, ...references, ...(lastSent ? [lastSent] : [])].map(
+            (event) => [event.id, event],
+          ),
+        ).values(),
+      ].sort((a, b) => a.id - b.id);
+      return {
+        events: events.map(toSnapshot),
+        lastSentId: lastSent?.id ?? null,
+      };
+    });
+  }
+
   /** Freeze the observed history and pending range in one database transaction. */
   async snapshot(channelId, rerollGenerationId = null) {
     const characterId = this.characterId;

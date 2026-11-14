@@ -12,6 +12,7 @@ import { fileURLToPath } from "url";
 import { validateAiPurpose } from "../ai/config.js";
 import { loadAiCredentials } from "../ai/credentials.js";
 import { getRequiredCharacterId } from "../character/config.js";
+import { validateConversationConfig } from "../chat/decision/config.js";
 import {
   getCharacterDefinitions,
   mergeCharacterSettings,
@@ -117,6 +118,8 @@ export async function validateAiConfig(
   if (!manager) {
     throw new Error("validateAiConfig requires a config manager.");
   }
+
+  validateConversationConfig(manager, credentials);
 
   const missing = new Set();
   const invalid = [];

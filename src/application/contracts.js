@@ -10,6 +10,8 @@
  * @property {Date|null} editedAt - Platform edit marker/version; not evidence of witnessing an edit.
  * @property {string} content
  * @property {Array} [attachments] - Attachment metadata received in this snapshot.
+ * @property {string} [replyToMessageId] - Referenced message in the same channel.
+ * @property {string[]} [mentionedUserIds] - Explicit platform user mentions.
  * @property {string} [observationId] - Stable platform revision/event ID for updates without editedAt.
  * @property {NormalizedAuthor} author
  */
@@ -32,6 +34,7 @@
  * @property {() => Promise<void>} [sendTyping]
  * @property {{maxTextLength: number, attachments: boolean}} constraints - Target transport limits.
  * @property {(options: {limit: number, before?: string}) => Promise<NormalizedMessage[]>} [readHistory] - Authorized account read, oldest first. No implicit shared-cache fallback.
+ * @property {(platformMessageId: string) => Promise<NormalizedMessage>} [readMessage] - Read a reply target through this account's channel.
  * @property {(platformMessageId: string, message: OutgoingMessage) => Promise<NormalizedMessage>} [reply]
  * @property {(platformMessageId: string, emoji: string, options?: {abortSignal?: AbortSignal}) => Promise<void>} [react]
  */

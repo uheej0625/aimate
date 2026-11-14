@@ -71,6 +71,24 @@ function harness(overrides = {}) {
   };
 }
 
+test("decision mode observes and queues input without replacing or aborting the active generation", async () => {
+  const h = harness();
+  h.handler.conversationBuffer.mode = "decision";
+  const turn = h.session.begin(h.key);
+  await h.handle("CREATE");
+  assert.equal(h.session.isCurrent(h.key, turn), true);
+  assert.deepEqual(h.calls, []);
+  assert.equal(h.requests.length, 1);
+  assert.equal(h.requests[0].turnId, undefined);
+  assert.deepEqual(h.requests[0].changedMessageIds, ["m1"]);
+  assert.equal(h.requests[0].message.content, "hello");
+  h.session.settle(h.key, turn);
+  h.setTime(700_000);
+  await h.handle("CREATE");
+  assert.equal(h.session.isWatching(h.key), true);
+  assert.equal(h.session.decisionState(h.key).active, false);
+});
+
 test("disabled channels ignore new and unknown partial messages but maintain existing edits and deletes without observing", async () => {
   const h = harness({
     saveMessage: () => assert.fail("Disabled input must not be stored"),
