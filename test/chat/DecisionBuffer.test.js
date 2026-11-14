@@ -66,6 +66,8 @@ function harness(t, action = "ignore") {
       debounceMs: 1000,
       maxWaitMs: 5000,
       recheckMs: 5000,
+      recheckMultiplier: 2,
+      maxRecheckMs: 30000,
       maxContextMessages: 20,
     },
     conversationSession: session,
@@ -183,7 +185,7 @@ test("different channels can decide concurrently", async (t) => {
   await flush();
 });
 
-test("wait rechecks only once, keeps pending input, and new input starts a new bounded wait", async (t) => {
+test("wait repeatedly rechecks with capped exponential delays and new input resets the backoff", async (t) => {
   const h = harness(t, "wait");
   h.add();
   await h.tick(1000);
@@ -193,12 +195,95 @@ test("wait rechecks only once, keeps pending input, and new input starts a new b
   assert.equal(h.calls.length, 2);
   assert.equal(h.calls[1].state.recheck, 1);
   assert.deepEqual(h.calls[1].state.ids, ["m1"]);
-  await h.tick(60_000);
-  assert.equal(h.calls.length, 2);
+  for (const delay of [10000, 20000, 30000, 30000]) {
+    const previous = h.calls.length;
+    await h.tick(delay - 1);
+    assert.equal(h.calls.length, previous);
+    await h.tick(1);
+    assert.equal(h.calls.length, previous + 1);
+    assert.equal(h.calls.at(-1).state.recheck, previous);
+  }
+  const previous = h.calls.length;
   h.add("m2");
   await h.tick(1000);
-  assert.equal(h.calls[2].state.recheck, 0);
-  assert.deepEqual(h.calls[2].state.ids, ["m1", "m2"]);
+  assert.equal(h.calls.length, previous + 1);
+  assert.equal(h.calls.at(-1).state.recheck, 0);
+  assert.deepEqual(h.calls.at(-1).state.ids, ["m1", "m2"]);
+  await h.tick(4999);
+  assert.equal(h.calls.length, previous + 1);
+  await h.tick(1);
+  assert.equal(h.calls.at(-1).state.recheck, 1);
+});
+
+test("custom wait multiplier and cap control the repeated schedule", async (t) => {
+  const h = harness(t, "wait");
+  Object.assign(h.buffer.settings, {
+    recheckMs: 100,
+    recheckMultiplier: 1.5,
+    maxRecheckMs: 200,
+  });
+  h.add();
+  await h.tick(1000);
+  for (const delay of [100, 150, 200, 200]) {
+    const previous = h.calls.length;
+    await h.tick(delay - 1);
+    assert.equal(h.calls.length, previous);
+    await h.tick(1);
+    assert.equal(h.calls.length, previous + 1);
+  }
+});
+
+for (const action of ["respond", "ignore"]) {
+  test(`wait polling ends when a recheck decides ${action}`, async (t) => {
+    const h = harness(t, "wait");
+    h.add();
+    await h.tick(1000);
+    h.decider.evaluate = async (state) => {
+      h.calls.push({ state });
+      return outcome(action);
+    };
+    await h.tick(5000);
+    await h.tick(60000);
+    assert.equal(h.calls.length, 2);
+    assert.equal(h.starts.length, action === "respond" ? 1 : 0);
+    assert.equal(h.buffer.has(h.channel), false);
+  });
+}
+
+test("zero debounce starts judging without an intentional scheduling delay", async (t) => {
+  const h = harness(t);
+  h.buffer.settings.debounceMs = 0;
+  h.add("first");
+  await h.tick(0);
+  assert.equal(h.calls.length, 1);
+  h.add("second");
+  await h.tick(0);
+  assert.equal(h.calls.length, 2);
+  assert.deepEqual(h.calls[1].state.ids, ["second"]);
+});
+
+test("zero debounce coalesces input received during an active call into one follow-up decision", async (t) => {
+  const h = harness(t);
+  h.buffer.settings.debounceMs = 0;
+  const pending = deferred();
+  h.decider.evaluate = async (state, signal) => {
+    h.calls.push({ state, signal });
+    return h.calls.length === 1 ? pending.promise : outcome("ignore");
+  };
+  h.add("first");
+  await h.tick(0);
+  h.add("second");
+  h.add("third");
+  await h.tick(0);
+  assert.equal(h.calls.length, 1);
+  pending.resolve(outcome("ignore"));
+  await flush();
+  await h.tick(0);
+  assert.equal(h.calls.length, 2);
+  assert.deepEqual(h.calls[1].state.ids, ["first", "second", "third"]);
+  assert.equal(h.generations[0].metadata.application.reason, "new_input");
+  await h.tick(60000);
+  assert.equal(h.calls.length, 2);
 });
 
 for (const action of ["keep", "restart", "stop", "wait"]) {

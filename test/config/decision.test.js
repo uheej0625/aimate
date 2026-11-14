@@ -56,9 +56,17 @@ test("buffer is the default and does not require decision model credentials", ()
 
 test("invalid decision timing, budgets and modes fail configuration validation", () => {
   for (const changes of [
-    { debounceMs: 0 },
+    { debounceMs: -1 },
+    { debounceMs: 0.5 },
     { maxWaitMs: 500 },
     { recheckMs: -1 },
+    { recheckMs: 0 },
+    { recheckMultiplier: 1 },
+    { recheckMultiplier: Infinity },
+    { recheckMultiplier: "2" },
+    { maxRecheckMs: 4999 },
+    { maxRecheckMs: 0 },
+    { maxRecheckMs: 2_147_483_648 },
     { maxContextMessages: 1.5 },
     { maxContextTokens: 100 },
     { rules: null },
@@ -74,5 +82,17 @@ test("invalid decision timing, budgets and modes fail configuration validation",
   assert.throws(
     () => validateConversationConfig(manager(value), {}),
     /responseMode/,
+  );
+});
+
+test("zero debounce and configurable fractional backoff multipliers are valid", () => {
+  const value = config();
+  value.conversation.decision = {
+    debounceMs: 0,
+    recheckMultiplier: 1.5,
+    maxRecheckMs: 10000,
+  };
+  assert.doesNotThrow(() =>
+    validateConversationConfig(manager(value), { aiGatewayApiKey: "key" }),
   );
 });

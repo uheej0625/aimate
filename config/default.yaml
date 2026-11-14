@@ -54,9 +54,11 @@ conversation:
   maxHistoryDays: 30
   bufferTimeout: 5000 # ms
   decision:
-    debounceMs: 1000
+    debounceMs: 1000 # 0: 입력을 모으는 예약 대기 없이 판단
     maxWaitMs: 5000
-    recheckMs: 5000 # wait 뒤 새 입력이 없으면 한 번만 재평가
+    recheckMs: 5000 # wait 후 첫 재평가 간격
+    recheckMultiplier: 2 # wait가 이어질 때 간격 증가 배수 (> 1)
+    maxRecheckMs: 30000 # 재평가 간격 상한, 새 입력 시 초기화
     maxContextMessages: 20
     maxContextTokens: 4000 # UTF-8 크기로 추정한 입력 예산, 정확한 토큰 수는 모델에 따라 다름
     character: "" # 참여 판단에 필요한 짧은 캐릭터 설명

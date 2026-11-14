@@ -93,6 +93,17 @@ test("decision context marks new observations separately from current generation
   assert.equal(h.calls[0][2], 20);
 });
 
+test("rechecks include their count and elapsed silence without classifying the reason for waiting", async () => {
+  const h = harness([event(3, { snapshotContent: "잠깐 기다려줘" })]);
+  h.batch.rechecks = 4;
+  h.batch.lastAt = performance.now() - 10000;
+  const { state } = await h.build();
+  assert.equal(state.recheckCount, 4);
+  assert.ok(state.silenceMs >= 10000);
+  assert.equal(state.messages[0].content, "잠깐 기다려줘");
+  assert.equal(state.waitReason, undefined);
+});
+
 test("reply targets outside history are fetched only through the authorized channel and deduplicated", async () => {
   const h = harness([event(3)]);
   h.batch.metadata.set("m3", {

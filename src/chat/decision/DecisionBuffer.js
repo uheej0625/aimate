@@ -182,11 +182,15 @@ export class DecisionBuffer {
           );
         }
         if (action === "wait") {
-          if (entry.rechecks === 0) {
-            entry.rechecks = 1;
-            entry.dirty = true;
-            retryDelay = this.settings.recheckMs;
-          }
+          retryDelay = Math.min(
+            this.settings.maxRecheckMs,
+            Math.ceil(
+              this.settings.recheckMs *
+                this.settings.recheckMultiplier ** entry.rechecks,
+            ),
+          );
+          entry.rechecks += 1;
+          entry.dirty = true;
           application = { applied: true, reason: null };
           return null;
         }

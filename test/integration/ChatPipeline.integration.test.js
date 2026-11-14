@@ -2303,6 +2303,8 @@ async function attachDecision(h, decide) {
     debounceMs: 60_000,
     maxWaitMs: 60_000,
     recheckMs: 5000,
+    recheckMultiplier: 2,
+    maxRecheckMs: 30000,
     maxContextMessages: 20,
     maxContextTokens: 4000,
     character: "",

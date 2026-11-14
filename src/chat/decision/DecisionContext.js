@@ -38,7 +38,7 @@ export class DecisionContext {
         ? Math.max(0, Date.now() - new Date(lastSent.observedAt).getTime())
         : null,
       silenceMs: Math.max(0, performance.now() - batch.lastAt),
-      waitRecheck: batch.rechecks > 0,
+      recheckCount: batch.rechecks,
       omittedMessages: batch.omitted,
       messages: [],
     };

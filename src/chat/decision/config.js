@@ -5,6 +5,8 @@ export function getDecisionSettings(configManager) {
     debounceMs: 1000,
     maxWaitMs: 5000,
     recheckMs: 5000,
+    recheckMultiplier: 2,
+    maxRecheckMs: 30000,
     maxContextMessages: 20,
     maxContextTokens: 4000,
     character: "",
@@ -21,10 +23,14 @@ export function validateConversationConfig(configManager, credentials) {
     );
   if (mode === "buffer") return;
   const settings = getDecisionSettings(configManager);
+  if (!Number.isSafeInteger(settings.debounceMs) || settings.debounceMs < 0)
+    throw new ConfigurationError(
+      "conversation.decision.debounceMs must be a non-negative integer.",
+    );
   for (const key of [
-    "debounceMs",
     "maxWaitMs",
     "recheckMs",
+    "maxRecheckMs",
     "maxContextMessages",
     "maxContextTokens",
   ]) {
@@ -33,6 +39,20 @@ export function validateConversationConfig(configManager, credentials) {
         `conversation.decision.${key} must be a positive integer.`,
       );
   }
+  if (
+    !Number.isFinite(settings.recheckMultiplier) ||
+    settings.recheckMultiplier <= 1
+  )
+    throw new ConfigurationError(
+      "conversation.decision.recheckMultiplier must be a finite number greater than 1.",
+    );
+  if (
+    settings.maxRecheckMs < settings.recheckMs ||
+    settings.maxRecheckMs > 2_147_483_647
+  )
+    throw new ConfigurationError(
+      "Decision maxRecheckMs must be >= recheckMs and <= 2147483647.",
+    );
   if (
     settings.maxWaitMs < settings.debounceMs ||
     settings.maxContextTokens < 512
