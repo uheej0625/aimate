@@ -2034,12 +2034,6 @@ test("expired Discord activation stops buffered work and the runtime timer recon
 });
 
 test("decision ignore preserves observations without consuming generation input; respond uses the latest batch", async (t) => {
-  const { DecisionBuffer } = await import(
-    "../../src/chat/decision/DecisionBuffer.js"
-  );
-  const { DecisionContext } = await import(
-    "../../src/chat/decision/DecisionContext.js"
-  );
   const requests = [];
   const states = [];
   const h = createHarness({
@@ -2049,38 +2043,11 @@ test("decision ignore preserves observations without consuming generation input;
     },
   });
   const channelRecord = await h.activate();
-  const settings = {
-    debounceMs: 60_000,
-    maxWaitMs: 60_000,
-    recheckMs: 5000,
-    maxContextMessages: 20,
-    maxContextTokens: 4000,
-    character: "",
-    rules: "직접 질문에 응답",
-  };
-  const buffer = new DecisionBuffer({
-    settings,
-    chatFlow: h.chatFlow,
-    conversationSession: h.conversationSession,
-    generationAbortRegistry: h.generationAbortRegistry,
-    generationLifecycle: h.messageHandler.generationLifecycle,
-    contextBuilder: new DecisionContext(h.eventRepository, settings, "fixture"),
-    decider: {
-      evaluate: async (state) => {
-        states.push(state);
-        return states.length === 1 ? "ignore" : "respond";
-      },
-    },
+  const { buffer, decideNow } = await attachDecision(h, async (request) => {
+    states.push(request.state);
+    return fakeDecisionResult(states.length === 1 ? "ignore" : "respond");
   });
-  h.messageHandler.conversationBuffer = buffer;
   t.after(() => buffer.clearAll());
-  const decideNow = async () => {
-    const key = h.conversationSession.key(h.channel);
-    const entry = buffer.buffers.get(key);
-    clearTimeout(entry.timer);
-    await buffer.run(key, entry);
-    await Promise.all(h.chatFlow.tasks.keys());
-  };
   const first = createUserMessage(h, {
     id: randomUUID(),
     content: "친구끼리 하는 이야기",
@@ -2091,6 +2058,37 @@ test("decision ignore preserves observations without consuming generation input;
   assert.equal(h.sentMessages.length, 0);
   const unhandled = await h.eventRepository.snapshot(channelRecord.id);
   assert.equal(unhandled.fromExclusive, 0);
+  const ignored = await prisma.generation.findFirst({
+    where: { channelId: channelRecord.id, type: "DECISION" },
+  });
+  assert.equal(ignored.status, "COMPLETED");
+  assert.equal(ignored.prompt, "minimal");
+  assert.equal(JSON.parse(ignored.output).action, "ignore");
+  assert.deepEqual(JSON.parse(ignored.metadata).application, {
+    applied: true,
+    reason: null,
+  });
+  const apiRequest = JSON.parse(ignored.apiRequest);
+  assert.equal(apiRequest.provider, "gateway");
+  assert.equal(apiRequest.model, "parallel/parallel-decisions-fast");
+  assert.ok(apiRequest.questions.action.instructions);
+  assert.equal(JSON.parse(ignored.apiResponse).usage.inputTokens, 123);
+  assert.deepEqual(JSON.parse(ignored.metadata).usage, {
+    inputTokens: 123,
+    outputTokens: 0,
+    totalTokens: 123,
+  });
+  assert.deepEqual(
+    JSON.parse(ignored.input).state,
+    JSON.parse(JSON.stringify(states[0])),
+  );
+  assert.equal(
+    JSON.parse(ignored.input).throughEventId,
+    unhandled.throughInclusive,
+  );
+  assert.equal(ignored.sentAt, null);
+  assert.doesNotMatch(ignored.apiRequest, /apiKey|Bearer|fixture-key/);
+  assert.ok(unhandled.events.every((event) => event.generationId === null));
   assert.ok(
     unhandled.events.some(
       (e) => e.platformMessageId === first.platformMessageId,
@@ -2110,6 +2108,16 @@ test("decision ignore preserves observations without consuming generation input;
   assert.match(JSON.stringify(requests[0].messages), /친구끼리 하는 이야기/);
   assert.match(JSON.stringify(requests[0].messages), /너도 의견을 말해줘/);
   assert.deepEqual(h.sentMessages, ["답변이야"]);
+  assert.equal(
+    await prisma.generation.count({
+      where: {
+        channelId: channelRecord.id,
+        type: "DECISION",
+        status: "COMPLETED",
+      },
+    }),
+    2,
+  );
   const handled = await h.eventRepository.snapshot(channelRecord.id);
   assert.ok(handled.fromExclusive >= unhandled.throughInclusive);
   const nextContext = await h.eventRepository.decisionContext(
@@ -2129,6 +2137,221 @@ test("decision ignore preserves observations without consuming generation input;
     [],
   );
 });
+
+test("a stale successful Decision is persisted without creating a chat or consuming observations", async (t) => {
+  const h = createHarness({
+    generateTextFn: async () => {
+      throw new Error("must not generate");
+    },
+  });
+  const channelRecord = await h.activate();
+  let entered, finish;
+  const called = new Promise((resolve) => {
+    entered = resolve;
+  });
+  const { buffer, decideNow } = await attachDecision(h, async () => {
+    entered();
+    return await new Promise((resolve) => {
+      finish = resolve;
+    });
+  });
+  t.after(() => buffer.clearAll());
+  await h.receive("CREATE", {
+    message: createUserMessage(h, { id: randomUUID(), content: "첫 질문" }),
+  });
+  const deciding = decideNow();
+  await called;
+  const pending = await prisma.generation.findFirst({
+    where: { channelId: channelRecord.id, type: "DECISION" },
+  });
+  assert.equal(pending.status, "PROCESSING");
+  assert.ok(JSON.parse(pending.apiRequest).questions.action);
+  await h.receive("CREATE", {
+    message: createUserMessage(h, { id: randomUUID(), content: "정정한 질문" }),
+  });
+  finish(fakeDecisionResult("respond"));
+  await deciding;
+  const record = await h.generationRepository.findById(pending.id);
+  assert.equal(record.status, "COMPLETED");
+  assert.equal(JSON.parse(record.output).action, "respond");
+  assert.deepEqual(JSON.parse(record.metadata).application, {
+    applied: false,
+    reason: "new_input",
+  });
+  assert.equal(
+    await prisma.generation.count({
+      where: { channelId: channelRecord.id, type: "CHAT" },
+    }),
+    0,
+  );
+  assert.equal(
+    (await h.eventRepository.snapshot(channelRecord.id)).fromExclusive,
+    0,
+  );
+});
+
+for (const reason of ["failed", "timeout", "cancelled"]) {
+  test(`Decision ${reason} persists its terminal status without consuming input`, async (t) => {
+    const h = createHarness({
+      generateTextFn: async () => {
+        throw new Error("must not generate");
+      },
+    });
+    const channelRecord = await h.activate();
+    let entered;
+    const called = new Promise((resolve) => {
+      entered = resolve;
+    });
+    const { buffer, decideNow } = await attachDecision(
+      h,
+      async ({ abortSignal }) => {
+        entered();
+        if (reason === "cancelled")
+          return await new Promise((_resolve, reject) => {
+            abortSignal.addEventListener(
+              "abort",
+              () => reject(abortSignal.reason),
+              { once: true },
+            );
+          });
+        if (reason === "timeout")
+          throw new DOMException("timeout", "TimeoutError");
+        throw new Error("provider failed");
+      },
+    );
+    t.after(() => buffer.clearAll());
+    await h.receive("CREATE", {
+      message: createUserMessage(h, { id: randomUUID(), content: "새 질문" }),
+    });
+    const deciding = decideNow();
+    await called;
+    if (reason === "cancelled") buffer.clear(h.channel);
+    await deciding;
+    const record = await prisma.generation.findFirst({
+      where: { channelId: channelRecord.id, type: "DECISION" },
+    });
+    assert.equal(
+      record.status,
+      reason === "cancelled" ? "CANCELLED" : "FAILED",
+    );
+    assert.equal(JSON.parse(record.metadata).application.reason, reason);
+    assert.equal(JSON.parse(record.metadata).application.applied, false);
+    assert.ok(JSON.parse(record.apiRequest).state.messages.length);
+    assert.equal(record.output, null);
+    assert.equal(
+      (await h.eventRepository.snapshot(channelRecord.id)).fromExclusive,
+      0,
+    );
+    assert.equal(h.sentMessages.length, 0);
+  });
+}
+
+test("Decision stop cancels only the active CHAT, not its own generation record", async (t) => {
+  const h = createHarness({
+    generateTextFn: async () => {
+      throw new Error("must not generate");
+    },
+  });
+  const channelRecord = await h.activate();
+  const chat = await h.generationRepository.create({
+    channelId: channelRecord.id,
+    type: "CHAT",
+    status: "PROCESSING",
+    prompt: "minimal",
+  });
+  const turn = h.conversationSession.begin(
+    h.conversationSession.key(h.channel),
+  );
+  const { buffer, decideNow } = await attachDecision(h, async () =>
+    fakeDecisionResult("stop"),
+  );
+  t.after(() => buffer.clearAll());
+  await h.receive("CREATE", {
+    message: createUserMessage(h, { id: randomUUID(), content: "답변 멈춰" }),
+  });
+  await decideNow();
+  assert.equal(
+    (await h.generationRepository.findById(chat.id)).status,
+    "CANCELLED",
+  );
+  const record = await prisma.generation.findFirst({
+    where: { channelId: channelRecord.id, type: "DECISION" },
+  });
+  assert.equal(record.status, "COMPLETED");
+  assert.deepEqual(JSON.parse(record.metadata).application, {
+    applied: true,
+    reason: null,
+  });
+  assert.equal(
+    h.conversationSession.isCurrent(h.conversationSession.key(h.channel), turn),
+    false,
+  );
+  assert.equal(
+    (await h.eventRepository.snapshot(channelRecord.id)).fromExclusive,
+    0,
+  );
+});
+
+async function attachDecision(h, decide) {
+  const [{ DecisionBuffer }, { DecisionContext }, { ConversationDecider }] =
+    await Promise.all([
+      import("../../src/chat/decision/DecisionBuffer.js"),
+      import("../../src/chat/decision/DecisionContext.js"),
+      import("../../src/ai/ConversationDecider.js"),
+    ]);
+  const settings = {
+    debounceMs: 60_000,
+    maxWaitMs: 60_000,
+    recheckMs: 5000,
+    maxContextMessages: 20,
+    maxContextTokens: 4000,
+    character: "",
+    rules: "직접 질문에 응답",
+  };
+  const decider = new ConversationDecider(
+    {
+      get: () => ({
+        provider: "gateway",
+        model: "parallel/parallel-decisions-fast",
+        prompt: "minimal",
+        timeoutMs: 1000,
+      }),
+    },
+    { aiGatewayApiKey: "fixture-key" },
+    decide,
+    { promptsRoot: "test/fixtures/prompts" },
+  );
+  await decider.loadPrompt();
+  const buffer = new DecisionBuffer({
+    settings,
+    decider,
+    chatFlow: h.chatFlow,
+    conversationSession: h.conversationSession,
+    generationAbortRegistry: h.generationAbortRegistry,
+    generationLifecycle: h.messageHandler.generationLifecycle,
+    generationRepository: h.generationRepository,
+    contextBuilder: new DecisionContext(h.eventRepository, settings, "fixture"),
+  });
+  h.messageHandler.conversationBuffer = buffer;
+  return {
+    buffer,
+    decideNow: async () => {
+      const key = h.conversationSession.key(h.channel);
+      const entry = buffer.buffers.get(key);
+      clearTimeout(entry.timer);
+      await buffer.run(key, entry);
+      await Promise.all(h.chatFlow.tasks.keys());
+    },
+  };
+}
+
+function fakeDecisionResult(action) {
+  return {
+    answers: { action: { choice: action, probabilities: { [action]: 1 } } },
+    usage: { inputTokens: 123, outputTokens: 0, totalTokens: 123 },
+    response: { modelId: "parallel/parallel-decisions-fast" },
+  };
+}
 
 function createHarness({
   generateTextFn,

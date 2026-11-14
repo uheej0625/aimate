@@ -43,11 +43,11 @@ test("Decision API uses Gateway decisions with state-dependent actions and no ge
   );
   const signal = new AbortController().signal;
   assert.equal(
-    await decider.evaluate({ assistant: { active: false } }, signal),
+    (await decider.evaluate({ assistant: { active: false } }, signal)).action,
     "respond",
   );
   assert.equal(
-    await decider.evaluate({ assistant: { active: true } }, signal),
+    (await decider.evaluate({ assistant: { active: true } }, signal)).action,
     "keep",
   );
   assert.equal(requests[0].model.modelId, "parallel/parallel-decisions-fast");
@@ -129,4 +129,60 @@ test("Decision provider and prompt pack errors fail before any API call", async 
     JSON.stringify({ ...prompt, idle: { respond: "respond" } }),
   );
   await assert.rejects(createDecider({}, {}).loadPrompt(), /idle criteria/);
+});
+
+test("Decision request is persisted before the API call without SDK credentials", async () => {
+  let stored,
+    called = false;
+  const decider = createDecider(
+    {},
+    { aiGatewayApiKey: "fixture-secret-key" },
+    async () => {
+      called = true;
+      assert.ok(stored.questions.action.instructions);
+      return {
+        answers: {
+          action: { choice: "ignore", probabilities: { ignore: 0.99 } },
+        },
+        usage: { inputTokens: 12 },
+        providerMetadata: { gateway: { cost: "0" } },
+      };
+    },
+  );
+  const result = await decider.evaluate(
+    { assistant: { active: false } },
+    new AbortController().signal,
+    async (request) => {
+      assert.equal(called, false);
+      stored = JSON.parse(JSON.stringify(request));
+    },
+  );
+  assert.equal(result.action, "ignore");
+  assert.deepEqual(result.probabilities, { ignore: 0.99 });
+  assert.equal(result.apiResponse.usage.inputTokens, 12);
+  assert.deepEqual(result.apiResponse.providerMetadata, {
+    gateway: { cost: "0" },
+  });
+  assert.equal(stored.provider, "gateway");
+  assert.equal(stored.model, "parallel/parallel-decisions-fast");
+  assert.doesNotMatch(
+    JSON.stringify(stored),
+    /fixture-secret-key|apiKey|Bearer/,
+  );
+  called = false;
+  await assert.rejects(
+    decider.evaluate(
+      { assistant: { active: false } },
+      new AbortController().signal,
+      async () => {
+        throw new Error("storage unavailable");
+      },
+    ),
+    /storage unavailable/,
+  );
+  assert.equal(
+    called,
+    false,
+    "never call the model if the request could not be persisted",
+  );
 });

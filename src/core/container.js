@@ -216,6 +216,7 @@ export async function createContainer({
           conversationSession,
           generationAbortRegistry,
           generationLifecycle,
+          generationRepository,
           conversationPolicy,
           settings: decisionSettings,
           decider,

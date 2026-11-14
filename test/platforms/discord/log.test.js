@@ -738,6 +738,42 @@ test("embeds fit Discord limits, escape user markdown, and omit API details", ()
   assert.match(embed.fields.find((item) => item.name === "요청").value, /\\\*/);
 });
 
+test("Decision logs distinguish a completed API call from discarded application", () => {
+  const record = {
+    ...generation,
+    type: "DECISION",
+    status: "COMPLETED",
+    prompt: "minimal",
+    input: JSON.stringify({ state: { messages: [] }, throughEventId: 5 }),
+    output: JSON.stringify({
+      action: "respond",
+      probabilities: { respond: 0.95 },
+    }),
+    apiRequest: JSON.stringify({
+      provider: "gateway",
+      model: "parallel/parallel-decisions-fast",
+    }),
+    apiResponse: JSON.stringify({ usage: { inputTokens: 50 } }),
+    metadata: JSON.stringify({
+      application: { applied: false, reason: "new_input" },
+    }),
+  };
+  const embed = buildLogEmbed(record, source).toJSON();
+  assert.match(embed.title, /DECISION/);
+  assert.match(
+    embed.fields.find((item) => item.name === "판단 적용").value,
+    /미적용.*new/,
+  );
+  assert.match(
+    embed.fields.find((item) => item.name === "응답").value,
+    /respond/,
+  );
+  assert.equal(
+    apiTexts(record).response,
+    JSON.stringify(JSON.parse(record.apiResponse), null, 2),
+  );
+});
+
 test("Generation shows its prompt while pending and preserves original request and response including BREAK", () => {
   const pending = buildLogEmbed(
     { ...generation, status: "PENDING", prompt: "minimal" },

@@ -186,7 +186,7 @@ model Generation {
   id Int @id @default(autoincrement())
 
   characterId String
-  type        String @default("CHAT") // "CHAT", "IMAGE", "VOICE", "EMBEDDING"
+  type        String @default("CHAT") // "CHAT", "IMAGE", "DECISION", "VOICE", "EMBEDDING"
 
   channelId String
   channel   Channel @relation(fields: [channelId], references: [id])
@@ -200,10 +200,10 @@ model Generation {
   // 사용된 프롬프트 이름 (content/prompts/ 하위 폴더명, e.g., "default", "experiment")
   prompt String?
 
-  // 입력: chat → user 메시지 원문 배열 (JSON), image → 프롬프트 원문
+  // 입력: chat → user 메시지 원문 배열 (JSON), image → 프롬프트 원문, decision → 판단 state와 관찰 범위 (JSON)
   input String?
 
-  // 출력: chat → AI 응답 메시지 원문 배열 (JSON), image → 파일명/경로
+  // 출력: chat → AI 응답 메시지 원문 배열 (JSON), image → 파일명/경로, decision → action과 확률 (JSON)
   output String?
 
   // 도메인별 선택적 부가 데이터 (없으면 null)

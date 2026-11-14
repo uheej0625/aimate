@@ -4,6 +4,13 @@ import { DecisionBuffer } from "../../src/chat/decision/DecisionBuffer.js";
 import { ConversationSession } from "../../src/chat/ConversationSession.js";
 
 const flush = () => new Promise(setImmediate);
+const outcome = (action) => ({
+  action,
+  probabilities: { [action]: 1 },
+  usage: { inputTokens: 10 },
+  apiResponse: { answers: { action: { choice: action } } },
+  durationMs: 25,
+});
 function deferred() {
   let resolve, reject;
   const promise = new Promise((yes, no) => {
@@ -22,12 +29,38 @@ function harness(t, action = "ignore") {
     starts = [],
     cancels = [];
   const decider = {
+    settings: {
+      provider: "gateway",
+      model: "parallel/parallel-decisions-fast",
+      prompt: "minimal",
+    },
     evaluate: async (state, signal) => {
       calls.push({ state, signal });
-      return action;
+      return outcome(action);
     },
   };
   const policy = { isEnabled: async () => true };
+  const generations = [];
+  const generationRepository = {
+    create: async (data) => {
+      const record = { id: generations.length + 1, ...data };
+      generations.push(record);
+      return record;
+    },
+    updateDetails: async (id, details) =>
+      Object.assign(
+        generations.find((g) => g.id === id),
+        details,
+      ),
+    updateDetailsAndStatusIfCurrent: async (id, _expected, status, details) => {
+      Object.assign(
+        generations.find((g) => g.id === id),
+        details,
+        { status },
+      );
+      return true;
+    },
+  };
   const buffer = new DecisionBuffer({
     settings: {
       debounceMs: 1000,
@@ -38,6 +71,7 @@ function harness(t, action = "ignore") {
     conversationSession: session,
     conversationPolicy: policy,
     decider,
+    generationRepository,
     contextBuilder: {
       build: async (_request, batch, assistant) => ({
         state: {
@@ -68,6 +102,8 @@ function harness(t, action = "ignore") {
     decider,
     buffer,
     policy,
+    generations,
+    generationRepository,
     add(id = "m1", channelPort = channel) {
       session.observe(session.key(channelPort));
       buffer.add({
@@ -111,16 +147,21 @@ test("one in-flight call per channel, newer input invalidates the old action wit
   let count = 0;
   h.decider.evaluate = async (state, signal) => {
     h.calls.push({ state, signal });
-    return ++count === 1 ? pending.promise : "respond";
+    return ++count === 1 ? pending.promise : outcome("respond");
   };
   h.add("old");
   await h.tick(1000);
   await h.session.run(h.key, () => h.add("new"));
   await h.tick(10_000);
   assert.equal(h.calls.length, 1);
-  pending.resolve("respond");
+  pending.resolve(outcome("respond"));
   await flush();
   assert.equal(h.starts.length, 0);
+  assert.equal(h.generations[0].status, "COMPLETED");
+  assert.deepEqual(h.generations[0].metadata.application, {
+    applied: false,
+    reason: "new_input",
+  });
   await h.tick(0);
   assert.equal(h.calls.length, 2);
   assert.deepEqual(h.calls[1].state.ids, ["old", "new"]);
@@ -138,7 +179,7 @@ test("different channels can decide concurrently", async (t) => {
   h.add("b", { ...h.channel, platform: "cli" });
   await h.tick(1000);
   assert.equal(h.calls.length, 2);
-  pending.resolve("ignore");
+  pending.resolve(outcome("ignore"));
   await flush();
 });
 
@@ -188,11 +229,15 @@ test("a delivered or completed generation invalidates an in-flight decision", as
   await h.tick(1000);
   h.session.recordDelivery(h.key, turn);
   h.session.settle(h.key, turn);
-  pending.resolve("restart");
+  pending.resolve(outcome("restart"));
   await flush();
   assert.equal(h.starts.length, 0);
   assert.equal(h.cancels.length, 0);
   assert.equal(h.buffer.has(h.channel), true);
+  assert.deepEqual(h.generations[0].metadata.application, {
+    applied: false,
+    reason: "assistant_changed",
+  });
 });
 
 test("failure preserves current generation and does not automatically loop", async (t) => {
@@ -208,6 +253,8 @@ test("failure preserves current generation and does not automatically loop", asy
   assert.equal(h.calls.length, 1);
   assert.equal(h.session.isCurrent(h.key, turn), true);
   assert.equal(h.cancels.length, 0);
+  assert.equal(h.generations[0].status, "FAILED");
+  assert.equal(h.generations[0].metadata.application.reason, "failed");
   h.add("retry-on-input");
   await h.tick(1000);
   assert.equal(h.calls.length, 2);
@@ -225,12 +272,21 @@ test("clear aborts a pending request and its late result cannot start generation
   await h.tick(1000);
   assert.equal(h.buffer.clear(h.channel), true);
   assert.equal(signal.aborted, true);
-  pending.resolve("respond");
+  pending.resolve(outcome("respond"));
   await flush();
   await h.tick(30_000);
   assert.equal(h.starts.length, 0);
   assert.equal(h.buffer.buffers.size, 0);
   assert.equal(h.buffer.tasks.size, 0);
+  assert.equal(
+    h.generations[0].status,
+    "COMPLETED",
+    "successful late API result is distinct from cancelled application",
+  );
+  assert.deepEqual(h.generations[0].metadata.application, {
+    applied: false,
+    reason: "cancelled",
+  });
 });
 
 test("disabled policy prevents both pending calls and applying an in-flight result", async (t) => {
@@ -245,8 +301,85 @@ test("disabled policy prevents both pending calls and applying an in-flight resu
   h.add();
   await h.tick(1000);
   h.policy.isEnabled = async () => false;
-  pending.resolve("respond");
+  pending.resolve(outcome("respond"));
   await flush();
   assert.equal(h.starts.length, 0);
   assert.equal(h.buffer.has(h.channel), false);
+  assert.deepEqual(h.generations[0].metadata.application, {
+    applied: false,
+    reason: "channel_disabled",
+  });
+});
+
+test("each wait recheck is a separate completed decision generation", async (t) => {
+  const h = harness(t, "wait");
+  h.add();
+  await h.tick(1000);
+  await h.tick(5000);
+  assert.equal(h.generations.length, 2);
+  for (const record of h.generations) {
+    assert.equal(record.type, "DECISION");
+    assert.equal(record.status, "COMPLETED");
+    assert.equal(record.metadata.application.applied, true);
+    assert.equal(JSON.parse(record.output).action, "wait");
+  }
+});
+
+test("API abort and timeout are recorded without restarting the active chat", async (t) => {
+  const h = harness(t);
+  const turn = h.session.begin(h.key);
+  h.decider.evaluate = async () => {
+    throw new DOMException("timeout", "TimeoutError");
+  };
+  h.add();
+  await h.tick(1000);
+  assert.equal(h.generations[0].status, "FAILED");
+  assert.equal(h.generations[0].metadata.application.reason, "timeout");
+  h.decider.evaluate = (_state, signal) =>
+    new Promise((_resolve, reject) => {
+      signal.addEventListener("abort", () => reject(signal.reason), {
+        once: true,
+      });
+    });
+  h.add("cancelled-input");
+  await h.tick(1000);
+  h.buffer.clear(h.channel);
+  await flush();
+  assert.equal(h.generations[1].status, "CANCELLED");
+  assert.equal(h.generations[1].metadata.application.reason, "cancelled");
+  assert.equal(h.session.isCurrent(h.key, turn), true);
+});
+
+test("new input during persistence does not inherit an old wait recheck delay", async (t) => {
+  const h = harness(t, "wait");
+  const writing = deferred();
+  const save = h.generationRepository.updateDetailsAndStatusIfCurrent;
+  h.generationRepository.updateDetailsAndStatusIfCurrent = async (...args) => {
+    await writing.promise;
+    return save(...args);
+  };
+  h.add();
+  await h.tick(1000);
+  h.add("new-input");
+  writing.resolve();
+  await flush();
+  await h.tick(1000);
+  assert.equal(h.calls.length, 2);
+});
+
+test("successful API and failed action application have distinct statuses", async (t) => {
+  const h = harness(t, "stop");
+  h.session.begin(h.key);
+  h.buffer.generationLifecycle.cancelActiveForChannel = async () => {
+    throw new Error("storage unavailable");
+  };
+  h.add();
+  await h.tick(1000);
+  assert.equal(h.generations[0].status, "COMPLETED");
+  assert.deepEqual(h.generations[0].metadata.application, {
+    applied: false,
+    reason: "apply_failed",
+  });
+  assert.equal(h.generations[0].metadata.error.name, "Error");
+  assert.equal(h.starts.length, 0);
 });

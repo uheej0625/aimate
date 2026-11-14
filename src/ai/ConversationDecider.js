@@ -3,6 +3,7 @@ import path from "node:path";
 import { experimental_decide } from "ai";
 import { getAiSettings } from "./config.js";
 import { createDecisionModel } from "./models.js";
+import { serializeMetadata } from "./metadata.js";
 import { createLogger, elapsedMs } from "../core/logger.js";
 
 const logger = createLogger("ConversationDecider");
@@ -49,13 +50,11 @@ export class ConversationDecider {
     return prompt;
   }
 
-  async evaluate(state, abortSignal) {
+  async evaluate(state, abortSignal, onRequest = async () => {}) {
     const prompt = this.prompt ?? (await this.loadPrompt());
     abortSignal.throwIfAborted();
     const criteria = state.assistant.active ? prompt.active : prompt.idle;
-    const startedAt = performance.now();
-    const result = await this.decide({
-      model: this.model,
+    const request = {
       state,
       questions: {
         action: {
@@ -66,6 +65,19 @@ export class ConversationDecider {
       },
       providerOptions: this.settings.providerOptions,
       maxRetries: 0,
+    };
+    await onRequest({
+      provider: this.settings.provider,
+      model: this.settings.model,
+      prompt: this.settings.prompt,
+      timeoutMs: this.settings.timeoutMs,
+      ...request,
+    });
+    abortSignal.throwIfAborted();
+    const startedAt = performance.now();
+    const result = await this.decide({
+      ...request,
+      model: this.model,
       abortSignal: AbortSignal.any([
         abortSignal,
         AbortSignal.timeout(this.settings.timeoutMs),
@@ -86,6 +98,12 @@ export class ConversationDecider {
       },
       "Conversation decision completed",
     );
-    return answer.choice;
+    return {
+      action: answer.choice,
+      probabilities: answer.probabilities,
+      usage: result.usage,
+      durationMs: elapsedMs(startedAt),
+      apiResponse: serializeMetadata(result),
+    };
   }
 }

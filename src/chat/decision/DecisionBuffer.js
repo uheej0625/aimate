@@ -16,6 +16,7 @@ export class DecisionBuffer {
     settings,
     generationAbortRegistry,
     generationLifecycle,
+    generationRepository,
     conversationPolicy,
   }) {
     Object.assign(this, {
@@ -26,6 +27,7 @@ export class DecisionBuffer {
       settings,
       generationAbortRegistry,
       generationLifecycle,
+      generationRepository,
       conversationPolicy,
     });
   }
@@ -99,6 +101,9 @@ export class DecisionBuffer {
     const session = this.conversationSession;
     let retryDelay;
     let revision = entry.revision;
+    let generation, result, failure;
+    let application = { applied: false, reason: "cancelled" };
+    const startedAt = performance.now();
     try {
       const snapshot = await session.run(key, async () => {
         if (!(await this.enabled(key, entry))) return null;
@@ -124,17 +129,38 @@ export class DecisionBuffer {
         snapshot.assistant,
         entry.controller.signal,
       );
-      const action = await this.decider.evaluate(
+      entry.controller.signal.throwIfAborted();
+      generation = await this.generationRepository.create({
+        channelId: snapshot.request.internalChannelId,
+        type: "DECISION",
+        prompt: this.decider.settings.prompt,
+        status: "PROCESSING",
+        input: JSON.stringify({
+          state: context.state,
+          throughEventId: context.throughEventId,
+        }),
+      });
+      result = await this.decider.evaluate(
         context.state,
         entry.controller.signal,
+        (apiRequest) =>
+          this.generationRepository.updateDetails(generation.id, {
+            apiRequest,
+          }),
       );
+      const { action } = result;
       const next = await session.run(key, async () => {
-        if (!(await this.enabled(key, entry))) return null;
+        if (!(await this.enabled(key, entry))) {
+          application.reason = entry.cancelReason ?? "cancelled";
+          return null;
+        }
         if (
           entry.revision !== revision ||
           JSON.stringify(session.decisionState(key)) !==
             JSON.stringify(snapshot.assistant)
         ) {
+          application.reason =
+            entry.revision !== revision ? "new_input" : "assistant_changed";
           entry.firstAt ??= performance.now();
           logger.debug(
             {
@@ -145,6 +171,7 @@ export class DecisionBuffer {
           );
           return null;
         }
+        application.reason = "apply_failed";
         entry.dirty = false;
         const { request, assistant } = snapshot;
         if (["stop", "wait"].includes(action) && assistant.active) {
@@ -160,6 +187,7 @@ export class DecisionBuffer {
             entry.dirty = true;
             retryDelay = this.settings.recheckMs;
           }
+          application = { applied: true, reason: null };
           return null;
         }
         // This cursor only belongs to decisions, not generation/input persistence.
@@ -169,6 +197,7 @@ export class DecisionBuffer {
         if (["respond", "restart"].includes(action)) {
           const turnId = session.begin(key);
           this.generationAbortRegistry.abortChannel(request.internalChannelId);
+          application = { applied: true, reason: null, turnId };
           return {
             channelPort: request.channelPort,
             internalChannelId: request.internalChannelId,
@@ -176,6 +205,7 @@ export class DecisionBuffer {
             turnId,
           };
         }
+        application = { applied: true, reason: null };
         return null;
       });
       if (next)
@@ -183,14 +213,66 @@ export class DecisionBuffer {
           .execute(next)
           .catch((error) => this.logFailure(error, entry));
     } catch (error) {
+      failure = { name: error.name, statusCode: error.statusCode };
+      if (!result)
+        application.reason = entry.controller.signal.aborted
+          ? (entry.cancelReason ?? "cancelled")
+          : error.name === "TimeoutError"
+            ? "timeout"
+            : "failed";
       if (!entry.controller.signal.aborted) {
         this.logFailure(error, entry);
         // Preserve active generation; retry only when newer input has arrived.
         if (entry.revision === revision) entry.dirty = false;
       }
     } finally {
+      if (generation) {
+        try {
+          await this.generationRepository.updateDetailsAndStatusIfCurrent(
+            generation.id,
+            ["PROCESSING", "CANCELLED"],
+            result
+              ? "COMPLETED"
+              : entry.controller.signal.aborted
+                ? "CANCELLED"
+                : "FAILED",
+            {
+              output: result
+                ? JSON.stringify({
+                    action: result.action,
+                    probabilities: result.probabilities,
+                  })
+                : undefined,
+              apiResponse: result?.apiResponse,
+              metadata: {
+                provider: this.decider.settings.provider,
+                model: this.decider.settings.model,
+                usage: result?.usage,
+                durationMs: result?.durationMs ?? performance.now() - startedAt,
+                application,
+                error: failure,
+                timings: { completedAt: new Date().toISOString() },
+              },
+            },
+          );
+        } catch (error) {
+          logger.warn(
+            {
+              event: "decision.persistence.failed",
+              generationId: generation.id,
+              channelId: entry.request.internalChannelId,
+              errorType: error.name,
+            },
+            "Failed to persist decision outcome",
+          );
+        }
+      }
       entry.running = false;
-      this.schedule(key, entry, retryDelay);
+      this.schedule(
+        key,
+        entry,
+        entry.revision === revision ? retryDelay : undefined,
+      );
     }
   }
 
@@ -201,7 +283,7 @@ export class DecisionBuffer {
       this.conversationPolicy &&
       !(await this.conversationPolicy.isEnabled(entry.request.channelPort))
     ) {
-      this.clear(entry.request.channelPort);
+      this.clear(entry.request.channelPort, "channel_disabled");
       return false;
     }
     return this.buffers.get(key) === entry && !entry.controller.signal.aborted;
@@ -224,10 +306,11 @@ export class DecisionBuffer {
     return !!entry && (entry.dirty || entry.running);
   }
 
-  clear(channel) {
+  clear(channel, reason = "cancelled") {
     const key = this.conversationSession.key(channel);
     const entry = this.buffers.get(key);
     if (!entry) return false;
+    entry.cancelReason = reason;
     clearTimeout(entry.timer);
     entry.controller?.abort();
     this.buffers.delete(key);

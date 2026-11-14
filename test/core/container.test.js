@@ -67,6 +67,8 @@ test("decision mode is composed independently and shutdown drains its active API
   buffer.settings.debounceMs = 1;
   buffer.settings.maxWaitMs = 1;
   buffer.contextBuilder.build = async () => ({ state: {}, throughEventId: 1 });
+  app.generationRepository.create = async () => ({ id: 1 });
+  app.generationRepository.updateDetailsAndStatusIfCurrent = async () => true;
   let entered;
   const started = new Promise((resolve) => {
     entered = resolve;

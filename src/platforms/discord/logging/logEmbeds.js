@@ -355,6 +355,18 @@ export function buildLogEmbed(record, channel) {
       embed.addFields(field("전달", "응답 없이 턴을 마쳤어요."));
     }
   }
+  if (record.type === "DECISION") {
+    const application = json(record.metadata, {}).application;
+    if (application)
+      embed.addFields(
+        field(
+          "판단 적용",
+          application.applied
+            ? "적용됨"
+            : `미적용 · ${text(application.reason, 200)}`,
+        ),
+      );
+  }
   if (record.discardedAt)
     embed.addFields(field("재생성", "이 결과는 재생성으로 폐기되었어요."));
   return embed;
