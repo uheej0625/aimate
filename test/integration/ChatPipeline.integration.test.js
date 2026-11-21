@@ -2100,10 +2100,11 @@ test("decision ignore preserves observations without consuming generation input;
   });
   await h.receive("CREATE", { message: second });
   await decideNow();
-  assert.deepEqual(
-    states[1].messages.filter((m) => m.isNew).map((m) => m.content),
-    [second.content],
-  );
+  const [history, pending] = states[1].messages;
+  assert.match(history.content, /친구끼리 하는 이야기$/);
+  assert.equal(history.tags, undefined);
+  assert.match(pending.content, /너도 의견을 말해줘$/);
+  assert.deepEqual(pending.tags, ["새 입력"]);
   assert.equal(requests.length, 1);
   assert.match(JSON.stringify(requests[0].messages), /친구끼리 하는 이야기/);
   assert.match(JSON.stringify(requests[0].messages), /너도 의견을 말해줘/);

@@ -1,21 +1,39 @@
+import { ObservationFormatter } from "../context/ObservationFormatter.js";
+import { ParticipantResolver } from "../context/ParticipantResolver.js";
+
+const jsonBytes = (value) => Buffer.byteLength(JSON.stringify(value), "utf8");
+
 // A portable estimate, not a provider tokenizer. Provider-added retrieval is separate.
 export const estimateDecisionTokens = (value) =>
-  Math.ceil(Buffer.byteLength(JSON.stringify(value), "utf8") / 3);
+  Math.ceil(jsonBytes(value) / 3);
+
+function fittingPrefix(text, fits) {
+  let low = 0,
+    high = text.length;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (fits(text.slice(0, mid))) low = mid;
+    else high = mid - 1;
+  }
+  // A UTF-16 cut must not leave half an emoji in the model input.
+  return text.slice(0, low).replace(/[\uD800-\uDBFF]$/u, "");
+}
 
 export class DecisionContext {
-  constructor(eventRepository, settings, conversationPolicy) {
+  constructor(eventRepository, settings, conversationPolicy, display = {}) {
     Object.assign(this, {
       eventRepository,
       settings,
       conversationPolicy,
+      display,
     });
   }
 
   async build(request, batch, assistant, signal) {
-    const replyIds = [
+    const pendingReplyIds = [
       ...new Set(
-        [...batch.metadata.values()]
-          .map((m) => m.replyToMessageId)
+        [...batch.ids]
+          .map((id) => batch.metadata.get(id)?.replyToMessageId)
           .filter(Boolean),
       ),
     ];
@@ -23,13 +41,48 @@ export class DecisionContext {
       request.internalChannelId,
       request.botId,
       this.settings.maxContextMessages,
-      replyIds,
+      pendingReplyIds,
     );
     signal.throwIfAborted();
+    const observedIds = new Set(events.map((event) => event.platformMessageId));
+    const targets = await this.readTargets(
+      request.channelPort,
+      pendingReplyIds.filter((id) => !observedIds.has(id)),
+      signal,
+    );
+    signal.throwIfAborted();
+    const observations = [...targets, ...events];
+    const refs = new Map();
+    for (const event of events) {
+      const target = batch.metadata.get(
+        event.platformMessageId,
+      )?.replyToMessageId;
+      if (target && !refs.has(target)) refs.set(target, refs.size + 1);
+    }
+    const resolver = new ParticipantResolver([
+      { id: request.botId, displayName: "봇" },
+      ...observations.map((event) => ({
+        id: event.authorPlatformId,
+        displayName: event.authorDisplayName,
+        handle: event.authorHandle,
+      })),
+    ]);
+    const formatter = new ObservationFormatter({
+      ...this.display,
+      botId: request.botId,
+      showNames: Boolean(request.channelRecord?.serverId),
+      resolver,
+    });
     const lastSent = events.find((event) => event.id === lastSentId);
+    const budget = this.settings.maxContextTokens;
+    const description = (text) =>
+      fittingPrefix(
+        text.slice(0, Math.floor(budget / 4)),
+        (prefix) => jsonBytes(prefix) <= (budget * 3) / 4,
+      );
     const state = {
-      character: this.settings.character,
-      participationRules: this.settings.rules,
+      character: description(this.settings.character),
+      participationRules: description(this.settings.rules),
       isDirect: request.channelPort.isDirect === true,
       assistant: { active: assistant.active },
       lastSpokeMsAgo: lastSent
@@ -40,143 +93,106 @@ export class DecisionContext {
       omittedMessages: batch.omitted,
       messages: [],
     };
-    const observedMessageIds = new Set(
-      events.map((event) => event.platformMessageId),
-    );
-    const messageRefs = new Map(
-      [...new Set([...observedMessageIds, ...replyIds])].map((id, index) => [
-        id,
-        index + 1,
-      ]),
-    );
-    const replyRefs = new Set(replyIds.map((id) => messageRefs.get(id)));
-    const messages = events.map((event) => {
-      const metadata = batch.metadata.get(event.platformMessageId);
-      const mentionedUserIds =
-        metadata?.mentionedUserIds ??
-        [...(event.snapshotContent ?? "").matchAll(/<@!?(\d+)>/g)].map(
-          (match) => match[1],
+    const rows = observations.map((event) => {
+      const id = event.platformMessageId;
+      const metadata = event.id ? batch.metadata.get(id) : undefined;
+      const isNew =
+        event.source === "LIVE" &&
+        event.id > batch.throughEventId &&
+        batch.ids.has(id);
+      const tags = [];
+      if (isNew) tags.push("새 입력");
+      if (
+        event.id > 0 &&
+        assistant.active &&
+        event.id <= assistant.inputThroughEventId
+      )
+        tags.push("현재 답변에 포함");
+      if (event.source === "HISTORY") tags.push("과거 조회");
+      if (event.kind === "EDIT") tags.push("수정");
+      if (event.kind === "DELETE") tags.push("삭제");
+      if (event.snapshotAttachmentsJson || event.hasAttachments)
+        tags.push("첨부");
+      const raw = event.snapshotContent ?? "";
+      const mentionsBot =
+        metadata?.mentionedUserIds?.includes(request.botId) ||
+        raw.includes(`<@${request.botId}>`) ||
+        raw.includes(`<@!${request.botId}>`);
+      if (mentionsBot) tags.push("봇 멘션");
+      const details = {};
+      if (tags.length) details.tags = tags;
+      if (metadata?.replyToMessageId)
+        details.replyTo = `#${refs.get(metadata.replyToMessageId)}`;
+      if (event.kind === "EDIT" && event.previousContent != null)
+        details.previousContent = resolver.replaceMentions(
+          event.previousContent,
         );
       return {
-        eventId: event.id,
-        message: {
-          ref: messageRefs.get(event.platformMessageId),
-          authorId: event.authorPlatformId,
-          authorName: event.authorDisplayName ?? event.authorHandle,
-          isAssistant: event.authorPlatformId === request.botId,
-          kind: ["EDIT", "DELETE"].includes(event.kind)
-            ? event.kind
-            : undefined,
-          sentAt: event.sentAt,
-          content: event.snapshotContent ?? "",
-          previousContent:
-            event.kind === "EDIT" ? event.previousContent : undefined,
-          hasAttachments: !!event.snapshotAttachmentsJson,
-          isNew:
-            event.source === "LIVE" &&
-            event.id > batch.throughEventId &&
-            batch.ids.has(event.platformMessageId),
-          inCurrentResponse:
-            assistant.active && event.id <= assistant.inputThroughEventId,
-          mentionedUserIds: mentionedUserIds.length
-            ? mentionedUserIds
-            : undefined,
-          mentionsAssistant:
-            mentionedUserIds.includes(request.botId) || undefined,
-          replyTo: messageRefs.get(metadata?.replyToMessageId),
-        },
+        ...event,
+        channelMessageNo: refs.get(id),
+        content: resolver.replaceMentions(raw),
+        details,
+        isNew,
       };
     });
-    // References outside the observed window are read through the authorized port.
-    for (const id of replyIds) {
-      if (observedMessageIds.has(id) || !request.channelPort.readMessage)
-        continue;
-      if (
-        this.conversationPolicy &&
-        !(await this.conversationPolicy.isEnabled(request.channelPort))
-      )
-        break;
-      signal.throwIfAborted();
-      try {
-        const reply = await request.channelPort.readMessage(id);
-        signal.throwIfAborted();
-        messages.push({
-          eventId: 0,
-          message: {
-            ref: messageRefs.get(id),
-            authorId: reply.author.platformUserId,
-            authorName: reply.author.displayName ?? reply.author.handle,
-            isAssistant: reply.author.platformUserId === request.botId,
-            content: reply.content,
-            sentAt: reply.sentAt,
-            isNew: false,
-          },
-        });
-      } catch (error) {
-        signal.throwIfAborted();
-        // A deleted/inaccessible target is not invented or read via another account.
-        messages.push({
-          eventId: 0,
-          message: {
-            ref: messageRefs.get(id),
-            unavailable: true,
-            isNew: false,
-          },
-        });
-      }
-    }
-    const newest = messages.findLast(({ message }) => message.isNew);
-    const priority = (row) =>
-      row === newest
-        ? 4
-        : replyRefs.has(row.message.ref) || row.eventId === lastSentId
-          ? 3
-          : row.message.isNew
-            ? 2
-            : 1;
-    messages.sort((a, b) => priority(b) - priority(a) || b.eventId - a.eventId);
-    const budget = this.settings.maxContextTokens;
-    // Reserve the budget for actual observations even when a long description is configured.
-    state.character = state.character.slice(0, Math.floor(budget / 4));
-    state.participationRules = state.participationRules.slice(
-      0,
-      Math.floor(budget / 4),
-    );
+    const newest = rows.findLast((row) => row.isNew);
+    const priority = (row) => {
+      if (row === newest) return 3;
+      if (row.channelMessageNo || row.id === lastSentId) return 2;
+      return row.isNew ? 1 : 0;
+    };
+    rows.sort((a, b) => priority(b) - priority(a) || b.id - a.id);
+
+    // Budget each observation with its full header. Removing a neighbour can then
+    // never leave a retained message without its speaker or push it over budget.
+    let remaining =
+      budget * 3 -
+      jsonBytes({ ...state, omittedMessages: batch.omitted + rows.length });
     const included = [];
-    for (const { eventId, message } of messages) {
-      // One long message must leave room for the last reply and its reference.
-      const fits = () =>
-        estimateDecisionTokens(message) <=
-          Math.max(256, Math.floor(budget / 3)) &&
-        estimateDecisionTokens({
-          ...state,
-          messages: [...state.messages, message],
-        }) <=
-          budget - 32;
-      if (!fits()) {
-        message.truncated = true;
-        const content = message.content ?? "";
-        message.previousContent = undefined;
-        message.content = "";
-        if (!fits()) {
-          state.omittedMessages += 1;
+    for (const row of rows) {
+      formatter.reset();
+      const header = formatter.format(row, "");
+      const limit = Math.min(
+        remaining - 1,
+        Math.max(256, Math.floor(budget / 3)) * 3,
+      );
+      const size = (content) =>
+        jsonBytes({
+          ...header,
+          content: header.content + content,
+          ...row.details,
+        });
+      if (size(row.content) > limit) {
+        row.details.tags = [...(row.details.tags ?? []), "일부 생략"];
+        delete row.details.previousContent;
+        if (size("") > limit) {
+          state.omittedMessages++;
           continue;
         }
-        let low = 0,
-          high = content.length;
-        while (low < high) {
-          const mid = Math.ceil((low + high) / 2);
-          message.content = content.slice(0, mid);
-          if (fits()) low = mid;
-          else high = mid - 1;
-        }
-        message.content = content.slice(0, low);
+        row.content = fittingPrefix(
+          row.content,
+          (prefix) => size(prefix) <= limit,
+        );
       }
-      state.messages.push(message);
-      included.push({ eventId, message });
+      remaining -= size(row.content) + 1;
+      included.push(row);
     }
-    included.sort((a, b) => a.eventId - b.eventId);
-    state.messages = included.map(({ message }) => message);
+    const visibleRefs = new Set(
+      included
+        .filter((row) => row.channelMessageNo)
+        .map((row) => `#${row.channelMessageNo}`),
+    );
+    const visibleReplies = new Set(included.map((row) => row.details.replyTo));
+    formatter.reset();
+    state.messages = included
+      .sort((a, b) => a.id - b.id)
+      .map((row) => {
+        if (!visibleReplies.has(`#${row.channelMessageNo}`))
+          row.channelMessageNo = undefined;
+        if (row.details.replyTo && !visibleRefs.has(row.details.replyTo))
+          row.details.replyTo = "?";
+        return { ...formatter.format(row, row.content), ...row.details };
+      });
     return {
       state,
       throughEventId: Math.max(
@@ -184,5 +200,36 @@ export class DecisionContext {
         ...events.map((event) => event.id),
       ),
     };
+  }
+
+  async readTargets(channel, ids, signal) {
+    const targets = [];
+    for (const id of ids) {
+      if (
+        !channel.readMessage ||
+        (this.conversationPolicy &&
+          !(await this.conversationPolicy.isEnabled(channel)))
+      )
+        break;
+      signal.throwIfAborted();
+      try {
+        const reply = await channel.readMessage(id);
+        targets.push({
+          id: 0,
+          platformMessageId: id,
+          source: "HISTORY",
+          sentAt: reply.sentAt,
+          authorPlatformId: reply.author.platformUserId,
+          authorDisplayName: reply.author.displayName,
+          authorHandle: reply.author.handle,
+          snapshotContent: reply.content,
+          hasAttachments: Boolean(reply.attachments?.length),
+        });
+      } catch {
+        // An inaccessible target is marked unknown on the reply itself.
+      }
+      signal.throwIfAborted();
+    }
+    return targets;
   }
 }

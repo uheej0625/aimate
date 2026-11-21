@@ -22,15 +22,18 @@ export class ObservationFormatter {
       minute: "2-digit",
       hourCycle: "h23",
     });
+    this.reset();
+  }
+
+  reset() {
     this.previous = null;
     this.lastUserDay = null;
   }
 
-  format(message) {
+  format(message, body = this.resolver.replaceMentions(message.content)) {
     const role =
       message.role ??
       (message.authorPlatformId === this.botId ? "assistant" : "user");
-    const body = this.resolver.replaceMentions(message.content);
     const content =
       message.channelMessageNo != null
         ? `#${message.channelMessageNo} ${body}`

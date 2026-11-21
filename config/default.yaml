@@ -54,7 +54,7 @@ conversation:
   maxHistoryDays: 30
   bufferTimeout: 5000 # ms
   decision:
-    debounceMs: 0 #1000 # 0: 입력을 모으는 예약 대기 없이 판단
+    debounceMs: 1000 # 0: 입력을 모으는 예약 대기 없이 판단
     maxWaitMs: 5000
     recheckMs: 5000 # wait 후 첫 재평가 기준 간격, 응답 확률과 비슷하면 단축
     recheckMultiplier: 2 # wait가 이어질 때 간격 증가 배수 (> 1)

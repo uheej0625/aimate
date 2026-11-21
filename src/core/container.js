@@ -78,7 +78,7 @@ export async function createContainer({
   const characterContextBuilder = new CharacterContextBuilder({
     configManager,
   });
-  await characterContextBuilder.loadConfig();
+  const characterConfig = await characterContextBuilder.loadConfig();
 
   // Repositories (data layer)
   const historyMessageFormatter = new HistoryMessageFormatter();
@@ -224,6 +224,10 @@ export async function createContainer({
             eventRepository,
             decisionSettings,
             conversationPolicy,
+            {
+              timeZone: characterConfig.timezone,
+              language: configManager.get("app.language"),
+            },
           ),
         })
       : new ConversationBuffer(chatFlow, configManager, conversationSession);

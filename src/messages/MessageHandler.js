@@ -206,6 +206,7 @@ export class MessageHandler {
             session.observe(key, receivedAt);
             this.conversationBuffer.add({
               channelPort: channel,
+              channelRecord,
               internalChannelId: channelRecord.id,
               botId,
               message: decisionMessage,
