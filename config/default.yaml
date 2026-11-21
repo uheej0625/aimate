@@ -23,7 +23,7 @@ ai:
     location: global
   chat:
     provider: vertex
-    model: gemini-3.8-flash
+    model: gemini-4-argon
     nativeTools:
       webSearch: false
       webScraping: false
@@ -49,14 +49,14 @@ ai:
     maxRetries: 3
     providerOptions: {}
 conversation:
-  responseMode: buffer # buffer: 기존 방식(API 불필요), decision: 참여 여부 판단
+  responseMode: decision # buffer: 기존 방식(API 불필요), decision: 참여 여부 판단
   maxContextMessages: 20
   maxHistoryDays: 30
   bufferTimeout: 5000 # ms
   decision:
-    debounceMs: 1000 # 0: 입력을 모으는 예약 대기 없이 판단
+    debounceMs: 0 #1000 # 0: 입력을 모으는 예약 대기 없이 판단
     maxWaitMs: 5000
-    recheckMs: 5000 # wait 후 첫 재평가 간격
+    recheckMs: 5000 # wait 후 첫 재평가 기준 간격, 응답 확률과 비슷하면 단축
     recheckMultiplier: 2 # wait가 이어질 때 간격 증가 배수 (> 1)
     maxRecheckMs: 30000 # 재평가 간격 상한, 새 입력 시 초기화
     maxContextMessages: 20

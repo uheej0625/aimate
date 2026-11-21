@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { ChannelType } from "discord.js";
 import { createDiscordConnection } from "../../../src/platforms/discord/createDiscordApplication.js";
 import { EventBus } from "../../../src/core/EventBus.js";
 import { DiscordPolicyService } from "../../../src/platforms/discord/policy/DiscordPolicyService.js";
@@ -93,4 +94,25 @@ test("Discord cleanup has a deadline and destroys the transport once", async (t)
   assert.equal(destroyed, 1);
   assert.equal(connection.state, "closed");
   release();
+});
+
+test("Discord connection uses the character DM setting for its input policy", async (t) => {
+  t.mock.method(
+    DiscordPolicyService.prototype,
+    "isLogChannel",
+    async () => false,
+  );
+  const client = {
+    channels: { fetch: async (id) => ({ id, type: ChannelType.DM }) },
+  };
+  const channel = { platform: "discord", platformChannelId: "dm" };
+  for (const enableDM of [true, false]) {
+    const config = { character: "fixture", "features.enableDM": enableDM };
+    const connection = createDiscordConnection({
+      configManager: { get: (key) => config[key] },
+      client,
+    });
+    connection.state = "active";
+    assert.equal(await connection.isEnabled(channel), enableDM);
+  }
 });

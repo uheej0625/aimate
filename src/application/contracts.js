@@ -30,6 +30,7 @@
  * @typedef {Object} ChannelPort
  * @property {string} platform
  * @property {string} platformChannelId
+ * @property {boolean} [isDirect] - One-to-one conversation.
  * @property {(message: OutgoingMessage) => Promise<NormalizedMessage>} send
  * @property {() => Promise<void>} [sendTyping]
  * @property {{maxTextLength: number, attachments: boolean}} constraints - Target transport limits.

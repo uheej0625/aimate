@@ -25,9 +25,16 @@ export class DiscordPolicyService {
     client,
     repository,
     channelRepository,
+    allowDirectMessages = false,
     now = () => new Date(),
   }) {
-    Object.assign(this, { client, repository, channelRepository, now });
+    Object.assign(this, {
+      client,
+      repository,
+      channelRepository,
+      allowDirectMessages,
+      now,
+    });
   }
 
   start(reconcile) {
@@ -103,6 +110,12 @@ export class DiscordPolicyService {
     )
       return false;
     const channel = await this.channel(channelPort.platformChannelId);
+    if (channel?.type === ChannelType.DM)
+      return (
+        type === PolicyType.CONVERSATION &&
+        this.allowDirectMessages &&
+        !(await this.isLogChannel(channel.id))
+      );
     const location = await this.location(channel);
     if (
       !location ||

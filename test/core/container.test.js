@@ -107,6 +107,7 @@ test("character close aborts owned requests, blocks new work and drains before c
     watch: false,
   });
   t.after(() => configManager.close());
+  configManager.setInMemory("conversation.responseMode", "buffer");
   const app = await createContainer({
     configManager,
     credentials: loadAiCredentials({ AI_GATEWAY_API_KEY: "test-key" }),

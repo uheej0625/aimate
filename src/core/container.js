@@ -223,7 +223,6 @@ export async function createContainer({
           contextBuilder: new DecisionContext(
             eventRepository,
             decisionSettings,
-            characterId,
             conversationPolicy,
           ),
         })

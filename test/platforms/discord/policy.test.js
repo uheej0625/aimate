@@ -22,7 +22,16 @@ const policy = (scope, targetId, enabled, extra = {}) => ({
   updatedAt: new Date("2026-11-02T00:00:00Z"),
   ...extra,
 });
-function harness() {
+
+test("the DM feature enables only one-to-one conversations", async () => {
+  const h = harness({ allowDirectMessages: true });
+  h.channels.set("dm", { id: "dm", type: ChannelType.DM });
+  h.channels.set("group-dm", { id: "group-dm", type: ChannelType.GroupDM });
+  assert.equal(await h.enabled("dm"), true);
+  assert.equal(await h.enabled("group-dm"), false);
+  assert.equal(await h.enabled(), false);
+});
+function harness({ allowDirectMessages } = {}) {
   let now = new Date("2026-11-02T00:00:00Z");
   const channels = new Map([
     [
@@ -91,6 +100,7 @@ function harness() {
     channelRepository: {
       findByPlatformId: async (_platform, id) => ({ logEnabled: logs.has(id) }),
     },
+    allowDirectMessages,
     now: () => now,
   });
   return {
@@ -251,7 +261,7 @@ test("settings validate scope, targets, periods and log channels before writing"
   assert.equal(h.changes[1].targetId, "text");
 });
 
-test("DMs and unavailable channels stay off; transient lookup errors remain visible", async () => {
+test("DMs default off and unavailable channels stay off; transient lookup errors remain visible", async () => {
   const h = harness();
   assert.equal(
     await h.service.isAllowed(
@@ -271,7 +281,7 @@ test("DMs and unavailable channels stay off; transient lookup errors remain visi
     }),
     /지원하지 않는 정책/,
   );
-  h.channels.set("dm", { id: "dm" });
+  h.channels.set("dm", { id: "dm", type: ChannelType.DM });
   assert.equal(await h.enabled("dm"), false);
   assert.equal(await h.enabled("deleted"), false);
   h.service.client.channels.fetch = async () => {

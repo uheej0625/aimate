@@ -5,6 +5,8 @@
  * @see ../../application/contracts.js
  */
 
+import { ChannelType } from "discord.js";
+
 /**
  * Discord.js Message에서 저장·처리에 필요한 순수 데이터만 추출한다.
  *
@@ -54,6 +56,7 @@ export function adaptChannel(discordChannel) {
   return {
     platform: "discord",
     platformChannelId: discordChannel.id,
+    isDirect: discordChannel.type === ChannelType.DM,
     constraints: { maxTextLength: 2000, attachments: true },
     readHistory: async ({ limit, before }) => {
       const messages = await discordChannel.messages.fetch({

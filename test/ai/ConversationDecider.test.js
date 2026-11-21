@@ -112,6 +112,33 @@ test("Decision calls time out and reject actions outside the current state", asy
   );
 });
 
+test("DM idle and recheck use their dedicated criteria and instructions", async () => {
+  const requests = [];
+  const decider = createDecider({}, {}, async (request) => {
+    requests.push(request);
+    return { answers: { action: { choice: "wait" } }, usage: {} };
+  });
+  const prompt = await decider.loadPrompt();
+  const signal = new AbortController().signal;
+  const state = { isDirect: true, assistant: { active: false } };
+  await decider.evaluate(state, signal);
+  await decider.evaluate(
+    { ...state, recheckCount: 1, silenceMs: 4250 },
+    signal,
+  );
+  await decider.evaluate({ ...state, assistant: { active: true } }, signal);
+
+  assert.deepEqual(requests[0].questions.action.criteria, prompt.directIdle);
+  assert.equal(requests[0].questions.action.instructions, prompt.instructions);
+  assert.deepEqual(requests[1].questions.action.criteria, prompt.directIdle);
+  assert.equal(
+    requests[1].questions.action.instructions,
+    `${prompt.instructions}\n\n${prompt.recheckInstructions}`,
+  );
+  assert.equal(requests[1].state.silenceMs, 4250);
+  assert.deepEqual(requests[2].questions.action.criteria, prompt.active);
+});
+
 test("Decision provider and prompt pack errors fail before any API call", async (t) => {
   assert.throws(
     () => createDecider({ provider: "vertex" }, {}),
@@ -125,6 +152,14 @@ test("Decision provider and prompt pack errors fail before any API call", async 
     /prompt pack name/,
   );
   const prompt = await createDecider({}, {}).loadPrompt();
+  t.mock.method(fs, "readFile", async () =>
+    JSON.stringify({ ...prompt, recheckInstructions: "" }),
+  );
+  await assert.rejects(
+    createDecider({}, {}).loadPrompt(),
+    /recheckInstructions is required/,
+  );
+  t.mock.restoreAll();
   t.mock.method(fs, "readFile", async () =>
     JSON.stringify({ ...prompt, idle: { respond: "respond" } }),
   );

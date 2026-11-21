@@ -2101,8 +2101,8 @@ test("decision ignore preserves observations without consuming generation input;
   await h.receive("CREATE", { message: second });
   await decideNow();
   assert.deepEqual(
-    states[1].messages.filter((m) => m.isNew).map((m) => m.messageId),
-    [second.platformMessageId],
+    states[1].messages.filter((m) => m.isNew).map((m) => m.content),
+    [second.content],
   );
   assert.equal(requests.length, 1);
   assert.match(JSON.stringify(requests[0].messages), /친구끼리 하는 이야기/);
@@ -2136,6 +2136,41 @@ test("decision ignore preserves observations without consuming generation input;
     (await foreign.decisionContext(channelRecord.id, h.botId, 20)).events,
     [],
   );
+});
+
+test("a direct conversation rechecks the same input with the dedicated prompt", async (t) => {
+  const requests = [];
+  const h = createHarness({
+    generateTextFn: async () => fakeTextResult("## messages\n답변이야"),
+  });
+  h.channel.isDirect = true;
+  await h.activate();
+  const { buffer, decideNow } = await attachDecision(h, async (request) => {
+    requests.push(request);
+    return fakeDecisionResult(requests.length === 1 ? "wait" : "respond");
+  });
+  t.after(() => buffer.clearAll());
+
+  const message = createUserMessage(h, {
+    id: randomUUID(),
+    content: "질문이 있어",
+  });
+  await h.receive("CREATE", { message });
+  await decideNow();
+  assert.equal(h.sentMessages.length, 0);
+  await decideNow();
+
+  const [initial, recheck] = requests;
+  assert.equal(initial.state.isDirect, true);
+  assert.match(initial.questions.action.criteria.respond, /1:1/);
+  assert.deepEqual(
+    recheck.questions.action.criteria,
+    initial.questions.action.criteria,
+  );
+  assert.match(recheck.questions.action.instructions, /직전 판단은 wait였다/);
+  assert.equal(recheck.state.recheckCount, 1);
+  assert.deepEqual(recheck.state.messages, initial.state.messages);
+  assert.deepEqual(h.sentMessages, ["답변이야"]);
 });
 
 test("a stale successful Decision is persisted without creating a chat or consuming observations", async (t) => {
@@ -2332,7 +2367,7 @@ async function attachDecision(h, decide) {
     generationAbortRegistry: h.generationAbortRegistry,
     generationLifecycle: h.messageHandler.generationLifecycle,
     generationRepository: h.generationRepository,
-    contextBuilder: new DecisionContext(h.eventRepository, settings, "fixture"),
+    contextBuilder: new DecisionContext(h.eventRepository, settings),
   });
   h.messageHandler.conversationBuffer = buffer;
   return {

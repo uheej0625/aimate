@@ -21,6 +21,7 @@ export function createDiscordConnection({
     client,
     repository: new PolicyRepository(characterId),
     channelRepository: new ChannelRepository(),
+    allowDirectMessages: configManager.get("features.enableDM") === true,
   });
   let app, logs, closing;
   const connection = {

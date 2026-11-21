@@ -38,7 +38,6 @@ function harness(events, options = {}) {
       },
     },
     settings,
-    "fixture",
     { isEnabled: async () => true },
   );
   const request = {
@@ -54,7 +53,12 @@ function harness(events, options = {}) {
     rechecks: 0,
     omitted: 0,
   };
-  const assistant = { active: true, inputThroughEventId: 2 };
+  const assistant = {
+    active: true,
+    inputThroughEventId: 2,
+    turnId: "internal-turn",
+    deliveryVersion: 3,
+  };
   const build = () =>
     context.build(request, batch, assistant, new AbortController().signal);
   return { settings, calls, context, request, batch, build };
@@ -85,6 +89,12 @@ test("decision context marks new observations separately from current generation
   assert.equal(result.state.messages[2].previousContent, "옛 질문");
   assert.deepEqual(result.state.messages[2].mentionedUserIds, ["123"]);
   assert.equal(result.state.messages[3].kind, "DELETE");
+  assert.equal(result.state.messages[0].isAssistant, true);
+  assert.deepEqual(result.state.assistant, { active: true });
+  assert.doesNotMatch(
+    JSON.stringify(result.state),
+    /"characterId"|"botId"|"eventId"|"messageId"|"observedAt"|"source"/,
+  );
   assert.equal(
     h.batch.throughEventId,
     2,
@@ -97,7 +107,9 @@ test("rechecks include their count and elapsed silence without classifying the r
   const h = harness([event(3, { snapshotContent: "잠깐 기다려줘" })]);
   h.batch.rechecks = 4;
   h.batch.lastAt = performance.now() - 10000;
+  h.request.channelPort.isDirect = true;
   const { state } = await h.build();
+  assert.equal(state.isDirect, true);
   assert.equal(state.recheckCount, 4);
   assert.ok(state.silenceMs >= 10000);
   assert.equal(state.messages[0].content, "잠깐 기다려줘");
@@ -121,10 +133,11 @@ test("reply targets outside history are fetched only through the authorized chan
   };
   const { state } = await h.build();
   assert.equal(reads, 1);
-  assert.equal(state.messages.find((m) => m.isReplyTarget).content, "원문");
+  const reply = state.messages.find((m) => m.isNew);
+  assert.equal(reply.mentionsAssistant, true);
   assert.equal(
-    state.messages.find((m) => m.messageId === "m3").replyToMessageId,
-    "old",
+    state.messages.find((m) => m.ref === reply.replyTo).content,
+    "원문",
   );
   h.context.conversationPolicy.isEnabled = async () => false;
   await h.build();
@@ -138,10 +151,8 @@ test("inaccessible reply is explicitly unknown, and shutdown abort is propagated
     throw new Error("not found");
   };
   const { state } = await h.build();
-  assert.equal(
-    state.messages.find((m) => m.messageId === "gone").unavailable,
-    true,
-  );
+  const { replyTo } = state.messages.find((m) => m.isNew);
+  assert.equal(state.messages.find((m) => m.ref === replyTo).unavailable, true);
   const controller = new AbortController();
   controller.abort();
   await assert.rejects(
@@ -162,7 +173,7 @@ test("long Korean messages and metadata stay within the estimated token budget w
   h.batch.ids = new Set(["m20"]);
   const { state } = await h.build();
   assert.ok(estimateDecisionTokens(state) <= 1000);
-  assert.ok(state.messages.some((m) => m.messageId === "m20" && m.isNew));
+  assert.equal(state.messages.filter((m) => m.isNew).length, 1);
   assert.ok(state.messages.some((m) => m.truncated));
   assert.ok(state.omittedMessages > 0);
 });
@@ -175,8 +186,8 @@ test("last sent message and referenced observations take priority over older his
   const h = harness(events, { maxContextTokens: 1000 });
   h.batch.ids = new Set(["m21"]);
   const { state } = await h.build();
-  assert.ok(state.messages.some((m) => m.eventId === 1));
-  assert.ok(state.messages.some((m) => m.eventId === 21));
+  assert.ok(state.messages.some((m) => m.content === "내용 1"));
+  assert.ok(state.messages.some((m) => m.content === "내용 21"));
 });
 
 test("a long new message leaves room for the last bot reply", async () => {
@@ -185,9 +196,7 @@ test("a long new message leaves room for the last bot reply", async () => {
     event(3, { snapshotContent: "긴본문".repeat(4000) }),
   ]);
   const { state } = await h.build();
-  assert.ok(
-    state.messages.some((m) => m.eventId === 3 && m.isNew && m.truncated),
-  );
-  assert.ok(state.messages.some((m) => m.eventId === 1));
+  assert.ok(state.messages.some((m) => m.isNew && m.truncated));
+  assert.ok(state.messages.some((m) => m.content === "내용 1"));
   assert.ok(estimateDecisionTokens(state) <= 4000);
 });

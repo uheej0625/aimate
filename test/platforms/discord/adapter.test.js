@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { ChannelType } from "discord.js";
 import {
   adaptChannel,
   adaptIncomingMessage,
@@ -75,6 +76,16 @@ test("Discord channel port sends and normalizes the returned message", async () 
       isBot: true,
     },
   });
+});
+
+test("Discord marks only one-to-one DMs as direct conversations", () => {
+  for (const [type, isDirect] of [
+    [ChannelType.DM, true],
+    [ChannelType.GroupDM, false],
+    [ChannelType.GuildText, false],
+  ]) {
+    assert.equal(adaptChannel({ id: "channel-1", type }).isDirect, isDirect);
+  }
 });
 
 test("adaptMessageData does not retain Discord runtime objects", () => {

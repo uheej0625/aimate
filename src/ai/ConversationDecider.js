@@ -27,10 +27,13 @@ export class ConversationDecider {
       throw new Error("ai.decision.prompt must be a prompt pack name.");
     const file = path.join(this.promptsRoot, name, "decision", "prompt.json");
     const prompt = JSON.parse(await fs.readFile(file, "utf8"));
-    if (typeof prompt.instructions !== "string" || !prompt.instructions.trim())
-      throw new Error(`Decision prompt instructions are required: ${file}`);
+    for (const key of ["instructions", "recheckInstructions"]) {
+      if (typeof prompt[key] !== "string" || !prompt[key].trim())
+        throw new Error(`Decision prompt ${key} is required: ${file}`);
+    }
     for (const [mode, actions] of Object.entries({
       idle: ["respond", "wait", "ignore"],
+      directIdle: ["respond", "wait", "ignore"],
       active: ["keep", "restart", "stop", "wait"],
     })) {
       const criteria = prompt[mode];
@@ -53,13 +56,21 @@ export class ConversationDecider {
   async evaluate(state, abortSignal, onRequest = async () => {}) {
     const prompt = this.prompt ?? (await this.loadPrompt());
     abortSignal.throwIfAborted();
-    const criteria = state.assistant.active ? prompt.active : prompt.idle;
+    const criteria = state.assistant.active
+      ? prompt.active
+      : state.isDirect
+        ? prompt.directIdle
+        : prompt.idle;
+    const instructions =
+      state.recheckCount > 0
+        ? `${prompt.instructions}\n\n${prompt.recheckInstructions}`
+        : prompt.instructions;
     const request = {
       state,
       questions: {
         action: {
           type: "choice",
-          instructions: prompt.instructions,
+          instructions,
           criteria,
         },
       },

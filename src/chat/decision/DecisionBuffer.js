@@ -2,6 +2,22 @@ import { createLogger } from "../../core/logger.js";
 
 const logger = createLogger("DecisionBuffer");
 
+function firstRecheckDelay(baseDelay, probabilities) {
+  const { wait, respond, ignore = 0 } = probabilities ?? {};
+  if (
+    ![wait, respond, ignore].every(
+      (probability) =>
+        Number.isFinite(probability) && probability >= 0 && probability <= 1,
+    ) ||
+    respond < ignore
+  )
+    return baseDelay;
+
+  const gap = Math.abs(wait - respond);
+  const factor = 0.5 + 0.5 * Math.min(gap / 0.2, 1);
+  return Math.ceil(baseDelay * factor);
+}
+
 /** One decision per channel, outside the receive-order queue. */
 export class DecisionBuffer {
   mode = "decision";
@@ -182,16 +198,20 @@ export class DecisionBuffer {
           );
         }
         if (action === "wait") {
+          const { recheckMs, maxRecheckMs, recheckMultiplier } = this.settings;
           retryDelay = Math.min(
-            this.settings.maxRecheckMs,
-            Math.ceil(
-              this.settings.recheckMs *
-                this.settings.recheckMultiplier ** entry.rechecks,
-            ),
+            maxRecheckMs,
+            Math.ceil(recheckMs * recheckMultiplier ** entry.rechecks),
           );
+          if (entry.rechecks === 0)
+            retryDelay = firstRecheckDelay(retryDelay, result.probabilities);
           entry.rechecks += 1;
           entry.dirty = true;
-          application = { applied: true, reason: null };
+          application = {
+            applied: true,
+            reason: null,
+            recheckDelayMs: retryDelay,
+          };
           return null;
         }
         // This cursor only belongs to decisions, not generation/input persistence.

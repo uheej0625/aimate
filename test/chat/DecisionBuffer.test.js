@@ -233,6 +233,33 @@ test("custom wait multiplier and cap control the repeated schedule", async (t) =
   }
 });
 
+for (const [probabilities, delay] of [
+  [{ wait: 0.45, respond: 0.45, ignore: 0.1 }, 2500],
+  [{ wait: 0.45, respond: 0.4, ignore: 0.15 }, 3125],
+  [{ wait: 0.4, respond: 0.25, ignore: 0.35 }, 5000],
+  [{ wait: 0.8, respond: 0.2 }, 5000],
+  [undefined, 5000],
+]) {
+  test(`first wait interval for ${JSON.stringify(probabilities)} is ${delay}ms`, async (t) => {
+    const h = harness(t, "wait");
+    h.decider.evaluate = async (state) => {
+      h.calls.push(state);
+      return { ...outcome("wait"), probabilities };
+    };
+    h.add();
+    await h.tick(1000);
+    assert.equal(h.generations[0].metadata.application.recheckDelayMs, delay);
+    await h.tick(delay - 1);
+    assert.equal(h.calls.length, 1);
+    await h.tick(1);
+    assert.equal(h.calls.length, 2);
+    await h.tick(9999);
+    assert.equal(h.calls.length, 2);
+    await h.tick(1);
+    assert.equal(h.calls.length, 3, "the second interval uses normal backoff");
+  });
+}
+
 for (const action of ["respond", "ignore"]) {
   test(`wait polling ends when a recheck decides ${action}`, async (t) => {
     const h = harness(t, "wait");
